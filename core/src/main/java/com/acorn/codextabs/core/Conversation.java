@@ -90,13 +90,19 @@ public final class Conversation {
         if (!history.isEmpty()) { historyRevision = revision; }
     }
     public synchronized void historyPage(JsonArray entries, String cursor) {
+        historyPage(entries, cursor, revision);
+    }
+    public synchronized void historyPage(JsonArray entries, String cursor, long startedRevision) {
         var history = new LinkedHashMap<String, JsonObject>();
         for (int i = entries.size() - 1; i >= 0; i--) {
             var entry = entries.get(i).getAsJsonObject();
             var item = entry.has("item") ? obj(entry, "item") : entry;
             history.put(text(item, "id"), item.deepCopy());
         }
-        history.putAll(items); items.clear(); items.putAll(history);
+        items.forEach((id, item) -> {
+            if (!history.containsKey(id) || itemRevisions.getOrDefault(id, 0L) > startedRevision) { history.put(id, item); }
+        });
+        items.clear(); items.putAll(history);
         state.addProperty("historyCursor", cursor);
         historyRevision = ++revision;
     }

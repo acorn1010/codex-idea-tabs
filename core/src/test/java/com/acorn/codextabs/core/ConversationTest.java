@@ -5,6 +5,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class ConversationTest {
+    @Test void historyRefreshReplacesCachedItemsButKeepsNewerStreamedText() {
+        var chat = new Conversation("chat", "/project");
+        chat.event(object("method", "item/completed", "params", object("item", object("id", "answer", "type", "agentMessage", "text", "Cached"))));
+        var page = new com.google.gson.JsonArray();
+        page.add(object("item", object("id", "answer", "type", "agentMessage", "text", "Server")));
+        chat.historyPage(page, "", chat.revision());
+        assertEquals("Server", text(chat.items().get(0).getAsJsonObject(), "text"));
+        long started = chat.revision();
+        chat.event(object("method", "item/agentMessage/delta", "params", object("itemId", "answer", "delta", " plus live text")));
+        chat.historyPage(page, "", started);
+        assertEquals("Server plus live text", text(chat.items().get(0).getAsJsonObject(), "text"));
+    }
     @Test void streamingChangesAreBoundedByTheChangedItem() {
         var chat = new Conversation("local", "/project");
         for (int i = 0; i < 1000; i++) {

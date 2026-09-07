@@ -173,10 +173,11 @@ public final class CodexService implements Disposable {
     }
     public CompletableFuture<JsonObject> older(String id, String cursor) {
         var chat = chat(id);
+        long startedRevision = chat.revision();
         var params = object("threadId", chat.get("threadId"), "limit", 100, "sortDirection", "desc");
         if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
         return rpc("thread/items/list", params).thenApply(page -> {
-            chat.historyPage(array(page, "data"), text(page, "nextCursor")); changed(id); return page;
+            chat.historyPage(array(page, "data"), text(page, "nextCursor"), startedRevision); changed(id); return page;
         });
     }
     public CompletableFuture<JsonObject> send(String id, JsonObject payload) {
