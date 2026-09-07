@@ -25,6 +25,7 @@ public final class Smoke implements StartupActivity.DumbAware {
                 com.intellij.ide.GeneralSettings.getInstance().setConfirmExit(false);
                 if (Boolean.getBoolean("codex.smoke.live")) {
                     settings.permissions = "read";
+                    if (FileEditorManagerEx.getInstanceEx(project).getOpenFiles().length > 0) { return; }
                     var chat = service.create();
                     chat.set("title", "Native Codex connection check");
                     chat.set("draft", "Do not use tools. Reply with only IDEA_NATIVE_OK.");
@@ -54,6 +55,7 @@ public final class Smoke implements StartupActivity.DumbAware {
                 var output = Path.of(System.getProperty("idea.log.path"));
                 Files.createDirectories(output);
                 Files.writeString(output.resolve("smoke-ready.txt"), "Native editor setup completed\n" + service.summaries());
+                if (Boolean.getBoolean("codex.smoke.sidebar.check")) { SidebarSmoke.run(project, output); }
             } catch (Throwable error) {
                 try { Files.writeString(Path.of(System.getProperty("idea.log.path"), "smoke-error.txt"), error.toString() + "\n" + java.util.Arrays.toString(error.getStackTrace())); }
                 catch (Exception ignored) {}

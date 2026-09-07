@@ -13,7 +13,9 @@ root = pathlib.Path(os.environ.get("CODEX_SMOKE_ROOT", "/tmp/codex-idea-smoke-pr
 root.mkdir(parents=True, exist_ok=True)
 image = root / "preview.svg"
 image.write_text('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="280"><rect width="640" height="280" rx="24" fill="#293745"/><circle cx="115" cy="140" r="60" fill="#62aef7"/><text x="210" y="151" font-family="sans-serif" font-size="28" fill="#e6edf3">Image preview works</text></svg>')
-titles = {"review": "Review session recovery", "choices": "Choose the composer layout", "image": "Preview the new artwork", "build": "Check the build"}
+titles = {"review": "Review session recovery", "choices": "Choose the composer layout", "image": "Preview the new artwork", "build": "Check the build", "archive": "Archive workflow check"}
+archive_file = root / "archived.json"
+archived = set(json.loads(archive_file.read_text())) if archive_file.exists() else set()
 
 
 def emit(value):
@@ -60,7 +62,18 @@ def respond(request):
     elif method == "model/list":
         result = {"data": [{"id": "fixture-model", "model": "fixture-model", "displayName": "Test model", "supportedReasoningEfforts": [{"reasoningEffort": "high", "description": "High"}]}]}
     elif method == "thread/list":
-        result = {"data": [thread(key) for key in titles], "nextCursor": None}
+        result = {"data": [thread(key) for key in titles if (key in archived) == params.get("archived", False)], "nextCursor": None}
+    elif method in ("thread/archive", "thread/unarchive"):
+        thread_id = params["threadId"]
+        if method == "thread/archive":
+            if thread_id in ("build", "choices"):
+                raise RuntimeError("Cannot archive active fixture work")
+            archived.add(thread_id)
+        else:
+            archived.discard(thread_id)
+        archive_file.write_text(json.dumps(sorted(archived)))
+        event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
+        result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "thread/resume":
         result = {"thread": thread(params["threadId"])}
         threading.Thread(target=attention, args=(params["threadId"],), daemon=True).start()

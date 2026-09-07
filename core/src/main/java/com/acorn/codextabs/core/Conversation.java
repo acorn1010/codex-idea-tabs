@@ -45,6 +45,14 @@ public final class Conversation {
         if (!text(state, "error").isEmpty()) { return "error"; }
         return flag(state, "unread") ? "complete" : "idle";
     }
+    public synchronized boolean archived() { return flag(state, "archived") || flag(state, "hidden"); }
+    public synchronized boolean canArchive() { return !flag(state, "working") && requests.isEmpty(); }
+    public synchronized void archive(boolean archived) {
+        if (archived && !canArchive()) { throw new IllegalStateException("Finish the active work and answer pending requests before archiving."); }
+        state.addProperty("archived", archived);
+        state.addProperty("hidden", false);
+        revision++;
+    }
     public synchronized JsonObject snapshot() {
         var snapshot = state.deepCopy();
         snapshot.add("items", items());
@@ -53,6 +61,7 @@ public final class Conversation {
         snapshot.add("requests", pending);
         snapshot.addProperty("status", status());
         snapshot.addProperty("revision", revision);
+        snapshot.addProperty("archived", archived());
         return snapshot;
     }
     public synchronized JsonObject changes(long since) {
@@ -65,18 +74,26 @@ public final class Conversation {
         requests.values().forEach(value -> pending.add(value.deepCopy()));
         result.add("requests", pending);
         result.addProperty("partial", true); result.addProperty("revision", revision); result.addProperty("status", status());
+        result.addProperty("archived", archived());
         return result;
     }
     public synchronized JsonObject summary() {
         var result = object("id", id, "title", get("title"), "threadId", get("threadId"), "cwd", get("cwd"),
-            "pinned", flag(state, "pinned"), "updatedAt", state.get("updatedAt"));
+            "pinned", flag(state, "pinned"), "updatedAt", state.get("updatedAt"), "archived", archived(),
+            "hasDraft", !get("draft").isBlank() || !array(state, "draftAttachments").isEmpty(), "preview", get("preview"));
         result.addProperty("status", status());
         return result;
     }
     public synchronized void hydrate(JsonObject thread, long startedRevision) {
+        boolean firstImport = get("threadId").isBlank();
         state.addProperty("threadId", text(thread, "id", get("threadId")));
         String title = text(thread, "name", text(thread, "preview"));
         if (!title.isBlank() && !flag(state, "renamed")) { state.addProperty("title", title.lines().findFirst().orElse(title)); }
+        if (thread.has("updatedAt")) {
+            long updatedAt = thread.get("updatedAt").getAsLong() * 1000;
+            state.addProperty("updatedAt", firstImport ? updatedAt : Math.max(state.get("updatedAt").getAsLong(), updatedAt));
+        }
+        if (!text(thread, "preview").isBlank()) { state.addProperty("preview", text(thread, "preview").substring(0, Math.min(120, text(thread, "preview").length())).replaceAll("\\s+", " ")); }
         var history = new LinkedHashMap<String, JsonObject>();
         for (var turn : array(thread, "turns")) {
             for (var item : array(turn.getAsJsonObject(), "items")) { history.put(text(item.getAsJsonObject(), "id"), item.getAsJsonObject().deepCopy()); }
@@ -103,6 +120,9 @@ public final class Conversation {
             if (!history.containsKey(id) || itemRevisions.getOrDefault(id, 0L) > startedRevision) { history.put(id, item); }
         });
         items.clear(); items.putAll(history);
+        for (var item : items.reversed().values()) {
+            if (text(item, "type").equals("agentMessage") && !text(item, "text").isBlank()) { preview(text(item, "text")); break; }
+        }
         state.addProperty("historyCursor", cursor);
         historyRevision = ++revision;
     }
@@ -145,6 +165,7 @@ public final class Conversation {
                     if (!streamed.isBlank()) { item = item.deepCopy(); item.addProperty("text", streamed); }
                 }
                 put(item);
+                if (method.equals("item/completed") && text(item, "type").equals("agentMessage")) { preview(text(item, "text")); }
             }
             case "item/agentMessage/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/commandExecution/outputDelta" -> {
                 String id = text(params, "itemId");
@@ -168,6 +189,8 @@ public final class Conversation {
             case "serverRequest/resolved" -> requests.remove(params.get("requestId") == null ? "" : params.get("requestId").toString());
             case "item/tool/requestUserInput/answered" -> requests.values().removeIf(request -> text(request, "itemId").equals(text(params, "itemId")));
             case "thread/name/updated" -> state.addProperty("title", text(params, "threadName", get("title")));
+            case "thread/archived" -> { state.addProperty("archived", true); state.addProperty("hidden", false); }
+            case "thread/unarchived" -> { state.addProperty("archived", false); state.addProperty("hidden", false); }
             case "thread/tokenUsage/updated" -> state.add("tokenUsage", obj(params, "tokenUsage"));
             case "turn/plan/updated" -> state.add("plan", array(params, "plan"));
             case "turn/diff/updated" -> state.addProperty("diff", text(params, "diff"));
@@ -181,5 +204,8 @@ public final class Conversation {
     }
     private void put(JsonObject item) {
         if (!text(item, "id").isBlank()) { items.put(text(item, "id"), item.deepCopy()); itemRevisions.put(text(item, "id"), revision + 1); }
+    }
+    private void preview(String value) {
+        state.addProperty("preview", value.substring(0, Math.min(120, value.length())).replaceAll("\\s+", " ").replaceAll("[*`#]", ""));
     }
 }

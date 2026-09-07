@@ -92,6 +92,7 @@ export function ChatApp() {
     try { return await request(method, params); } catch (error) { setError((error as Error).message); }
   };
   const uploadFiles = async (files: File[]) => {
+    if (state?.chat.archived) { return; }
     setUploads((count) => count + files.length); setError('');
     for (const file of files) {
       try {
@@ -106,7 +107,7 @@ export function ChatApp() {
     }
   };
   const send = async () => {
-    if (sending || uploads || (!draft.trim() && !attachments.length)) { return; }
+    if (state?.chat.archived || sending || uploads || (!draft.trim() && !attachments.length)) { return; }
     setSending(true); setError(''); window.clearTimeout(saveTimer.current);
     try {
       const input: Input[] = attachmentInput(attachments);
@@ -127,12 +128,12 @@ export function ChatApp() {
   const selectedModel = state?.models.find((item) => item.model === model || item.id === model);
   const attention = chat?.requests.length || 0;
   const needsLogin = state?.account.requiresOpenaiAuth && !state.account.account;
-  const status = attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
+  const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
 
   return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); }}>
-    <header className="flex h-10 shrink-0 items-center gap-2 border-b border-line/50 px-3">
-      <span className={`size-1.5 shrink-0 rounded-full ${attention ? 'bg-attention' : working ? 'bg-accent' : 'bg-success/70'}`} />
+    <header className="flex h-10 shrink-0 items-center gap-2 px-3">
+      <span className={`size-1.5 shrink-0 rounded-full ${chat?.archived ? 'bg-muted' : attention ? 'bg-attention' : working ? 'bg-accent' : 'bg-success/70'}`} />
       <span className={`truncate text-[11px] ${attention ? 'text-attention' : 'text-muted'}`}>{status}</span>
       <span className="min-w-0 flex-1 truncate text-right text-[10px] text-muted/70" title={state?.cwd}>{state?.project}</span>
       {attentionCount > 0 && <button title="See chats that need you" onClick={() => setPalette(true)} className="rounded bg-attention/10 px-1.5 py-0.5 text-[10px] text-attention hover:bg-attention/20 active:bg-attention/30">{attentionCount} waiting</button>}
@@ -147,25 +148,28 @@ export function ChatApp() {
 
     <div ref={scroller} className="min-h-0 flex-1 overflow-y-auto px-4 pt-3 pb-2" onScroll={() => { const element = scroller.current; if (element) { setFollow(element.scrollHeight - element.scrollTop - element.clientHeight < 100); } }}>
       {!chat?.items.length ? <div className="flex min-h-full flex-col justify-center py-8">
-        <div className="mb-4 flex size-10 items-center justify-center rounded-xl border border-line bg-raised text-accent"><Icon name="code" size={22} /></div>
+        <div className="mb-4 flex size-10 items-center justify-center rounded-xl bg-raised text-accent"><Icon name="code" size={22} /></div>
         <h1 className="text-xl font-semibold tracking-tight">A clear space for the next thing.</h1>
         <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted">Start a task here. Keep another beside it. Your code and conversations stay in view.</p>
         <div className="mt-6 flex flex-wrap gap-2">
-          {['Explain the current changes', 'Review this project', 'Plan an improvement'].map((prompt) => <button key={prompt} onClick={() => { changeDraft(prompt); textarea.current?.focus(); }} className="rounded-lg border border-line px-3 py-2 text-xs text-muted hover:border-accent/40 hover:text-ink active:text-accent">{prompt}</button>)}
+          {['Explain the current changes', 'Review this project', 'Plan an improvement'].map((prompt) => <button key={prompt} onClick={() => { changeDraft(prompt); textarea.current?.focus(); }} className="rounded-lg bg-raised px-3 py-2 text-xs text-muted hover:bg-line hover:text-ink active:text-accent">{prompt}</button>)}
         </div>
         <p className="mt-5 text-[11px] text-muted/70">Ctrl+Alt+N · New chat <span className="px-2">/</span> Ctrl+K · Find chat</p>
-      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg border border-line py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript items={chat.items} /></>}
+      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript items={chat.items} /></>}
       {working && <div className="mt-4 flex items-center gap-2 text-xs text-muted"><span className="size-1.5 rounded-full bg-accent" />Codex is working{attention ? ' · Your answer can help guide it' : ''}</div>}
       <div ref={end} />
     </div>
 
-    {!follow && <button onClick={() => { setFollow(true); end.current?.scrollIntoView(); }} className="absolute right-5 bottom-44 z-10 flex items-center gap-1 rounded-full border border-line bg-raised px-3 py-1.5 text-xs shadow-lg hover:border-muted active:bg-line">Latest<Icon name="down" size={12} /></button>}
+    {!follow && <button onClick={() => { setFollow(true); end.current?.scrollIntoView(); }} className="absolute right-5 bottom-44 z-10 flex items-center gap-1 rounded-full bg-raised px-3 py-1.5 text-xs shadow-lg hover:bg-line active:brightness-90">Latest<Icon name="down" size={12} /></button>}
 
-    <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
+    {chat?.archived ? <footer className="flex shrink-0 flex-wrap items-center gap-3 bg-raised px-4 py-3">
+      <div className="min-w-0 flex-1"><p className="text-xs font-medium">This chat is archived</p><p className="mt-1 text-[11px] text-muted">Your messages and saved draft are kept here.</p></div>
+      <button onClick={() => void run('restore')} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer hover:brightness-110 active:translate-y-px active:brightness-90">Restore chat</button>
+    </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
-      {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg border border-line px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
-      <div className="overflow-hidden rounded-xl border border-line bg-composer focus-within:border-accent/45">
-        {(attachments.length > 0 || uploads > 0) && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">{attachments.map((attachment) => <span key={attachment.path} className="flex max-w-full items-center gap-1.5 rounded-md border border-line bg-raised py-1 pr-1 pl-2 text-[11px]"><Icon name={attachment.mime.startsWith('image/') ? 'image' : 'file'} size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span><button aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="p-0.5 text-muted hover:text-ink active:text-accent"><Icon name="close" size={11} /></button></span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
+      {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
+      <div className="overflow-hidden rounded-xl bg-composer focus-within:ring-1 focus-within:ring-accent/35">
+        {(attachments.length > 0 || uploads > 0) && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">{attachments.map((attachment) => <span key={attachment.path} className="flex max-w-full items-center gap-1.5 rounded-md bg-surface py-1 pr-1 pl-2 text-[11px]"><Icon name={attachment.mime.startsWith('image/') ? 'image' : 'file'} size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span><button aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="p-0.5 text-muted hover:text-ink active:text-accent"><Icon name="close" size={11} /></button></span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
         <textarea ref={textarea} aria-label="Message Codex" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} onPaste={(event) => {
           const files = Array.from(event.clipboardData.files);
           if (files.length) { event.preventDefault(); void uploadFiles(files); return; }
@@ -185,24 +189,24 @@ export function ChatApp() {
           <div className="flex min-w-0 flex-[1_1_250px] items-center justify-end gap-2">
           <ChoiceMenu label="Model" value={model} onChange={(value) => { setModel(value); setEffort(''); }} compact options={[{ value: '', label: 'Codex default' }, ...(state?.models || []).map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
           {selectedModel && <ChoiceMenu label="Reasoning effort" value={effort} onChange={setEffort} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
-          <button title="Include open files and selected code" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-[10px] ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[380px]:hidden">IDE context</span></button>
+          <button title="Include open files and selected code" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[380px]:hidden">IDE context</span></button>
           {working && <button aria-label="Stop Codex" title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
           {(!working || draft.trim() || attachments.length > 0) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Send follow-up to the active turn' : 'Send message (Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>
         </div>
       </div>
-    </footer>
+    </footer>}
 
     {dragging && <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-surface/95"><div className="flex flex-col items-center gap-3 text-accent"><Icon name="attach" size={30} /><span>Drop files to add context</span></div></div>}
     {palette && <div role="dialog" aria-modal="true" aria-label="Find a conversation" className="absolute inset-0 z-30 flex items-start justify-center bg-black/40 px-4 pt-12" onClick={() => setPalette(false)}>
-      <div className="flex max-h-[75%] w-full max-w-lg flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-line px-3"><Icon name="search" /><input autoFocus aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a conversation…" className="min-w-0 flex-1 bg-transparent py-3 outline-none" /><SmallButton label="Close search" icon="close" onClick={() => setPalette(false)} /></div>
+      <div className="flex max-h-[75%] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-raised shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center gap-2 px-3"><Icon name="search" /><input autoFocus aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a conversation…" className="min-w-0 flex-1 bg-transparent py-3 outline-none" /><SmallButton label="Close search" icon="close" onClick={() => setPalette(false)} /></div>
         <div className="min-h-0 overflow-y-auto p-1.5">
           <button onClick={() => { void run('new'); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-accent hover:bg-raised active:bg-line"><Icon name="plus" />New chat</button>
           {state?.sessions.filter((session) => session.title.toLowerCase().includes(search.toLowerCase())).map((session) => <button key={session.id} onClick={() => { void run('openThread', { id: session.id }); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left hover:bg-raised active:bg-line"><span className={`size-1.5 shrink-0 rounded-full ${session.status === 'attention' ? 'bg-attention' : session.status === 'working' ? 'bg-accent' : 'bg-muted/50'}`} /><span className="min-w-0 flex-1 truncate">{session.title}</span><span className="text-[10px] text-muted">{session.status === 'attention' ? 'Needs you' : session.status === 'working' ? 'Working' : ''}</span></button>)}
           {history.filter((thread) => !state?.sessions.some((session) => session.threadId === thread.id)).map((thread) => <button key={String(thread.id)} onClick={() => { void run('openThread', { thread }); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-muted hover:bg-raised active:bg-line"><Icon name="code" size={12} /><span className="truncate">{String(thread.name || thread.preview || 'Untitled chat')}</span></button>)}
         </div>
-        <div className="border-t border-line px-3 py-2 text-[10px] text-muted">Current project · Questions and approvals appear first</div>
+        <div className="px-3 py-2 text-[10px] text-muted">Current project · Questions and approvals appear first</div>
       </div>
     </div>}
   </div>;

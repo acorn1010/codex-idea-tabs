@@ -9,7 +9,8 @@ This is an independent client for the [Codex app server](https://developers.open
 - Opens each conversation in an ordinary IDEA editor tab. Tabs can be split, moved, pinned, closed, and restored by the IDE.
 - Uses blue tab icons for work in progress, amber for questions or approvals, and green for unread results.
 - Keeps sessions and pending questions alive when their tabs are hidden or closed.
-- Offers a session sidebar and a searchable conversation switcher. Chats that need input appear first.
+- Groups chats by attention, work in progress, pins, and recent activity, with search and readable message previews.
+- Archives finished chats with Undo, an archive browser, and Restore. History, drafts, and attachments stay available.
 - Streams Markdown, command output, file changes, plans, and generated images.
 - Supports file drops, pasted images, large text attachments, and native file selection.
 - Opens local file and image links in the IDE, including files inside WSL.
@@ -53,10 +54,16 @@ For native Windows projects without WSL, use the Windows Codex executable. For L
 | Add a line | `Shift+Enter` |
 | Add files or images | Drop, paste, or use the plus button |
 | Change permissions | Open **Approve for me**, **Ask me**, or **Read only** in the composer |
+| Archive a finished chat | Hover its sidebar row and click the archive icon, or select the row and press `Delete` |
+| Browse archived chats | **Archived** at the bottom of the sidebar |
+| Restore a chat | Hover its archived row and click Restore, or open it and use **Restore chat** |
+| More chat actions | Row's **…** button, right-click, or `Shift+F10` |
 
 IDEA's keymap settings can change the native shortcuts. Its normal editor split actions support a four-pane layout or any other arrangement.
 
-Right-click a sidebar conversation to rename it, pin it to the top, or hide an idle chat from the list. Hiding does not delete Codex history.
+The sidebar has one primary **New chat** action. Questions and active work appear above pinned and recent chats. Hover a row for archive and more actions. The **…** menu also offers rename, pin, and open to the side.
+
+Archiving closes that chat's editor tabs and moves its Codex history into the archive. It does not delete messages, files, or a saved draft. **Undo** restores the last archived chat. You can read archived conversations without resuming them. Restore a chat before sending a new message. Chats with active work or unanswered requests cannot be archived.
 
 Questions stay above the composer until answered or dismissed. An asynchronous question can remain after the turn finishes. A blocking approval belongs to its live server connection, so it is cleared after a disconnect.
 

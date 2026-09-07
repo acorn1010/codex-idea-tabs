@@ -88,6 +88,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "send": return service.send(file.id, params);
             case "answer": return service.answer(file.id, params);
             case "stop": return service.stop(file.id);
+            case "restore": return service.archive(file.id, false);
             case "draft": chat.set("draft", text(params, "text")); if (params.has("attachments")) { chat.set("draftAttachments", array(params, "attachments")); } service.changed(file.id); return completed(new JsonObject());
             case "older": return service.older(file.id, text(params, "cursor"));
             case "seen": chat.set("unread", false); service.changed(file.id); return completed(new JsonObject());

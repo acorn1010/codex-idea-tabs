@@ -25,7 +25,6 @@ public final class ChatFiles extends DeprecatedVirtualFileSystem {
     @Override public boolean isReadOnly() { return true; }
 
     public static void open(Project project, String id, boolean split) {
-        CodexService.get(project).chat(id).set("hidden", false);
         CodexService.get(project).changed(id);
         var fs = (ChatFiles) VirtualFileManager.getInstance().getFileSystem("codex-chat");
         var file = fs.findFileByPath(project.getLocationHash() + "/" + id);

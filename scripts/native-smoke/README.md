@@ -32,7 +32,9 @@ node scripts/native-smoke/check-ui.mjs
 
 It connects only to the test JCEF debugging port. It checks visible panes, the permission menu, hover and pressed styling, the Stop button, image loading, and large-paste and file-drop handlers. Results and screenshots go under `output/playwright`. It leaves a named draft and an attachment for the next restart check.
 
-Also check the native sidebar with the pointer. Rows and toolbar buttons must have distinct hover and pressed states. Clicking a row once should open it. The context menu can rename, pin, or hide an idle chat.
+Set `-Dcodex.smoke.sidebar.check=true` to run the native sidebar checks. They click the attention filter, archive a fixture chat, undo that action, browse the archive, and open the archived chat for reading. They also check that active work cannot be archived. Results and hover and pressed captures go to the test log directory. This option requires the fake backend. It leaves an archived chat open so its read-only state and Restore button can be checked in JCEF.
+
+Also check the native sidebar at a narrow width. Rows and toolbar buttons must have distinct hover and pressed states. Clicking a row once should open it. The context menu can open to the side, rename, pin, or archive an idle chat.
 
 Close and restart the test profile normally. Verify that the native split layout, draft, attachment, and image preview return. Inspect the IDEA log for errors naming this plugin. The opt-in real subscription test is separate, under `core/src/test`.
 

@@ -72,8 +72,11 @@ public final class CodexService implements Disposable {
         return chat;
     }
     public JsonArray summaries() {
+        return summaries(false);
+    }
+    public JsonArray summaries(boolean archived) {
         var result = new JsonArray();
-        chats.values().stream().filter(chat -> !chat.get("hidden").equals("true")).map(Conversation::summary)
+        chats.values().stream().filter(chat -> chat.archived() == archived).map(Conversation::summary)
             .sorted(Comparator.<JsonObject>comparingInt(item -> text(item, "status").equals("attention") ? 0 : flag(item, "pinned") ? 1 : text(item, "status").equals("working") ? 2 : 3)
                 .thenComparing(Comparator.comparingLong((JsonObject item) -> item.get("updatedAt").getAsLong()).reversed()))
             .forEach(result::add);
@@ -144,7 +147,10 @@ public final class CodexService implements Disposable {
         connect();
     }
     public CompletableFuture<JsonObject> history(String search, String cursor) {
-        var params = object("limit", 100, "cwd", cwd(), "sortKey", "updated_at", "useStateDbOnly", true);
+        return history(search, cursor, false);
+    }
+    public CompletableFuture<JsonObject> history(String search, String cursor, boolean archived) {
+        var params = object("limit", 100, "cwd", cwd(), "sortKey", "updated_at", "useStateDbOnly", true, "archived", archived);
         if (!search.isBlank()) { params.addProperty("searchTerm", search); }
         if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
         return rpc("thread/list", params);
@@ -160,6 +166,8 @@ public final class CodexService implements Disposable {
     public CompletableFuture<Void> load(String id) {
         var chat = chat(id);
         if (chat.get("threadId").isBlank()) { return connect().thenApply(ignored -> null); }
+        // Reading an archived chat must not resume or restore its backend session.
+        if (chat.archived()) { return older(id, "").thenApply(ignored -> null); }
         return resumes.computeIfAbsent(id, key -> {
             long revision = chat.revision();
             return rpc("thread/resume", object("threadId", chat.get("threadId"), "excludeTurns", true)).thenCompose(result -> {
@@ -186,6 +194,7 @@ public final class CodexService implements Disposable {
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
             .thenRunAsync(() -> {
                 try {
+                    if (chat.archived()) { throw new IllegalStateException("Restore this chat before sending a message."); }
                     String prompt = text(payload, "text");
                     var input = array(payload, "input").deepCopy();
                     if (!prompt.isBlank()) { input.add(object("type", "text", "text", prompt)); }
@@ -230,6 +239,28 @@ public final class CodexService implements Disposable {
             }, io));
         return result;
     }
+    /** Serialize archive and restore with sends so queued messages cannot be lost to an archive. */
+    public CompletableFuture<JsonObject> archive(String id, boolean archived) {
+        var chat = chat(id);
+        var result = new CompletableFuture<JsonObject>();
+        sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
+            .thenRunAsync(() -> {
+                try {
+                    if (archived && !chat.canArchive()) { throw new IllegalStateException("Finish the active work and answer pending requests before archiving."); }
+                    if (chat.archived() == archived) { result.complete(new JsonObject()); return; }
+                    String threadId = chat.get("threadId");
+                    if (!threadId.isBlank() && (archived || chat.get("archived").equals("true") && !chat.get("hidden").equals("true"))) {
+                        rpc(archived ? "thread/archive" : "thread/unarchive", object("threadId", threadId)).join();
+                    }
+                    chat.archive(archived);
+                    resumes.remove(id);
+                    changed(id);
+                    result.complete(new JsonObject());
+                } catch (Exception error) { result.completeExceptionally(error); }
+            }, io));
+        return result;
+    }
+    public String connectionStatus() { return connectionStatus; }
     public CompletableFuture<JsonObject> answer(String id, JsonObject payload) {
         var chat = chat(id);
         String key = text(payload, "key");
@@ -299,6 +330,7 @@ public final class CodexService implements Disposable {
         var target = chats.values().stream().filter(chat -> !threadId.isBlank() && chat.get("threadId").equals(threadId)).findFirst();
         if (target.isPresent()) {
             var chat = target.get(); chat.event(event); changed(chat.id);
+            if (Set.of("thread/archived", "thread/unarchived").contains(text(event, "method"))) { resumes.remove(chat.id); }
             if (event.has("id") && !Set.of("item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request").contains(text(event, "method"))) {
                 client.reject(event.get("id"), "This client does not yet support " + text(event, "method"));
             }

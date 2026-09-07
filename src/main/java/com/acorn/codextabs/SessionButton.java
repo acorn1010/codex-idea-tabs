@@ -1,33 +1,46 @@
 package com.acorn.codextabs;
 
-import com.intellij.ui.JBColor;
+import com.intellij.util.ui.JBUI;
 import javax.swing.*;
 import java.awt.*;
 
-/** Small native toolbar buttons have distinct idle, hover, pressed, and keyboard-focus states. */
+/** Compact native controls share the sidebar's primary, quiet, hover, and pressed treatment. */
 final class SessionButton extends JToggleButton {
-    SessionButton(String label, boolean toggle, Runnable action) {
+    private final boolean primary;
+    SessionButton(String label, String icon, boolean primary, Runnable action) {
         super(label);
-        setRolloverEnabled(true);
-        setContentAreaFilled(false);
-        setBorderPainted(false);
-        setFocusPainted(false);
-        setOpaque(false);
-        setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+        this.primary = primary;
+        if (icon != null) { setIcon(SessionIcons.icon(icon)); }
+        setIconTextGap(JBUI.scale(6));
+        setRolloverEnabled(true); setContentAreaFilled(false); setBorderPainted(false); setFocusPainted(false); setOpaque(false);
+        setBorder(JBUI.Borders.empty(5, label.isEmpty() ? 6 : 10));
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-        addActionListener(event -> { if (!toggle) { setSelected(false); } action.run(); });
+        setForeground(primary ? Color.WHITE : SessionTheme.TEXT);
+        addActionListener(event -> { setSelected(false); action.run(); });
         getModel().addChangeListener(event -> repaint());
+    }
+    @Override public Dimension getPreferredSize() {
+        var metrics = getFontMetrics(getFont());
+        int icon = getIcon() == null ? 0 : getIcon().getIconWidth() + (getText().isEmpty() ? 0 : getIconTextGap());
+        return new Dimension(metrics.stringWidth(getText()) + icon + JBUI.scale(getText().isEmpty() ? 12 : 20), JBUI.scale(30));
     }
     @Override protected void paintComponent(Graphics graphics) {
         var g = (Graphics2D) graphics.create();
-        boolean pressed = getModel().isArmed() && getModel().isPressed();
+        boolean pressed = isEnabled() && getModel().isArmed() && getModel().isPressed();
+        boolean hover = isEnabled() && getModel().isRollover();
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(pressed ? new JBColor(0xBDCCE0, 0x3D5169) : isSelected() ? new JBColor(0xD3E3F7, 0x30465F) : getModel().isRollover() ? new JBColor(0xE0E6EE, 0x363E4A) : new JBColor(0xF2F4F7, 0x272B32));
-        g.fillRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
-        g.setColor(hasFocus() || isSelected() ? new JBColor(0x3574C5, 0x77ABEE) : getModel().isRollover() ? new JBColor(0x9BAABE, 0x65748A) : new JBColor(0xC5CBD5, 0x454D5A));
-        g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 8, 8);
-        if (pressed) { g.translate(0, 1); }
-        super.paintComponent(g);
-        g.dispose();
+        Color fill = primary ? pressed ? SessionTheme.PRIMARY_PRESSED : hover ? SessionTheme.PRIMARY_HOVER : SessionTheme.PRIMARY
+            : pressed ? SessionTheme.PRESSED : isSelected() ? hover ? SessionTheme.PRESSED : SessionTheme.SELECTED : hover ? SessionTheme.HOVER : null;
+        if (fill != null) {
+            g.setColor(fill); g.fillRoundRect(0, 0, getWidth(), getHeight(), JBUI.scale(8), JBUI.scale(8));
+            if (primary && !pressed) {
+                g.setColor(new Color(255, 255, 255, 32)); g.drawLine(JBUI.scale(5), 1, getWidth() - JBUI.scale(5), 1);
+                g.setColor(new Color(0, 0, 0, 45)); g.drawLine(JBUI.scale(5), getHeight() - 1, getWidth() - JBUI.scale(5), getHeight() - 1);
+            }
+        }
+        if (hasFocus()) { g.setColor(SessionTheme.ACCENT); g.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, JBUI.scale(8), JBUI.scale(8)); }
+        if (!isEnabled()) { g.setComposite(AlphaComposite.SrcOver.derive(0.45f)); }
+        if (pressed) { g.translate(0, JBUI.scale(1)); }
+        super.paintComponent(g); g.dispose();
     }
 }
