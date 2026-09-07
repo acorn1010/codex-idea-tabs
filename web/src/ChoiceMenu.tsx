@@ -31,7 +31,7 @@ export function ChoiceMenu({ label, value, options, onChange, compact = false, h
     <button ref={trigger} aria-label={`${label}: ${selected?.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined} title={selected?.label} onClick={() => setOpen(!open)} className={`flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent ${compact ? 'min-w-0 max-w-40' : 'shrink-0 whitespace-nowrap'}`}>
       <span className={compact ? 'truncate' : ''}>{selected?.label}</span><span className="shrink-0"><Icon name="down" size={11} /></span>
     </button>
-    {open && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} style={{ left: position.left, bottom: position.bottom, width: position.width, maxHeight: position.height }} className="fixed z-60 overflow-y-auto rounded-xl border border-line bg-raised p-1 shadow-2xl" onKeyDown={(event) => {
+    {open && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} style={{ left: position.left, bottom: position.bottom, width: position.width, maxHeight: position.height }} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-1 shadow-2xl" onKeyDown={(event) => {
       const entries = Array.from(menu.current!.querySelectorAll<HTMLButtonElement>('[role="option"]'));
       const current = entries.indexOf(document.activeElement as HTMLButtonElement);
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }

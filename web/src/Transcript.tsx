@@ -11,7 +11,7 @@ const Message = memo(function Message({ item }: { item: Item }) {
   const user = item.type === 'userMessage';
   const copy = () => { void request('copy', { text }).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }); };
   return <article className={`group min-w-0 ${user ? 'ml-auto max-w-[92%]' : 'w-full'}`}>
-    <div className={user ? 'rounded-xl border border-line/60 bg-raised px-3.5 py-1.5' : ''}>
+    <div className={user ? 'rounded-xl bg-raised px-3.5 py-1.5' : ''}>
       <Markdown text={text} />
       {(item.content || []).filter((part) => part.type === 'localImage' || part.type === 'image').map((part, index) => <ImagePreview key={index} path={String(part.path || part.url || '')} alt="Attached image" />)}
     </div>
@@ -28,7 +28,7 @@ const Tool = memo(function Tool({ item }: { item: Item }) {
   const imagePath = typeof item.savedPath === 'string' ? item.savedPath : typeof item.path === 'string' && /image/i.test(item.type) ? item.path : typeof result?.path === 'string' && /image/i.test(item.type) ? result.path : item.type === 'imageGeneration' && typeof item.result === 'string' && item.result.length > 100 ? `data:image/png;base64,${item.result}` : '';
   const images = (Array.isArray(result?.content) ? result.content : []) as Json[];
   return <div className="min-w-0 text-xs">
-    <button onClick={() => setOpen(!open)} aria-expanded={open} className={`flex w-full items-center gap-2 py-1.5 text-left ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
+    <button onClick={() => setOpen(!open)} aria-expanded={open} className={`flex w-full items-center gap-2 rounded-md py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
       <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
       <Icon name={item.type === 'fileChange' ? 'file' : item.type === 'webSearch' ? 'search' : 'code'} size={13} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -38,7 +38,7 @@ const Tool = memo(function Tool({ item }: { item: Item }) {
     {item.type === 'fileChange' && item.changes?.map((change, index) => <button key={index} className="ml-6 flex max-w-[calc(100%-1.5rem)] items-center gap-2 py-1 text-accent hover:underline active:text-ink" onClick={() => void request('openLink', { path: String(change.path || '') })}><Icon name="file" size={12} /><span className="truncate">{String(change.path || '')}</span></button>)}
     {imagePath && <ImagePreview path={imagePath} alt="Generated image" />}
     {images.filter((part) => part.type === 'image' && part.data).map((part, index) => <ImagePreview key={index} path={`data:${part.mimeType || 'image/png'};base64,${part.data}`} alt="Generated image" />)}
-    {open && <pre className="mt-1 max-h-60 overflow-auto rounded-lg border border-line bg-composer p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words">{content}</pre>}
+    {open && <pre className="mt-1 max-h-60 overflow-auto rounded-lg bg-composer p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words">{content}</pre>}
   </div>;
 });
 
@@ -47,7 +47,7 @@ export function Transcript({ items }: { items: Item[] }) {
   const [limit, setLimit] = useState(80);
   const visible = items.slice(-limit);
   return <div className="space-y-3">
-    {items.length > limit && <button className="mb-3 w-full rounded-lg border border-line py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => setLimit(limit + 80)}>Show earlier messages ({items.length - limit})</button>}
+    {items.length > limit && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => setLimit(limit + 80)}>Show earlier messages ({items.length - limit})</button>}
     {visible.map((item) => item.type === 'userMessage' || item.type === 'agentMessage' ? <Message key={item.id} item={item} /> : <Tool key={item.id} item={item} />)}
   </div>;
 }

@@ -9,19 +9,29 @@
   --color-line: var(--line);
   --color-accent: var(--accent);
   --color-attention: var(--attention);
+  --color-attention-surface: var(--attention-surface);
+  --color-attention-hover: var(--attention-hover);
+  --color-attention-pressed: var(--attention-pressed);
+  --color-attention-selected: var(--attention-selected);
+  --color-attention-input: var(--attention-input);
   --color-success: var(--success);
 }
 
 :root {
   color-scheme: dark;
-  --surface: #202328;
-  --raised: #292d34;
-  --composer: #1a1d21;
+  --surface: #202226;
+  --raised: #292c31;
+  --composer: #2c2f34;
   --ink: #d9dce3;
   --muted: #959ba8;
   --line: #363b43;
   --accent: #8fbffa;
   --attention: #e4b467;
+  --attention-surface: #2c2924;
+  --attention-hover: #383228;
+  --attention-pressed: #4b3e2b;
+  --attention-selected: #403624;
+  --attention-input: #24221f;
   --success: #88c9aa;
   font-family: "Segoe UI", -apple-system, sans-serif;
   font-size: 16px;
@@ -38,6 +48,11 @@
   --line: #d9dde5;
   --accent: #245eae;
   --attention: #98620d;
+  --attention-surface: #f4eee3;
+  --attention-hover: #ebe0cf;
+  --attention-pressed: #dac7a8;
+  --attention-selected: #e9dcc4;
+  --attention-input: #fffbf4;
   --success: #26734e;
 }
 html, body, #root { height: 100%; margin: 0; }
@@ -45,7 +60,7 @@ body { font-size: 13px; }
 button, select, input, textarea { font-family: inherit; }
 button, select { cursor: pointer; }
 button:disabled { cursor: default; opacity: .45; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--focus-color, var(--accent)); outline-offset: 2px; }
 textarea:focus-visible { outline: none; }
 ::selection { background: #638ac44a; }
 * { scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
