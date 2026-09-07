@@ -1,0 +1,9 @@
+.gradle/
+.intellijPlatform/
+.idea/
+build/
+web/node_modules/
+web/dist/
+output/
+*.log
+local.properties

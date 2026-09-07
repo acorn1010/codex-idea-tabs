@@ -1,0 +1,31 @@
+<idea-plugin>
+    <id>com.acorn.codex.tabs</id>
+    <name>Codex Tabs</name>
+    <vendor url="https://github.com/acorn1010/codex-idea-tabs">Acorn</vendor>
+    <description><![CDATA[Independent Codex conversations in native editor tabs. Split chats beside code, keep working sessions visible, and answer questions from an attention-first session list. Uses your Codex CLI and ChatGPT subscription. Supports Windows with WSL.]]></description>
+    <depends>com.intellij.modules.platform</depends>
+    <extensions defaultExtensionNs="com.intellij">
+        <virtualFileSystem key="codex-chat" implementationClass="com.acorn.codextabs.ChatFiles"/>
+        <fileEditorProvider implementation="com.acorn.codextabs.ChatEditor$Provider"/>
+        <editorTabTitleProvider implementation="com.acorn.codextabs.ChatFiles$Titles"/>
+        <fileIconProvider implementation="com.acorn.codextabs.ChatFiles$Icons"/>
+        <toolWindow id="Codex" anchor="left" factoryClass="com.acorn.codextabs.SessionWindow" icon="/icons/codex-tabs.svg"/>
+        <projectConfigurable parentId="tools" id="com.acorn.codex.tabs.settings" displayName="Codex Tabs" instance="com.acorn.codextabs.CodexConfigurable"/>
+    </extensions>
+    <actions>
+        <group id="CodexTabs.Menu" text="Codex Tabs" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="CodexTabs.NewChat" class="com.acorn.codextabs.ChatActions$NewChat" text="Codex: New Chat Tab" description="Start an independent Codex conversation">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt N"/>
+            </action>
+            <action id="CodexTabs.NewChatToSide" class="com.acorn.codextabs.ChatActions$NewChatToSide" text="Codex: New Chat to Side"/>
+            <action id="CodexTabs.SendSelection" class="com.acorn.codextabs.ChatActions$SendSelection" text="Codex: Discuss Selected Code">
+                <add-to-group group-id="EditorPopupMenu" anchor="last"/>
+            </action>
+            <action id="CodexTabs.Attention" class="com.acorn.codextabs.ChatActions$Attention" text="Codex: Go to a Chat That Needs You">
+                <keyboard-shortcut keymap="$default" first-keystroke="ctrl alt A"/>
+            </action>
+            <action id="CodexTabs.Settings" class="com.acorn.codextabs.ChatActions$Settings" text="Codex: Connection Settings"/>
+        </group>
+    </actions>
+</idea-plugin>

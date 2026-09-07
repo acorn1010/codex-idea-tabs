@@ -1,0 +1,179 @@
+package com.acorn.codextabs.core;
+
+import com.google.gson.*;
+import java.util.*;
+import static com.acorn.codextabs.core.Json.*;
+
+/** View-independent conversation state keeps hidden tabs current without keeping their browser alive. */
+public final class Conversation {
+    public final String id;
+    private final JsonObject state;
+    private final LinkedHashMap<String, JsonObject> items = new LinkedHashMap<>();
+    private final LinkedHashMap<String, JsonObject> requests = new LinkedHashMap<>();
+    private final Map<String, Long> itemRevisions = new HashMap<>();
+    private long revision;
+    private long historyRevision;
+
+    public Conversation(String id, String cwd) {
+        this.id = id;
+        state = object("id", id, "cwd", cwd, "title", "New chat", "threadId", "", "turnId", "", "draft", "", "working", false, "unread", false, "pinned", false, "updatedAt", System.currentTimeMillis());
+    }
+    public static Conversation restore(JsonObject saved) {
+        var chat = new Conversation(text(saved, "id"), text(saved, "cwd"));
+        for (var entry : saved.entrySet()) { chat.state.add(entry.getKey(), entry.getValue().deepCopy()); }
+        chat.state.remove("items"); chat.state.remove("requests");
+        for (var item : array(saved, "items")) { chat.put(item.getAsJsonObject()); }
+        for (var request : array(saved, "requests")) {
+            var value = request.getAsJsonObject();
+            if (!value.has("rpcId")) { chat.requests.put(text(value, "key"), value.deepCopy()); }
+        }
+        chat.state.addProperty("working", false);
+        chat.state.addProperty("turnId", "");
+        return chat;
+    }
+    public synchronized String get(String key) { return text(state, key); }
+    public synchronized void set(String key, Object value) { state.add(key, GSON.toJsonTree(value)); revision++; }
+    public synchronized long revision() { return revision; }
+    public synchronized JsonArray items() {
+        var result = new JsonArray();
+        items.values().forEach(item -> result.add(item.deepCopy()));
+        return result;
+    }
+    public synchronized String status() {
+        if (!requests.isEmpty()) { return "attention"; }
+        if (flag(state, "working")) { return "working"; }
+        if (!text(state, "error").isEmpty()) { return "error"; }
+        return flag(state, "unread") ? "complete" : "idle";
+    }
+    public synchronized JsonObject snapshot() {
+        var snapshot = state.deepCopy();
+        snapshot.add("items", items());
+        var pending = new JsonArray();
+        requests.values().forEach(request -> pending.add(request.deepCopy()));
+        snapshot.add("requests", pending);
+        snapshot.addProperty("status", status());
+        snapshot.addProperty("revision", revision);
+        return snapshot;
+    }
+    public synchronized JsonObject changes(long since) {
+        if (since < 0 || since < historyRevision || since > revision) { return snapshot(); }
+        var result = state.deepCopy();
+        var changedItems = new JsonArray();
+        items.forEach((id, item) -> { if (itemRevisions.getOrDefault(id, 0L) > since) { changedItems.add(item.deepCopy()); } });
+        result.add("items", changedItems);
+        var pending = new JsonArray();
+        requests.values().forEach(value -> pending.add(value.deepCopy()));
+        result.add("requests", pending);
+        result.addProperty("partial", true); result.addProperty("revision", revision); result.addProperty("status", status());
+        return result;
+    }
+    public synchronized JsonObject summary() {
+        var result = object("id", id, "title", get("title"), "threadId", get("threadId"), "cwd", get("cwd"),
+            "pinned", flag(state, "pinned"), "updatedAt", state.get("updatedAt"));
+        result.addProperty("status", status());
+        return result;
+    }
+    public synchronized void hydrate(JsonObject thread, long startedRevision) {
+        state.addProperty("threadId", text(thread, "id", get("threadId")));
+        String title = text(thread, "name", text(thread, "preview"));
+        if (!title.isBlank() && !flag(state, "renamed")) { state.addProperty("title", title.lines().findFirst().orElse(title)); }
+        var history = new LinkedHashMap<String, JsonObject>();
+        for (var turn : array(thread, "turns")) {
+            for (var item : array(turn.getAsJsonObject(), "items")) { history.put(text(item.getAsJsonObject(), "id"), item.getAsJsonObject().deepCopy()); }
+        }
+        if (startedRevision == revision) { items.putAll(history); }
+        else {
+            history.putAll(items);
+            items.clear(); items.putAll(history);
+        }
+        revision++;
+        if (!history.isEmpty()) { historyRevision = revision; }
+    }
+    public synchronized void historyPage(JsonArray entries, String cursor) {
+        var history = new LinkedHashMap<String, JsonObject>();
+        for (int i = entries.size() - 1; i >= 0; i--) {
+            var entry = entries.get(i).getAsJsonObject();
+            var item = entry.has("item") ? obj(entry, "item") : entry;
+            history.put(text(item, "id"), item.deepCopy());
+        }
+        history.putAll(items); items.clear(); items.putAll(history);
+        state.addProperty("historyCursor", cursor);
+        historyRevision = ++revision;
+    }
+    public synchronized JsonObject request(String key) {
+        var value = requests.get(key);
+        if (value == null) { throw new IllegalArgumentException("This request has already been answered."); }
+        return value.deepCopy();
+    }
+    public synchronized void resolve(String key) { requests.remove(key); revision++; }
+    public synchronized void disconnected() {
+        requests.values().removeIf(request -> request.has("rpcId"));
+        state.addProperty("working", false);
+        state.addProperty("turnId", "");
+        revision++;
+    }
+    public synchronized void event(JsonObject event) {
+        String method = text(event, "method");
+        var params = obj(event, "params");
+        switch (method) {
+            case "turn/started" -> {
+                state.addProperty("turnId", text(obj(params, "turn"), "id"));
+                state.addProperty("working", true);
+                state.addProperty("unread", false);
+                state.addProperty("error", "");
+            }
+            case "turn/completed" -> {
+                var turn = obj(params, "turn");
+                if (!get("turnId").isBlank() && !get("turnId").equals(text(turn, "id"))) { return; }
+                state.addProperty("working", false);
+                state.addProperty("completedTurnId", text(turn, "id"));
+                state.addProperty("turnId", "");
+                state.addProperty("unread", true);
+                if (turn.has("error") && turn.get("error").isJsonObject()) { state.addProperty("error", text(obj(turn, "error"), "message")); }
+                requests.values().removeIf(request -> request.has("rpcId") && text(request, "turnId").equals(text(turn, "id")));
+            }
+            case "item/started", "item/completed" -> {
+                var item = obj(params, "item");
+                if (text(item, "type").equals("reasoning") && items.containsKey(text(item, "id")) && !item.has("text")) {
+                    String streamed = text(items.get(text(item, "id")), "text");
+                    if (!streamed.isBlank()) { item = item.deepCopy(); item.addProperty("text", streamed); }
+                }
+                put(item);
+            }
+            case "item/agentMessage/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/commandExecution/outputDelta" -> {
+                String id = text(params, "itemId");
+                String type = method.contains("agentMessage") ? "agentMessage" : method.contains("reasoning") ? "reasoning" : "commandExecution";
+                String field = type.equals("commandExecution") ? "aggregatedOutput" : "text";
+                var item = items.computeIfAbsent(id, ignored -> object("id", id, "type", type));
+                String content = text(item, field) + text(params, "delta");
+                // Keep runaway terminal output bounded. The backend retains the complete rollout.
+                if (type.equals("commandExecution") && content.length() > 100_000) { content = content.substring(content.length() - 100_000); }
+                item.addProperty(field, content);
+                itemRevisions.put(id, revision + 1);
+            }
+            case "item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request" -> {
+                var request = params.deepCopy();
+                String key = event.has("id") ? event.get("id").toString() : text(params, "itemId");
+                request.addProperty("key", key);
+                request.addProperty("method", method);
+                if (event.has("id")) { request.add("rpcId", event.get("id")); }
+                requests.put(key, request);
+            }
+            case "serverRequest/resolved" -> requests.remove(params.get("requestId") == null ? "" : params.get("requestId").toString());
+            case "item/tool/requestUserInput/answered" -> requests.values().removeIf(request -> text(request, "itemId").equals(text(params, "itemId")));
+            case "thread/name/updated" -> state.addProperty("title", text(params, "threadName", get("title")));
+            case "thread/tokenUsage/updated" -> state.add("tokenUsage", obj(params, "tokenUsage"));
+            case "turn/plan/updated" -> state.add("plan", array(params, "plan"));
+            case "turn/diff/updated" -> state.addProperty("diff", text(params, "diff"));
+            case "error" -> state.addProperty("error", text(obj(params, "error"), "message", text(params, "message")));
+            default -> { return; }
+        }
+        if (!method.endsWith("Delta") && !method.endsWith("/delta") && !method.startsWith("item/started") && !method.startsWith("item/completed") && !method.equals("thread/tokenUsage/updated")) {
+            state.addProperty("updatedAt", System.currentTimeMillis());
+        }
+        revision++;
+    }
+    private void put(JsonObject item) {
+        if (!text(item, "id").isBlank()) { items.put(text(item, "id"), item.deepCopy()); itemRevisions.put(text(item, "id"), revision + 1); }
+    }
+}
