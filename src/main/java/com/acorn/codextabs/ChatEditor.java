@@ -107,7 +107,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "chooseFiles": return chooseFiles();
             case "context": return ideContext();
             case "copy": return uiResult(() -> com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(new java.awt.datatransfer.StringSelection(text(params, "text"))));
-            case "openLink": return uiResult(() -> openLink(text(params, "path")));
+            case "openLink": return openLink(text(params, "path"));
             case "readImage": {
                 String path = com.acorn.codextabs.core.Paths.link(text(params, "path"), chat.get("cwd"));
                 if (!service.distro().isBlank()) { path = com.acorn.codextabs.core.Paths.linux(path); }
@@ -160,8 +160,8 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         });
         return result;
     }
-    private void openLink(String value) {
-        if (value.startsWith("https://") || value.startsWith("http://")) { BrowserUtil.browse(value); return; }
+    private CompletableFuture<JsonObject> openLink(String value) {
+        if (value.startsWith("https://") || value.startsWith("http://")) { return uiResult(() -> BrowserUtil.browse(value)); }
         String path = com.acorn.codextabs.core.Paths.link(value, service.chat(file.id).get("cwd"));
         var match = java.util.regex.Pattern.compile("^(.*?)(?::(\\d+)(?::(\\d+))?|#L(\\d+))$").matcher(path);
         int line = 0, column = 0;
@@ -169,11 +169,17 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             path = match.group(1); line = Integer.parseInt(match.group(2) != null ? match.group(2) : match.group(4)) - 1;
             column = match.group(3) == null ? 0 : Integer.parseInt(match.group(3)) - 1;
         }
-        path = com.acorn.codextabs.core.Paths.host(path, service.distro(), SystemInfo.isWindows);
-        var target = LocalFileSystem.getInstance().refreshAndFindFileByPath(path);
-        if (target == null) { throw new IllegalArgumentException("File not found: " + path); }
-        if (line > 0 || column > 0) { new OpenFileDescriptor(project, target, line, column).navigate(true); }
-        else { FileEditorManager.getInstance(project).openFile(target, true); }
+        String hostPath = com.acorn.codextabs.core.Paths.host(path, service.distro(), SystemInfo.isWindows);
+        int targetLine = line, targetColumn = column;
+        // WSL file refresh can block. Only editor navigation belongs on the UI thread.
+        return CompletableFuture.supplyAsync(() -> {
+            var target = LocalFileSystem.getInstance().refreshAndFindFileByPath(hostPath);
+            if (target == null) { throw new IllegalArgumentException("File not found: " + hostPath); }
+            return target;
+        }).thenCompose(target -> uiResult(() -> {
+            if (targetLine > 0 || targetColumn > 0) { new OpenFileDescriptor(project, target, targetLine, targetColumn).navigate(true); }
+            else { FileEditorManager.getInstance(project).openFile(target, true); }
+        }));
     }
     private void publish() {
         var value = service.snapshot(file.id, renderedRevision);
