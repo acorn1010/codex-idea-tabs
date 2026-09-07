@@ -1,0 +1,10 @@
+<idea-plugin>
+  <id>com.acorn.codex.tabs.smoke</id>
+  <name>Codex Tabs Native Smoke Test</name>
+  <version>0.1.0</version>
+  <vendor>Acorn</vendor>
+  <depends>com.acorn.codex.tabs</depends>
+  <extensions defaultExtensionNs="com.intellij">
+    <postStartupActivity implementation="com.acorn.codextabs.smoke.Smoke"/>
+  </extensions>
+</idea-plugin>
