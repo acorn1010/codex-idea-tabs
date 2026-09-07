@@ -47,7 +47,7 @@ def items(thread_id):
 def attention(thread_id):
     time.sleep(1)
     if thread_id == "choices":
-        event("item/tool/requestUserInput", thread_id, turnId="fixture-turn", itemId="fixture-choice", isBlocking=False, questions=[{"id": "layout", "header": "Layout", "question": "Where should new conversations open?", "options": [{"label": "Beside the current chat", "description": "Keep the current work visible while starting another task."}, {"label": "In the current group", "description": "Use the existing group without adding a split."}]}])
+        event("item/completed", thread_id, item={"id": "fixture-choice", "type": "agentMessage", "delivery": "async", "text": "", "questions": [{"title": "Where should new conversations open?", "options": ["Beside the current chat", "In the current group"]}]})
     if thread_id == "build":
         event("turn/started", thread_id, turn={"id": "fixture-build", "status": "inProgress"})
 

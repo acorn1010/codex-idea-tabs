@@ -21,6 +21,11 @@ final class SidebarSmoke {
     static void run(Project project, Path output) throws Exception {
         if (!System.getProperty("codex.smoke.binary", "").endsWith("fake-codex.py")) { throw new IllegalStateException("Sidebar checks require the test fixture"); }
         var service = CodexService.get(project);
+        service.load("choices").get();
+        waitFor(() -> {
+            try { return text(array(service.chat("choices").request("fixture-choice"), "questions").get(0).getAsJsonObject(), "id").equals("fixture-choice-0"); }
+            catch (IllegalArgumentException ignored) { return false; }
+        });
         var chat = service.importThread(object("id", "archive", "name", "Archive workflow check", "cwd", service.cwd()));
         if (chat.archived()) { service.archive(chat.id, false).get(); }
         chat.set("draft", "Keep this draft when archived"); service.changed(chat.id);

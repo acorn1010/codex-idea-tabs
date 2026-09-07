@@ -105,6 +105,7 @@ public final class Conversation {
         }
         revision++;
         if (!history.isEmpty()) { historyRevision = revision; }
+        items.values().forEach(this::questions);
     }
     public synchronized void historyPage(JsonArray entries, String cursor) {
         historyPage(entries, cursor, revision);
@@ -120,6 +121,7 @@ public final class Conversation {
             if (!history.containsKey(id) || itemRevisions.getOrDefault(id, 0L) > startedRevision) { history.put(id, item); }
         });
         items.clear(); items.putAll(history);
+        items.values().forEach(this::questions);
         for (var item : items.reversed().values()) {
             if (text(item, "type").equals("agentMessage") && !text(item, "text").isBlank()) { preview(text(item, "text")); break; }
         }
@@ -131,7 +133,15 @@ public final class Conversation {
         if (value == null) { throw new IllegalArgumentException("This request has already been answered."); }
         return value.deepCopy();
     }
-    public synchronized void resolve(String key) { requests.remove(key); revision++; }
+    public synchronized void resolve(String key) {
+        var request = requests.remove(key);
+        if (request != null && !request.has("rpcId")) {
+            var answered = array(state, "answeredQuestions").deepCopy();
+            if (!answered.contains(new JsonPrimitive(key))) { answered.add(key); }
+            state.add("answeredQuestions", answered);
+        }
+        revision++;
+    }
     public synchronized void disconnected() {
         requests.values().removeIf(request -> request.has("rpcId"));
         state.addProperty("working", false);
@@ -203,7 +213,20 @@ public final class Conversation {
         revision++;
     }
     private void put(JsonObject item) {
-        if (!text(item, "id").isBlank()) { items.put(text(item, "id"), item.deepCopy()); itemRevisions.put(text(item, "id"), revision + 1); }
+        if (!text(item, "id").isBlank()) { items.put(text(item, "id"), item.deepCopy()); itemRevisions.put(text(item, "id"), revision + 1); questions(item); }
+    }
+    /** Codex sends asynchronous choices on agent messages, separate from blocking RPC requests. */
+    private void questions(JsonObject item) {
+        String key = text(item, "id");
+        if (!text(item, "type").equals("agentMessage") || array(item, "questions").isEmpty() || array(state, "answeredQuestions").contains(new JsonPrimitive(key))) { return; }
+        var questions = new JsonArray();
+        for (var entry : array(item, "questions")) {
+            var source = entry.getAsJsonObject();
+            var options = new JsonArray();
+            for (var option : array(source, "options")) { options.add(object("label", option.getAsString(), "description", "")); }
+            questions.add(object("id", key + "-" + questions.size(), "question", text(source, "title"), "options", options));
+        }
+        requests.put(key, object("key", key, "itemId", key, "method", "item/tool/requestUserInput", "isBlocking", false, "questions", questions));
     }
     private void preview(String value) {
         state.addProperty("preview", value.substring(0, Math.min(120, value.length())).replaceAll("\\s+", " ").replaceAll("[*`#]", ""));

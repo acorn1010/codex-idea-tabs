@@ -4,7 +4,7 @@ Checked on September 7, 2026 with Windows IntelliJ IDEA 2026.1.3, a WSL Ubuntu b
 
 | Check | Result |
 | --- | --- |
-| Core state and path tests | 13 passed |
+| Core state and path tests | 14 passed |
 | Web state and attachment tests | 2 passed |
 | Plugin package structure | Passed |
 | Dependency audit | No reported vulnerabilities |
@@ -21,6 +21,7 @@ Checked on September 7, 2026 with Windows IntelliJ IDEA 2026.1.3, a WSL Ubuntu b
 | Real Codex archive APIs | Archive, archived listing, read without resume, and restore preserved the isolated test conversation |
 | Native archive workflow | Attention filter, row archive, Undo, archive browsing, and active-work protection passed |
 | Archived chat editor | Read-only view and Restore kept the saved draft |
+| Asynchronous message questions | Actual agent-message format triggers attention, survives restart, and stays resolved after a history reload |
 | Question card | No container or option borders, warm hover and pressed states, no duplicate selected answer in the custom input |
 | Sidebar selection | Group heading stays neutral and clipped-row expansion is disabled |
 | Responsive composer and menus | No horizontal overflow at 360, 520, and 720 pixels, full permission labels, menus inside the viewport |

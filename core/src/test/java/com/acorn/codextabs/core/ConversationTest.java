@@ -1,10 +1,25 @@
 package com.acorn.codextabs.core;
 
 import org.junit.jupiter.api.Test;
+import com.google.gson.JsonArray;
 import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class ConversationTest {
+    @Test void messageQuestionsNeedAttentionAndDoNotReturnAfterAnswerAndHistoryReload() {
+        var chat = new Conversation("chat", "/project");
+        var message = object("id", "question", "type", "agentMessage", "delivery", "async", "text", "Choose a layout", "questions", new Object[]{object("title", "Where should it open?", "options", new String[]{"Beside this chat", "Here"})});
+        chat.event(object("method", "item/completed", "params", object("item", message)));
+        assertEquals("attention", chat.status());
+        assertEquals("Where should it open?", text(array(chat.request("question"), "questions").get(0).getAsJsonObject(), "question"));
+        var restored = Conversation.restore(chat.snapshot());
+        assertEquals("attention", restored.status());
+        restored.resolve("question");
+        var page = new JsonArray(); page.add(object("item", message));
+        restored.historyPage(page, "");
+        assertEquals("idle", restored.status());
+        assertTrue(array(Conversation.restore(restored.snapshot()).snapshot(), "requests").isEmpty());
+    }
     @Test void archivePreservesHistoryDraftAndAttachmentsAcrossRestart() {
         var chat = new Conversation("chat", "/project");
         chat.set("draft", "Next step");
