@@ -53,6 +53,7 @@ For native Windows projects without WSL, use the Windows Codex executable. For L
 | Go to a chat that needs input | `Ctrl+Alt+A` or the sidebar's **Needs you** filter |
 | Add selected code | Select code, then **Codex: Discuss Selected Code** in the editor context menu |
 | Send a message | `Enter` |
+| Steer the running turn immediately | `Ctrl+Enter` (`⌘Enter` on macOS) in the composer |
 | Edit a sent message | Hover the message, choose the pencil, then **Edit and resend** or `Ctrl+Enter` (`⌘Enter` on macOS) |
 | Add a line | `Shift+Enter` |
 | Add files or images | Drop, paste, or use the plus button |

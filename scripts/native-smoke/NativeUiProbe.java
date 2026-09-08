@@ -14,6 +14,8 @@ import com.sun.jna.Native;
 import com.sun.jna.NativeLibrary;
 import com.sun.jna.Pointer;
 import java.awt.*;
+import java.awt.event.InputEvent;
+import java.awt.event.KeyEvent;
 import java.nio.file.*;
 import javax.swing.SwingUtilities;
 import static com.acorn.codextabs.core.Json.*;
@@ -57,7 +59,17 @@ public final class NativeUiProbe {
                                 throw new IllegalStateException("Test chat is not open");
                             } catch (Exception error) { throw new RuntimeException(error); }
                         });
-                        new Robot().mouseMove(mouse[0].x, mouse[0].y);
+                        var robot = new Robot();
+                        robot.mouseMove(mouse[0].x, mouse[0].y);
+                        if (text(command, "shortcut").equals("ctrl-enter")) {
+                            robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
+                            robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
+                            robot.delay(100);
+                            robot.keyPress(KeyEvent.VK_CONTROL);
+                            robot.keyPress(KeyEvent.VK_ENTER);
+                            robot.keyRelease(KeyEvent.VK_ENTER);
+                            robot.keyRelease(KeyEvent.VK_CONTROL);
+                        }
                         Thread.sleep(250);
                         ApplicationManager.getApplication().invokeAndWait(() -> {
                             result.addProperty("cursor", target[0].getCursor().getType());

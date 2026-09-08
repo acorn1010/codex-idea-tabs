@@ -81,7 +81,7 @@ def attention(thread_id):
     time.sleep(1)
     if thread_id == "choices":
         event("item/completed", thread_id, item={"id": "fixture-choice", "type": "agentMessage", "delivery": "async", "text": "", "questions": [{"title": "Where should new conversations open?", "options": ["Beside the current chat", "In the current group"]}]})
-    if thread_id == "build":
+    if thread_id == "build" or thread_id.startswith("steer-"):
         event("turn/started", thread_id, turn={"id": "fixture-build", "status": "inProgress"})
 
 
@@ -132,6 +132,11 @@ def respond(request):
         result = {"thread": thread(new_id)}
     elif method == "thread/start":
         result = {"thread": thread("new-" + str(time.time_ns()))}
+    elif method == "turn/steer" and params["threadId"].startswith("steer-"):
+        if params.get("expectedTurnId") != "fixture-build":
+            raise RuntimeError("Steer must target the current fixture turn")
+        result = {"turnId": "fixture-build"}
+        event("item/completed", params["threadId"], turnId="fixture-build", item={"id": "steer-" + str(time.time_ns()), "type": "userMessage", "content": params["input"]})
     elif method in ("turn/start", "turn/steer"):
         thread_id = params["threadId"]
         if "FIXTURE_RETRY_EDIT" in json.dumps(params["input"]) and thread_id not in failed_sends:

@@ -192,7 +192,13 @@ export function ChatApp() {
       <div className="cursor-text overflow-hidden rounded-xl bg-input shadow-input focus-within:shadow-input-focus">
         {!!chat?.draftInput?.length && <p className="px-3 pt-2 text-[11px] text-muted">{chat.draftInput.length} attached item{chat.draftInput.length === 1 ? '' : 's'} kept from your edited message</p>}
         {(attachments.length > 0 || uploads > 0) && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">{attachments.map((attachment) => <span key={attachment.path} className="flex max-w-full items-center gap-1.5 rounded-md bg-surface py-1 pr-1 pl-2 text-[11px]"><Icon name={attachment.mime.startsWith('image/') ? 'image' : 'file'} size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span><button aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="p-0.5 text-muted hover:text-ink active:text-accent"><Icon name="close" size={11} /></button></span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
-        <textarea ref={textarea} aria-label="Message Codex" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} onPaste={(event) => {
+        <textarea ref={textarea} aria-label="Message Codex" aria-keyshortcuts="Enter Control+Enter Meta+Enter" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onKeyDown={(event) => {
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing) { return; }
+          if (event.ctrlKey || event.metaKey || !event.shiftKey) {
+            event.preventDefault(); event.stopPropagation();
+            if (!event.repeat) { void send(); }
+          }
+        }} onPaste={(event) => {
           const files = Array.from(event.clipboardData.files);
           if (files.length) { event.preventDefault(); void uploadFiles(files); return; }
           const text = event.clipboardData.getData('text/plain');
@@ -213,7 +219,7 @@ export function ChatApp() {
           {selectedModel && <ChoiceMenu label="Reasoning effort" value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[380px]:hidden">IDE context</span></button>
           {working && <button aria-label="Stop Codex" title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
-          {(!working || draft.trim() || attachments.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Send follow-up to the active turn' : 'Send message (Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
+          {(!working || draft.trim() || attachments.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>
         </div>
       </div>

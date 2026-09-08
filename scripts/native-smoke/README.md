@@ -60,6 +60,8 @@ For command grouping, run `check-command-groups.mjs` with `CODEX_SMOKE_CHROME` s
 
 To check the real mouse cursor, add `-Dcodex.smoke.ui.probe=true` to the test profile and run `check-cursor.mjs` from that profile's directory. It moves the mouse over the composer, a button, the inline message editor, and chat search. Keep the mouse idle during this short check. The harness checks AWT cursor state and, on Windows, the cursor returned by `GetCursorInfo`. CSS alone cannot verify the cursor in remote JCEF.
 
+With the same native probe enabled, run `check-steer-shortcut.mjs` from the test profile's directory. It presses Ctrl+Enter through the operating system and checks that the composer sends exactly one message through `turn/steer`, clears the draft, and keeps the existing turn active. Keep the mouse and keyboard idle during this check.
+
 Set `-Dcodex.smoke.sidebar.check=true` to run the native sidebar checks. They click the attention filter, archive a fixture chat, undo that action, browse the archive, and open the archived chat for reading. They also check that active work cannot be archived. Results and hover and pressed captures go to the test log directory. This option requires the fake backend. It leaves an archived chat open so its read-only state and Restore button can be checked in JCEF.
 
 Also check the native sidebar at a narrow width. Rows and toolbar buttons must have distinct hover and pressed states. Clicking a row once should open it. The context menu can open to the side, rename, pin, or archive an idle chat.
