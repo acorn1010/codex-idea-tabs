@@ -6,6 +6,44 @@ import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class ConversationTest {
+    @Test void successfulResumeClearsConnectionErrorButKeepsFailedTurn() {
+        var chat = new Conversation("chat", "/project");
+        chat.loadFailed("Disconnected during resume"); assertEquals("error", chat.status());
+        chat.loaded(); assertEquals("idle", chat.status()); assertEquals("", chat.get("error"));
+        chat.event(object("method", "turn/completed", "params", object("turn", object("id", "failed", "status", "failed", "error", object("message", "Usage limit exceeded")))));
+        chat.loaded(); assertEquals("error", chat.status()); assertEquals("Usage limit exceeded", chat.get("error"));
+    }
+    @Test void streamingAfterAutomaticRetryClearsWarning() {
+        var chat = new Conversation("chat", "/project");
+        chat.event(object("method", "turn/started", "params", object("turn", object("id", "turn"))));
+        chat.event(object("method", "error", "params", object("turnId", "turn", "willRetry", true, "error", object("message", "Reconnecting"))));
+        assertEquals("Reconnecting", chat.get("error"));
+        chat.event(object("method", "item/agentMessage/delta", "params", object("itemId", "answer", "delta", "Recovered")));
+        assertEquals("", chat.get("error")); assertEquals("working", chat.status());
+        chat.event(object("method", "turn/completed", "params", object("turn", object("id", "turn", "status", "completed"))));
+        assertEquals("complete", chat.status());
+    }
+    @Test void completionClearsRetryWithoutRequiringAnotherMessage() {
+        var chat = new Conversation("chat", "/project");
+        chat.event(object("method", "error", "params", object("willRetry", true, "error", object("message", "Retrying"))));
+        chat.event(object("method", "turn/completed", "params", object("turn", object("id", "turn", "status", "completed"))));
+        assertEquals("", chat.get("error")); assertEquals("complete", chat.status());
+    }
+    @Test void lateErrorFromOldTurnCannotPoisonCurrentWork() {
+        var chat = new Conversation("chat", "/project");
+        chat.event(object("method", "turn/started", "params", object("turn", object("id", "new"))));
+        chat.event(object("method", "error", "params", object("turnId", "old", "willRetry", false, "error", object("message", "Old error"))));
+        assertEquals("", chat.get("error"));
+    }
+    @Test void resumedActiveThreadIsRetainedButDelayedStatusCannotReviveCompletedTurn() {
+        var chat = new Conversation("chat", "/project");
+        chat.resumed(object("id", "thread", "status", object("type", "active")), chat.revision());
+        assertTrue(chat.busy());
+        long started = chat.revision();
+        chat.event(object("method", "turn/completed", "params", object("turn", object("id", "turn", "status", "completed"))));
+        chat.resumed(object("id", "thread", "status", object("type", "active")), started);
+        assertFalse(chat.busy());
+    }
     @Test void messageQuestionsNeedAttentionAndDoNotReturnAfterAnswerAndHistoryReload() {
         var chat = new Conversation("chat", "/project");
         var message = object("id", "question", "type", "agentMessage", "delivery", "async", "text", "Choose a layout", "questions", new Object[]{object("title", "Where should it open?", "options", new String[]{"Beside this chat", "Here"})});

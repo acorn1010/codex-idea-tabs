@@ -39,6 +39,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
 
     public ChatEditor(Project project, ChatFiles.ChatFile file) {
         this.project = project; this.file = file; service = CodexService.get(project);
+        service.editorOpened(file.id);
         panel.add(new JLabel("Opening chat…", SwingConstants.CENTER));
         listener = id -> { dirty = true; };
         service.listen(listener);
@@ -112,6 +113,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         });
     }
     private CompletableFuture<JsonObject> handle(String method, JsonObject params) {
+        if (disposed) { return CompletableFuture.failedFuture(new IllegalStateException("Chat was closed")); }
         var chat = service.chat(file.id);
         switch (method) {
             case "ready": ready = true; dirty = true; service.load(file.id); return completed(service.snapshot(file.id));
@@ -254,7 +256,10 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     @Override public void addPropertyChangeListener(PropertyChangeListener listener) {}
     @Override public void removePropertyChangeListener(PropertyChangeListener listener) {}
     @Override public void selectNotify() { dirty = true; service.chat(file.id).set("unread", false); service.changed(file.id); if (ready) { service.load(file.id); } }
-    @Override public void dispose() { disposed = true; updates.stop(); service.unlisten(listener); }
+    @Override public void dispose() {
+        if (disposed) { return; }
+        disposed = true; updates.stop(); service.unlisten(listener); service.editorClosed(file.id);
+    }
 
     public static final class Provider implements FileEditorProvider, DumbAware {
         @Override public boolean accept(Project project, VirtualFile file) { return file instanceof ChatFiles.ChatFile; }

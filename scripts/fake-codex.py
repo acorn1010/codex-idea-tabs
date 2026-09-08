@@ -19,6 +19,10 @@ archived = set(json.loads(archive_file.read_text())) if archive_file.exists() el
 history_file = root / "edit-history.json"
 histories = json.loads(history_file.read_text()) if history_file.exists() else {}
 failed_sends = set()
+subscriptions = set()
+resumes = {}
+unsubscribes = {}
+statuses = {}
 
 
 def emit(value):
@@ -32,7 +36,7 @@ def event(method, thread, **params):
 
 
 def thread(thread_id):
-    return {"id": thread_id, "name": titles.get(thread_id, "New task"), "preview": "", "cwd": str(root), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1}
+    return {"id": thread_id, "name": titles.get(thread_id, "New task"), "preview": "", "cwd": str(root), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1, "status": {"type": statuses.get(thread_id, "idle")}}
 
 
 def items(thread_id):
@@ -110,8 +114,28 @@ def respond(request):
         archive_file.write_text(json.dumps(sorted(archived)))
         event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
+    elif method == "fixture/stats":
+        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes}
+    elif method == "fixture/event":
+        notification = params["event"]
+        thread_id = notification["params"]["threadId"]
+        if notification["method"] == "turn/started":
+            statuses[thread_id] = "active"
+        elif notification["method"] == "turn/completed":
+            statuses[thread_id] = "idle"
+        emit(notification)
+    elif method == "thread/unsubscribe":
+        thread_id = params["threadId"]
+        unsubscribes[thread_id] = unsubscribes.get(thread_id, 0) + 1
+        result = {"status": "unsubscribed" if thread_id in subscriptions else "notSubscribed"}
+        subscriptions.discard(thread_id)
     elif method == "thread/resume":
-        result = {"thread": thread(params["threadId"])}
+        thread_id = params["threadId"]
+        resumes[thread_id] = resumes.get(thread_id, 0) + 1
+        if thread_id.startswith("lifecycle-retry-") and resumes[thread_id] == 1:
+            raise RuntimeError("Fixture resume needs a retry")
+        subscriptions.add(thread_id)
+        result = {"thread": thread(thread_id)}
         threading.Thread(target=attention, args=(params["threadId"],), daemon=True).start()
     elif method == "thread/items/list":
         entries = [{"item": item, "turnId": turn["id"]} for turn in turns(params["threadId"]) for item in turn["items"]]
@@ -132,6 +156,7 @@ def respond(request):
         result = {"thread": thread(new_id)}
     elif method == "thread/start":
         result = {"thread": thread("new-" + str(time.time_ns()))}
+        subscriptions.add(result["thread"]["id"])
     elif method == "turn/steer" and params["threadId"].startswith("steer-"):
         if params.get("expectedTurnId") != "fixture-build":
             raise RuntimeError("Steer must target the current fixture turn")

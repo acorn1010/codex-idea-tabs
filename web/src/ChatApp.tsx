@@ -23,6 +23,7 @@ export function ChatApp() {
   const [sending, setSending] = useState(false);
   const [uploads, setUploads] = useState(0);
   const [error, setError] = useState('');
+  const [connectionError, setConnectionError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [context, setContext] = useState(false);
   const [palette, setPalette] = useState(false);
@@ -43,6 +44,7 @@ export function ChatApp() {
   const end = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number>(0);
   const apply = useCallback((snapshot: Snapshot) => {
+    if (snapshot.connection === 'connected' && !snapshot.error && !snapshot.chat.error) { setConnectionError(''); }
     if (!initial.current) {
       initial.current = true; setDraft(snapshot.chat.draft || '');
       setAttachments(snapshot.chat.draftAttachments || []);
@@ -63,7 +65,7 @@ export function ChatApp() {
   useEffect(() => {
     const listener = (event: Event) => apply((event as CustomEvent<Snapshot>).detail);
     window.addEventListener('codex-state', listener);
-    void request<Snapshot>('ready').then(apply).catch((error: Error) => setError(error.message));
+    void request<Snapshot>('ready').then(apply).catch((error: Error) => setConnectionError(error.message));
     return () => window.removeEventListener('codex-state', listener);
   }, [apply]);
   useEffect(() => { if (follow) { end.current?.scrollIntoView({ block: 'end' }); } }, [state?.chat.revision, follow]);
@@ -110,7 +112,11 @@ export function ChatApp() {
     });
   };
   const run = async (method: string, params: Json = {}) => {
-    try { return await request(method, params); } catch (error) { setError((error as Error).message); }
+    try {
+      const result = await request(method, params);
+      if (method === 'reconnect') { setConnectionError(''); }
+      return result;
+    } catch (error) { (method === 'reconnect' ? setConnectionError : setError)((error as Error).message); }
   };
   const uploadFiles = async (files: File[]) => {
     if (state?.chat.archived) { return; }
@@ -163,7 +169,7 @@ export function ChatApp() {
       <SmallButton label="Connection settings" icon="settings" onClick={() => void run('settings')} />
     </header>
 
-    {(state?.error || error || chat?.error) && <div role="alert" className="flex items-start gap-2 border-b border-red-400/20 bg-red-400/5 px-3 py-2 text-xs text-red-300"><span className="min-w-0 flex-1 break-words">{error || chat?.error || state?.error}</span><button onClick={() => { setError(''); void run('reconnect'); }} className="shrink-0 rounded px-1 underline hover:bg-red-400/15 active:bg-red-400/25">Reconnect</button></div>}
+    {(state?.error || error || connectionError || chat?.error) && <div role="alert" className="flex items-start gap-2 border-b border-red-400/20 bg-red-400/5 px-3 py-2 text-xs text-red-300"><span className="min-w-0 flex-1 break-words">{error || chat?.error || state?.error || connectionError}</span><button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded px-1 underline hover:bg-red-400/15 active:bg-red-400/25">Reconnect</button></div>}
     {needsLogin && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs"><span className="flex-1">Use your Codex subscription</span><button className="rounded bg-accent px-2.5 py-1 text-composer hover:brightness-110 active:brightness-90" onClick={() => { void run('login').then((value) => { if (value) { setLogin(value); } }); }}>Sign in with ChatGPT</button></div>}
     {login && needsLogin && <div className="border-b border-line p-3 text-xs"><p>Open the sign-in page and enter <strong className="select-all text-accent">{String(login.userCode || '')}</strong>.</p><button className="mt-2 rounded text-accent underline hover:bg-accent/10 active:bg-accent/20" onClick={() => void run('openLink', { path: login.verificationUrl })}>Open sign-in page ↗</button></div>}
 

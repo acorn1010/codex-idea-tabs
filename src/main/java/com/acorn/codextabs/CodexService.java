@@ -13,15 +13,18 @@ import java.util.concurrent.*;
 import java.util.function.Consumer;
 import static com.acorn.codextabs.core.Json.*;
 
-/** Project-owned sessions continue when their editor tabs are hidden or closed. */
+/** Active work survives closed editors. Idle threads release their backend subscriptions. */
 @Service(Service.Level.PROJECT)
 public final class CodexService implements Disposable {
     private final Project project;
     private final ConcurrentMap<String, Conversation> chats = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CompletableFuture<Void>> sends = new ConcurrentHashMap<>();
-    private final ConcurrentMap<String, CompletableFuture<Void>> resumes = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, Integer> editors = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Consumer<String>> listeners = new CopyOnWriteArrayList<>();
     private final ExecutorService io = Executors.newVirtualThreadPerTaskExecutor();
+    private final ThreadSessions sessions = new ThreadSessions(io, this::unsubscribe, (id, error) -> {
+        connectionError = "Could not release a closed chat: " + message(error); changed("");
+    });
     private final ScheduledExecutorService persistence = Executors.newSingleThreadScheduledExecutor();
     private final java.nio.file.Path cache;
     private volatile boolean dirty;
@@ -107,6 +110,18 @@ public final class CodexService implements Disposable {
     }
     public void listen(Consumer<String> listener) { listeners.add(listener); }
     public void unlisten(Consumer<String> listener) { listeners.remove(listener); }
+    public void editorOpened(String id) { editors.merge(id, 1, Integer::sum); sessions.retain(id); }
+    public void editorClosed(String id) {
+        editors.computeIfPresent(id, (key, count) -> count == 1 ? null : count - 1);
+        tabPresentations.remove(id);
+        if (!disposed) { sessions.release(id); }
+    }
+    private CompletableFuture<Void> unsubscribe(String id) {
+        var rpc = client;
+        String threadId = chat(id).get("threadId");
+        if (rpc == null || !rpc.isAlive() || threadId.isBlank()) { return CompletableFuture.completedFuture(null); }
+        return rpc.request("thread/unsubscribe", object("threadId", threadId)).thenApply(ignored -> null);
+    }
     public void rename(String id, String title) {
         var chat = chat(id);
         chat.set("title", title); chat.set("renamed", true); changed(id);
@@ -130,17 +145,19 @@ public final class CodexService implements Disposable {
                 var builder = new ProcessBuilder(com.acorn.codextabs.core.Paths.command(settings().binary, distro(), SystemInfo.isWindows));
                 if (distro().isBlank() && Files.isDirectory(java.nio.file.Path.of(cwd()))) { builder.directory(java.nio.file.Path.of(cwd()).toFile()); }
                 // A configured WSL executable is passed as one argument, even when its path contains spaces.
-                var rpc = new RpcClient(builder.start(), this::event, message -> {
+                var rpc = new RpcClient(builder.start(), event -> { if (generation == connectionGeneration) { event(event); } }, message -> {
                     if (generation != connectionGeneration) { return; }
                     connectionStatus = "disconnected";
                     connectionError = disposed ? "" : message;
                     chats.values().forEach(Conversation::disconnected);
-                    resumes.clear(); changed("");
+                    sessions.disconnected(); changed("");
                 });
                 if (disposed || generation != connectionGeneration) { rpc.close(); throw new IllegalStateException("Connection was replaced"); }
                 client = rpc;
                 rpc.request("initialize", object("clientInfo", object("name", "codex_idea_tabs", "title", "Codex Tabs for IDEA", "version", "0.1.1"), "capabilities", object("experimentalApi", true))).join();
                 rpc.notify("initialized", new JsonObject());
+                if (generation != connectionGeneration || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
+                connectionError = "";
                 connectionStatus = "connected";
                 rpc.request("account/read", object("refreshToken", false)).thenAccept(value -> { account = value; changed(""); });
                 rpc.request("model/list", object("limit", 100)).thenAccept(value -> { models = array(value, "data"); initializeModelPreferences(); changed(""); });
@@ -159,8 +176,8 @@ public final class CodexService implements Disposable {
     }
     public CompletableFuture<JsonObject> rpc(String method, JsonObject params) { return connect().thenCompose(client -> client.request(method, params)); }
     public void reconnect() {
-        synchronized (this) { connectionGeneration++; if (client != null) { client.close(); } client = null; connection = null; resumes.clear(); attachmentRoot = null; chats.values().forEach(Conversation::disconnected); }
-        connect();
+        synchronized (this) { connectionGeneration++; if (client != null) { client.close(); } client = null; connection = null; sessions.disconnected(); attachmentRoot = null; chats.values().forEach(Conversation::disconnected); }
+        connect().thenRun(() -> editors.keySet().forEach(this::load));
     }
     public CompletableFuture<JsonObject> history(String search, String cursor) {
         return history(search, cursor, false);
@@ -184,29 +201,38 @@ public final class CodexService implements Disposable {
         if (chat.get("threadId").isBlank()) { return connect().thenApply(ignored -> null); }
         // Reading an archived chat must not resume or restore its backend session.
         if (chat.archived()) { return older(id, "").thenApply(ignored -> null); }
-        return resumes.computeIfAbsent(id, key -> {
+        return connect().thenCompose(rpc -> sessions.load(id, () -> {
             long revision = chat.revision();
-            return rpc("thread/resume", object("threadId", chat.get("threadId"), "excludeTurns", true)).thenCompose(result -> {
-                chat.hydrate(obj(result, "thread"), revision);
-                changed(id);
-                return older(id, "").thenApply(ignored -> (Void) null);
+            if (client != rpc || !rpc.isAlive()) { return CompletableFuture.failedFuture(new CancellationException("Connection was replaced")); }
+            return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "excludeTurns", true)).thenCompose(result -> {
+                if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
+                chat.resumed(obj(result, "thread"), revision);
+                sessions.working(id, chat.busy());
+                return older(id, "", rpc).thenAccept(ignored -> {
+                    if (client == rpc && rpc.isAlive()) { chat.loaded(); changed(id); }
+                });
             }).whenComplete((result, error) -> {
-                if (error != null) { chat.set("error", message(error)); changed(id); }
+                if (error != null && client == rpc) { chat.loadFailed(message(error)); changed(id); }
             });
-        });
+        }));
     }
     public CompletableFuture<JsonObject> older(String id, String cursor) {
+        return connect().thenCompose(rpc -> older(id, cursor, rpc));
+    }
+    private CompletableFuture<JsonObject> older(String id, String cursor, RpcClient rpc) {
         var chat = chat(id);
         long startedRevision = chat.revision();
         var params = object("threadId", chat.get("threadId"), "limit", 100, "sortDirection", "desc");
         if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
-        return rpc("thread/items/list", params).thenApply(page -> {
+        return rpc.request("thread/items/list", params).thenApply(page -> {
+            if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
             chat.historyPage(array(page, "data"), text(page, "nextCursor"), startedRevision); changed(id); return page;
         });
     }
     public CompletableFuture<JsonObject> send(String id, JsonObject payload) {
         var chat = chat(id);
         var result = new CompletableFuture<JsonObject>();
+        sessions.retain(id);
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
             .thenRunAsync(() -> {
                 try {
@@ -226,7 +252,7 @@ public final class CodexService implements Disposable {
                         var thread = obj(rpc.request("thread/start", start).join(), "thread");
                         chat.hydrate(thread, chat.revision());
                         if (chat.get("title").equals("New chat") || chat.get("title").isBlank()) { chat.set("title", prompt.lines().findFirst().orElse("New chat").substring(0, Math.min(prompt.lines().findFirst().orElse("New chat").length(), 80))); }
-                        resumes.put(id, CompletableFuture.completedFuture(null));
+                        sessions.load(id, () -> CompletableFuture.completedFuture(null)).join();
                     } else { load(id).join(); }
                     var params = object("threadId", chat.get("threadId"), "input", input);
                     String active = chat.get("turnId");
@@ -251,9 +277,10 @@ public final class CodexService implements Disposable {
                     chat.set("draftInput", new JsonArray());
                     chat.set("error", "");
                     options.permissions = permissions;
+                    sessions.working(id, chat.busy());
                     changed(id);
                 } catch (Exception error) { chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }
-            }, io));
+            }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
     /** Continue an edited turn in a new chat, leaving the source conversation and its active work intact. */
@@ -322,6 +349,7 @@ public final class CodexService implements Disposable {
     public CompletableFuture<JsonObject> archive(String id, boolean archived) {
         var chat = chat(id);
         var result = new CompletableFuture<JsonObject>();
+        sessions.retain(id);
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
             .thenRunAsync(() -> {
                 try {
@@ -332,11 +360,11 @@ public final class CodexService implements Disposable {
                         rpc(archived ? "thread/archive" : "thread/unarchive", object("threadId", threadId)).join();
                     }
                     chat.archive(archived);
-                    resumes.remove(id);
+                    sessions.forget(id);
                     changed(id);
                     result.complete(new JsonObject());
                 } catch (Exception error) { result.completeExceptionally(error); }
-            }, io));
+            }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
     public String connectionStatus() { return connectionStatus; }
@@ -345,7 +373,7 @@ public final class CodexService implements Disposable {
         String key = text(payload, "key");
         var pending = chat.request(key);
         if (!pending.has("rpcId")) {
-            if (flag(payload, "dismiss")) { chat.resolve(key); changed(id); return CompletableFuture.completedFuture(new JsonObject()); }
+            if (flag(payload, "dismiss")) { chat.resolve(key); sessions.working(id, chat.busy()); changed(id); return CompletableFuture.completedFuture(new JsonObject()); }
             var answers = obj(payload, "answers");
             var reply = new StringBuilder();
             for (var q : array(pending, "questions")) {
@@ -364,6 +392,7 @@ public final class CodexService implements Disposable {
             else { response = object("decision", text(payload, "decision", "decline")); }
             rpc.respond(pending.get("rpcId"), response);
             chat.resolve(key); changed(id);
+            sessions.working(id, chat.busy());
             return new JsonObject();
         });
     }
@@ -409,7 +438,8 @@ public final class CodexService implements Disposable {
         var target = chats.values().stream().filter(chat -> !threadId.isBlank() && chat.get("threadId").equals(threadId)).findFirst();
         if (target.isPresent()) {
             var chat = target.get(); chat.event(event); changed(chat.id);
-            if (Set.of("thread/archived", "thread/unarchived").contains(text(event, "method"))) { resumes.remove(chat.id); }
+            if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { sessions.forget(chat.id); }
+            sessions.working(chat.id, chat.busy());
             if (event.has("id") && !Set.of("item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request").contains(text(event, "method"))) {
                 client.reject(event.get("id"), "This client does not yet support " + text(event, "method"));
             }
@@ -447,6 +477,7 @@ public final class CodexService implements Disposable {
     }
     @Override public void dispose() {
         disposed = true;
+        sessions.disconnected();
         persistence.shutdownNow();
         save();
         if (client != null) { client.close(); }

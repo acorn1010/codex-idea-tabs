@@ -8,7 +8,7 @@ This is an independent client for the [Codex app server](https://developers.open
 
 - Opens each conversation in an ordinary IDEA editor tab. Tabs can be split, moved, pinned, closed, and restored by the IDE.
 - Uses blue tab icons for work in progress, amber for questions or approvals, and green for unread results.
-- Keeps sessions and pending questions alive when their tabs are hidden or closed.
+- Keeps hidden tabs connected. Closed chats finish active work in the background, then release their subscriptions. Drafts, history, and asynchronous questions remain available.
 - Groups chats by attention, work in progress, pins, and recent activity, with search and readable message previews.
 - Archives finished chats with Undo, an archive browser, and Restore. History, drafts, and attachments stay available.
 - Streams Markdown, command output, file changes, plans, and generated images.
@@ -69,6 +69,8 @@ The sidebar has one primary **New chat** action. Questions and active work appea
 
 Archiving closes that chat's editor tabs and moves its Codex history into the archive. It does not delete messages, files, or a saved draft. **Undo** restores the last archived chat. You can read archived conversations without resuming them. Restore a chat before sending a new message. Chats with active work or unanswered requests cannot be archived.
 
+A failed chat load can retry on the same connection. A successful load or renewed streaming clears its temporary connection error. A failed send or failed turn remains visible until addressed. Reconnect restores all open chats.
+
 Questions stay above the composer until answered or dismissed. An asynchronous question can remain after the turn finishes. A blocking approval belongs to its live server connection, so it is cleared after a disconnect.
 
 Editing opens an inline text field. **Cancel** or `Escape` keeps the original text. **Edit and resend** opens a new chat using history before the edited turn and keeps its attachments. The original chat, its draft, and any active work stay intact. This also works when reading an archived chat. Existing file changes are kept, so editing a message does not undo work on disk.
@@ -85,7 +87,7 @@ Model, reasoning, and permission changes apply to the next turn. A follow-up sen
 
 The web UI is bundled in the plugin. It has no development server or remote CDN dependency. Markdown raw HTML is disabled, and local images are read through the native bridge.
 
-Closing a chat tab leaves the project-owned session running. Closing the project stops its app-server process. Reopening a project restores its chats and drafts, but does not restart interrupted work without a new message.
+Closing the last editor for an idle chat sends `thread/unsubscribe`. A closed chat with active work or a blocking request stays subscribed until that work finishes. Reopening it resumes the thread. Codex owns the final memory cleanup: its documented grace period is 30 minutes without subscribers or thread activity, so process memory may not fall as soon as a tab closes. Closing the project stops its app-server process. Reopening a project restores its chats and drafts, but does not restart interrupted work without a new message.
 
 ## Build and test
 

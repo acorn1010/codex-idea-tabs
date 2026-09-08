@@ -69,3 +69,5 @@ Also check the native sidebar at a narrow width. Rows and toolbar buttons must h
 Close and restart the test profile normally. Verify that the native split layout, draft, attachment, and image preview return. Inspect the IDEA log for errors naming this plugin. The opt-in real subscription test is separate, under `core/src/test`.
 
 Do not install the smoke-test plugin in your daily IDE profile or include it in a release.
+
+Set `-Dcodex.smoke.lifecycle.check=true` to check real editor disposal, idle unsubscribe, close and reopen, background completion, retry recovery, and reconnecting multiple open tabs. The harness uses fresh fixture IDs and writes `lifecycle-result.json`. Its subscription checks verify RPC receipt, not the real app server's memory cleanup delay. It leaves a chat with an image attached for preview checks.

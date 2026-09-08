@@ -13,6 +13,7 @@ public final class Conversation {
     private final Map<String, Long> itemRevisions = new HashMap<>();
     private long revision;
     private long historyRevision;
+    private long runtimeRevision;
 
     public Conversation(String id, String cwd) {
         this.id = id;
@@ -32,7 +33,20 @@ public final class Conversation {
         return chat;
     }
     public synchronized String get(String key) { return text(state, key); }
-    public synchronized void set(String key, Object value) { state.add(key, GSON.toJsonTree(value)); revision++; }
+    public synchronized void set(String key, Object value) {
+        state.add(key, GSON.toJsonTree(value));
+        if (key.equals("error")) { state.addProperty("errorKind", "operation"); }
+        revision++;
+    }
+    /** A failed resume is recoverable independently of a failed user turn. */
+    public synchronized void loadFailed(String message) {
+        state.addProperty("error", message); state.addProperty("errorKind", "connection"); revision++;
+    }
+    public synchronized void loaded() { clearRecoverableError(); revision++; }
+    public synchronized boolean busy() { return flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
+    private void clearRecoverableError() {
+        if (Set.of("connection", "retry").contains(get("errorKind"))) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
+    }
     public synchronized long revision() { return revision; }
     public synchronized JsonArray items() {
         var result = new JsonArray();
@@ -107,6 +121,18 @@ public final class Conversation {
         if (!history.isEmpty()) { historyRevision = revision; }
         items.values().forEach(this::questions);
     }
+    /** Apply live resume state without letting a delayed reply replace newer turn events. */
+    public synchronized void resumed(JsonObject thread, long startedRevision) {
+        hydrate(thread, startedRevision);
+        if (runtimeRevision <= startedRevision && thread.has("status")) { threadStatus(obj(thread, "status")); }
+    }
+    private void threadStatus(JsonObject status) {
+        String type = text(status, "type");
+        if (type.equals("active")) { state.addProperty("working", true); }
+        else if (type.equals("idle") || type.equals("notLoaded") || type.equals("systemError")) {
+            state.addProperty("working", false); state.addProperty("turnId", "");
+        }
+    }
     public synchronized void historyPage(JsonArray entries, String cursor) {
         historyPage(entries, cursor, revision);
     }
@@ -165,10 +191,12 @@ public final class Conversation {
                 state.addProperty("completedTurnId", text(turn, "id"));
                 state.addProperty("turnId", "");
                 state.addProperty("unread", true);
-                if (turn.has("error") && turn.get("error").isJsonObject()) { state.addProperty("error", text(obj(turn, "error"), "message")); }
+                if (turn.has("error") && turn.get("error").isJsonObject()) { state.addProperty("error", text(obj(turn, "error"), "message")); state.addProperty("errorKind", "turn"); }
+                else if (text(turn, "status").equals("completed") && !get("errorKind").equals("operation")) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
                 requests.values().removeIf(request -> request.has("rpcId") && text(request, "turnId").equals(text(turn, "id")));
             }
             case "item/started", "item/completed" -> {
+                clearRecoverableError();
                 var item = obj(params, "item");
                 if (text(item, "type").equals("reasoning") && items.containsKey(text(item, "id")) && !item.has("text")) {
                     String streamed = text(items.get(text(item, "id")), "text");
@@ -178,6 +206,7 @@ public final class Conversation {
                 if (method.equals("item/completed") && text(item, "type").equals("agentMessage")) { preview(text(item, "text")); }
             }
             case "item/agentMessage/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/commandExecution/outputDelta" -> {
+                clearRecoverableError();
                 String id = text(params, "itemId");
                 String type = method.contains("agentMessage") ? "agentMessage" : method.contains("reasoning") ? "reasoning" : "commandExecution";
                 String field = type.equals("commandExecution") ? "aggregatedOutput" : "text";
@@ -201,16 +230,23 @@ public final class Conversation {
             case "thread/name/updated" -> state.addProperty("title", text(params, "threadName", get("title")));
             case "thread/archived" -> { state.addProperty("archived", true); state.addProperty("hidden", false); }
             case "thread/unarchived" -> { state.addProperty("archived", false); state.addProperty("hidden", false); }
+            case "thread/status/changed" -> threadStatus(obj(params, "status"));
+            case "thread/closed" -> disconnected();
             case "thread/tokenUsage/updated" -> state.add("tokenUsage", obj(params, "tokenUsage"));
             case "turn/plan/updated" -> state.add("plan", array(params, "plan"));
             case "turn/diff/updated" -> state.addProperty("diff", text(params, "diff"));
-            case "error" -> state.addProperty("error", text(obj(params, "error"), "message", text(params, "message")));
+            case "error" -> {
+                if (!get("turnId").isBlank() && !text(params, "turnId", get("turnId")).equals(get("turnId"))) { return; }
+                state.addProperty("error", text(obj(params, "error"), "message", text(params, "message")));
+                state.addProperty("errorKind", flag(params, "willRetry") ? "retry" : "turn");
+            }
             default -> { return; }
         }
         if (!method.endsWith("Delta") && !method.endsWith("/delta") && !method.startsWith("item/started") && !method.startsWith("item/completed") && !method.equals("thread/tokenUsage/updated")) {
             state.addProperty("updatedAt", System.currentTimeMillis());
         }
         revision++;
+        if (method.startsWith("turn/") || method.equals("thread/status/changed") || method.equals("thread/closed")) { runtimeRevision = revision; }
     }
     private void put(JsonObject item) {
         if (!text(item, "id").isBlank()) { items.put(text(item, "id"), item.deepCopy()); itemRevisions.put(text(item, "id"), revision + 1); questions(item); }

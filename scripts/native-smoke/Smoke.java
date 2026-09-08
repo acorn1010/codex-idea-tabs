@@ -33,6 +33,11 @@ public final class Smoke implements StartupActivity.DumbAware {
                     ApplicationManager.getApplication().invokeAndWait(() -> ChatFiles.open(project, chat.id, false));
                     return;
                 }
+                if (Boolean.getBoolean("codex.smoke.lifecycle.check")) {
+                    service.reconnect();
+                    LifecycleSmoke.run(project, Path.of(System.getProperty("idea.log.path")));
+                    return;
+                }
                 service.history("", "").get();
                 for (String id : new String[]{"review", "choices", "image", "build"}) {
                     service.importThread(object("id", id, "name", switch(id) { case "review" -> "Review session recovery"; case "choices" -> "Choose the composer layout"; case "image" -> "Preview the new artwork"; default -> "Check the build"; }, "cwd", settings.cwd));
