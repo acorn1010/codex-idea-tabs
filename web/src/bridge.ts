@@ -1,9 +1,29 @@
 import type { Json } from './types';
 
-declare global { interface Window { __codexSend?: (message: string) => void } }
+declare global { interface Window { __codexSend?: (message: string) => void; __codexNativeCursor?: boolean } }
 
 let sequence = 0;
 const pending = new Map<number, { resolve: (value: Json) => void; reject: (error: Error) => void; timeout: number }>();
+
+/** Mirror cursor changes only when remote JCEF cannot update the native mouse cursor itself. */
+export function installNativeCursor(): (() => void) | undefined {
+  if (!window.__codexNativeCursor) { return; }
+  let previous = '';
+  const update = (target: EventTarget | null) => {
+    const value = target instanceof Element ? getComputedStyle(target).cursor : 'default';
+    if (value === previous) { return; }
+    previous = value;
+    window.__codexSend?.(JSON.stringify({ method: 'cursor', params: { value } }));
+  };
+  const over = (event: PointerEvent) => update(event.target);
+  const out = (event: PointerEvent) => update(event.relatedTarget);
+  document.addEventListener('pointerover', over);
+  document.addEventListener('pointerout', out);
+  return () => {
+    document.removeEventListener('pointerover', over);
+    document.removeEventListener('pointerout', out);
+  };
+}
 
 window.addEventListener('codex-reply', (event) => {
   const { id, result, error } = (event as CustomEvent).detail;

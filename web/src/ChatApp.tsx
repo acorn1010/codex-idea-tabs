@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Attachment, Chat, Input, Json, Snapshot } from './types';
-import { request } from './bridge';
+import { request, installNativeCursor } from './bridge';
 import { mergeChat, attachmentInput, modelEffort } from './format';
 import { Icon } from './icons';
 import { Transcript } from './Transcript';
@@ -13,6 +13,7 @@ function SmallButton({ label, icon, onClick }: { label: string; icon: Parameters
 
 /** One compact chat view maps to one native editor tab. The native host owns its durable identity. */
 export function ChatApp() {
+  useEffect(installNativeCursor, []);
   const [state, setState] = useState<Snapshot>();
   const [draft, setDraft] = useState('');
   const [model, setModel] = useState('');

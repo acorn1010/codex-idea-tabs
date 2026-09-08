@@ -65,6 +65,10 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         bridge.addHandler(raw -> {
             try {
                 var request = JsonParser.parseString(raw).getAsJsonObject();
+                if (text(request, "method").equals("cursor")) {
+                    updateCursor(text(obj(request, "params"), "value"));
+                    return null;
+                }
                 CompletableFuture.runAsync(() -> {
                     try { handle(text(request, "method"), obj(request, "params")).whenComplete((result, error) -> reply(request.get("id"), result, error)); }
                     catch (Exception error) { reply(request.get("id"), null, error); }
@@ -74,12 +78,38 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         });
         String nonce = UUID.randomUUID().toString();
         String boot = "window.__codexSend=function(value){" + bridge.inject("value") + "};";
+        if (org.cef.CefApp.isRemoteEnabled()) { boot += "window.__codexNativeCursor=true;"; }
         String html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             + "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'\">"
             + "<style>" + resource("web/index.css") + "</style></head><body><div id='root'></div><script nonce='" + nonce + "'>" + boot + "</script>"
             + "<script type='module' nonce='" + nonce + "'>" + resource("web/app.js").replace("</script", "<\\/script") + "</script></body></html>";
         browser.loadHTML(html);
         panel.removeAll(); panel.add(browser.getComponent(), BorderLayout.CENTER); panel.revalidate();
+    }
+    /** Remote JCEF omits cursor-change callbacks. Apply DOM cursor changes directly to its AWT view. */
+    private void updateCursor(String value) {
+        int type = switch (value) {
+            case "text", "vertical-text" -> Cursor.TEXT_CURSOR;
+            case "pointer", "grab", "grabbing" -> Cursor.HAND_CURSOR;
+            case "crosshair" -> Cursor.CROSSHAIR_CURSOR;
+            case "wait", "progress" -> Cursor.WAIT_CURSOR;
+            case "move", "all-scroll" -> Cursor.MOVE_CURSOR;
+            case "n-resize", "ns-resize", "row-resize" -> Cursor.N_RESIZE_CURSOR;
+            case "s-resize" -> Cursor.S_RESIZE_CURSOR;
+            case "e-resize", "ew-resize", "col-resize" -> Cursor.E_RESIZE_CURSOR;
+            case "w-resize" -> Cursor.W_RESIZE_CURSOR;
+            case "ne-resize", "nesw-resize" -> Cursor.NE_RESIZE_CURSOR;
+            case "nw-resize", "nwse-resize" -> Cursor.NW_RESIZE_CURSOR;
+            case "se-resize" -> Cursor.SE_RESIZE_CURSOR;
+            case "sw-resize" -> Cursor.SW_RESIZE_CURSOR;
+            default -> Cursor.DEFAULT_CURSOR;
+        };
+        ui(() -> {
+            if (browser == null) { return; }
+            var cursor = Cursor.getPredefinedCursor(type);
+            browser.getComponent().setCursor(cursor);
+            browser.getCefBrowser().getUIComponent().setCursor(cursor);
+        });
     }
     private CompletableFuture<JsonObject> handle(String method, JsonObject params) {
         var chat = service.chat(file.id);

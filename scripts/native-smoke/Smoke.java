@@ -51,6 +51,7 @@ public final class Smoke implements StartupActivity.DumbAware {
                     var window = ToolWindowManager.getInstance(project).getToolWindow("Codex");
                     if (window != null) { window.show(); }
                 });
+                NativeUiProbe.start(project);
                 Thread.sleep(8000);
                 var output = Path.of(System.getProperty("idea.log.path"));
                 Files.createDirectories(output);
