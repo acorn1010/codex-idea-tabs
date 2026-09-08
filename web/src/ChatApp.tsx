@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Attachment, Chat, Input, Json, Snapshot } from './types';
+import type { Attachment, Chat, Input, Item, Json, Snapshot } from './types';
 import { request, installNativeCursor } from './bridge';
-import { mergeChat, attachmentInput, modelEffort } from './format';
+import { mergeChat, attachmentInput, itemText, modelEffort } from './format';
 import { Icon } from './icons';
 import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
 import { ChoiceMenu } from './ChoiceMenu';
 import { ImagePreview } from './Markdown';
+
+type RecallSession = { messages: string[]; seen: Set<string>; index: number; cursor: string; pending: boolean; error?: string };
 
 function SmallButton({ label, icon, onClick }: { label: string; icon: Parameters<typeof Icon>[0]['name']; onClick: () => void }) {
   return <button title={label} aria-label={label} onClick={onClick} className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent"><Icon name={icon} /></button>;
@@ -44,6 +46,7 @@ export function ChatApp() {
   const scroller = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number>(0);
+  const recall = useRef<RecallSession | undefined>(undefined);
   const apply = useCallback((snapshot: Snapshot) => {
     if (snapshot.connection === 'connected' && !snapshot.error && !snapshot.chat.error) { setConnectionError(''); }
     if (!initial.current) {
@@ -85,6 +88,7 @@ export function ChatApp() {
   }, [draft, attachments]);
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
+      if (event.key !== 'ArrowUp') { recall.current = undefined; }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setPalette((value) => !value); }
       if (event.key === 'Escape') { setPalette(false); }
     };
@@ -101,7 +105,43 @@ export function ChatApp() {
   }, [palette, search]);
 
   const changeDraft = (text: string) => {
+    recall.current = undefined;
     setDraft(text);
+  };
+  const recallPrevious = async () => {
+    if (!recall.current) {
+      const items = state?.chat.items || [];
+      recall.current = { messages: items.filter((item) => item.type === 'userMessage').map(itemText).filter((text) => text.trim()).reverse(), seen: new Set(items.map((item) => item.id)), index: 0, cursor: state?.chat.historyCursor || '', pending: false };
+    }
+    const session = recall.current;
+    if (session.pending) { return; }
+    session.pending = true;
+    try {
+      // Keep one stable sequence while new replies arrive. Fetch older pages only at its end.
+      while (session.index === session.messages.length && session.cursor) {
+        const page = await request<{ data: { item: Item }[]; nextCursor?: string }>('older', { cursor: session.cursor });
+        if (recall.current !== session) { return; }
+        for (const { item } of page.data) {
+          if (item.type === 'userMessage' && !session.seen.has(item.id)) {
+            const text = itemText(item);
+            if (text.trim()) { session.messages.push(text); }
+          }
+          session.seen.add(item.id);
+        }
+        session.cursor = page.nextCursor === session.cursor ? '' : page.nextCursor || '';
+      }
+      if (session.error) { setError((current) => current === session.error ? '' : current); }
+      const text = session.messages[session.index];
+      if (text !== undefined) {
+        session.index++;
+        setDraft(text);
+        window.requestAnimationFrame(() => {
+          if (recall.current === session) { textarea.current?.setSelectionRange(text.length, text.length); }
+        });
+      }
+    } catch (error) {
+      if (recall.current === session) { session.error = `Could not recall earlier messages: ${(error as Error).message}`; setError(session.error); }
+    } finally { session.pending = false; }
   };
   const rememberModel = (nextModel: string, nextEffort: string) => {
     modelInitialized.current = true;
@@ -120,6 +160,7 @@ export function ChatApp() {
     } catch (error) { (method === 'reconnect' ? setConnectionError : setError)((error as Error).message); }
   };
   const uploadFiles = async (files: File[]) => {
+    recall.current = undefined;
     if (state?.chat.archived) { return; }
     setUploads((count) => count + files.length); setError('');
     for (const file of files) {
@@ -135,6 +176,7 @@ export function ChatApp() {
     }
   };
   const send = async () => {
+    recall.current = undefined;
     if (state?.chat.archived || sending || uploads || (!draft.trim() && !attachments.length && !state?.chat.draftInput?.length)) { return; }
     setSending(true); setError(''); window.clearTimeout(saveTimer.current);
     try {
@@ -202,13 +244,20 @@ export function ChatApp() {
           {attachment.mime.startsWith('image/') ? <ImagePreview path={attachment.path} alt={attachment.name} compact /> : <span className="flex min-w-0 items-center gap-1.5 py-1 pl-2"><Icon name="file" size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span></span>}
           <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="close" size={11} /></button>
         </span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
-        <textarea ref={textarea} aria-label="Message Codex" aria-keyshortcuts="Enter Control+Enter Meta+Enter" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onKeyDown={(event) => {
-          if (event.key !== 'Enter' || event.nativeEvent.isComposing) { return; }
+        <textarea ref={textarea} aria-label="Message Codex" aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onBlur={() => { recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
+          const plainUp = event.key === 'ArrowUp' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+          if (!plainUp || event.nativeEvent.isComposing) { recall.current = undefined; }
+          if (event.nativeEvent.isComposing) { return; }
+          if (plainUp && (draft === '' || recall.current)) {
+            event.preventDefault(); event.stopPropagation(); void recallPrevious(); return;
+          }
+          if (event.key !== 'Enter') { return; }
           if (event.ctrlKey || event.metaKey || !event.shiftKey) {
             event.preventDefault(); event.stopPropagation();
             if (!event.repeat) { void send(); }
           }
         }} onPaste={(event) => {
+          recall.current = undefined;
           const files = Array.from(event.clipboardData.files);
           if (files.length) { event.preventDefault(); void uploadFiles(files); return; }
           const text = event.clipboardData.getData('text/plain');

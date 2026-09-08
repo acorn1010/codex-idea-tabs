@@ -55,6 +55,7 @@ For native Windows projects without WSL, use the Windows Codex executable. For L
 | Send a message | `Enter` |
 | Steer the running turn immediately | `Ctrl+Enter` (`⌘Enter` on macOS) in the composer |
 | Edit a sent message | Hover the message, choose the pencil, then **Edit and resend** or `Ctrl+Enter` (`⌘Enter` on macOS) |
+| Recall a previous message | `↑` in an empty composer, then keep pressing `↑` for older messages. Any other key ends recall |
 | Add a line | `Shift+Enter` |
 | Add files or images | Drop, paste, or use the plus button |
 | Change permissions | Open **Approve for me**, **Ask me**, or **Read only** in the composer |

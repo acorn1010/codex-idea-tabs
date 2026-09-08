@@ -75,3 +75,5 @@ Set `-Dcodex.smoke.lifecycle.check=true` to check real editor disposal, idle uns
 Run `check-attachment-preview.mjs` with `CODEX_SMOKE_CHROME` set to a local Chrome executable to check thumbnails and image previews at 360, 520, and 900 pixels wide. It verifies keyboard focus, missing-image fallback, attachment removal, unchanged drafts, transcript previews, and error recovery. Results are written under `output/playwright`.
 
 After the native lifecycle check, run `check-native-attachment-preview.mjs` against that profile to verify a WSL attachment thumbnail, enlarged preview, Escape and focus, and retained draft through the actual IDEA file bridge.
+
+Run `check-message-recall.mjs` with `CODEX_SMOKE_CHROME` set to a local browser to check Up-arrow recall, older history pages, normal editing, cancellation of slow history loads, and Ctrl+Enter. With the native UI probe enabled, run `check-native-message-recall.mjs` against the isolated profile to press physical Up keys in IDEA. The native check recalls the review fixture's user messages and restores its saved draft without sending a message.

@@ -61,10 +61,13 @@ public final class NativeUiProbe {
                         });
                         var robot = new Robot();
                         robot.mouseMove(mouse[0].x, mouse[0].y);
-                        if (text(command, "shortcut").equals("ctrl-enter")) {
+                        if (text(command, "shortcut").equals("ctrl-enter") || text(command, "shortcut").equals("up") && flag(command, "focus")) {
                             robot.mousePress(InputEvent.BUTTON1_DOWN_MASK);
                             robot.mouseRelease(InputEvent.BUTTON1_DOWN_MASK);
                             robot.delay(100);
+                        }
+                        if (text(command, "shortcut").equals("up")) { robot.keyPress(KeyEvent.VK_UP); robot.keyRelease(KeyEvent.VK_UP); }
+                        if (text(command, "shortcut").equals("ctrl-enter")) {
                             robot.keyPress(KeyEvent.VK_CONTROL);
                             robot.keyPress(KeyEvent.VK_ENTER);
                             robot.keyRelease(KeyEvent.VK_ENTER);
