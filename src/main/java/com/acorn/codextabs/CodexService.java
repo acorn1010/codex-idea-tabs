@@ -37,6 +37,11 @@ public final class CodexService implements Disposable {
     private volatile String connectionError = "";
     private volatile String connectionStatus = "disconnected";
     private String attachmentRoot;
+    private final java.util.concurrent.locks.ReentrantReadWriteLock workspaceLock = new java.util.concurrent.locks.ReentrantReadWriteLock();
+    private final Object workspaceRefresh = new Object();
+    private volatile JsonArray workspaceEntries = new JsonArray();
+    private volatile JsonArray workspaceBranches = new JsonArray();
+    private volatile String workspaceError = "";
     private final ConcurrentMap<String, String> tabPresentations = new ConcurrentHashMap<>();
 
     public CodexService(Project project) {
@@ -95,7 +100,7 @@ public final class CodexService implements Disposable {
     }
     public JsonArray summaries(boolean archived) {
         var result = new JsonArray();
-        chats.values().stream().filter(chat -> chat.archived() == archived).map(Conversation::summary)
+        chats.values().stream().filter(chat -> chat.archived() == archived).map(chat -> { var summary = chat.summary(); summary.addProperty("workspaceLabel", workspaceLabel(chat.get("cwd"))); return summary; })
             .sorted(Comparator.<JsonObject>comparingInt(item -> text(item, "status").equals("attention") ? 0 : flag(item, "pinned") ? 1 : text(item, "status").equals("working") ? 2 : 3)
                 .thenComparing(Comparator.comparingLong((JsonObject item) -> item.get("updatedAt").getAsLong()).reversed()))
             .forEach(result::add);
@@ -106,7 +111,153 @@ public final class CodexService implements Disposable {
     }
     public JsonObject snapshot(String id, long revision) {
         return object("chat", chat(id).changes(revision), "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
-            "error", connectionError, "settings", settings(), "distro", distro(), "cwd", cwd(), "project", project.getName());
+            "error", connectionError, "settings", settings(), "distro", distro(), "cwd", chat(id).get("cwd"), "workspaceLabel", workspaceLabel(chat(id).get("cwd")), "project", project.getName());
+    }
+    /** Cache Git metadata independently of streamed chat snapshots. Refresh on demand, never per token. */
+    public CompletableFuture<JsonObject> workspaces(String id) {
+        return CompletableFuture.supplyAsync(() -> {
+            synchronized (workspaceRefresh) {
+                try {
+                    var git = gitWorktrees();
+                    var entries = new JsonArray();
+                    for (var workspace : git.list(cwd())) {
+                        long count = chats.values().stream().filter(chat -> GitWorktrees.contains(workspace.path(), chat.get("cwd")) && !chat.archived()).count();
+                        entries.add(object("path", workspace.path(), "name", workspace.name(), "branch", workspace.branch(), "head", workspace.head(),
+                            "main", workspace.main(), "locked", workspace.locked(), "missing", workspace.missing(), "chats", count));
+                    }
+                    workspaceEntries = entries;
+                    workspaceError = "";
+                    workspaceBranches = new Gson().toJsonTree(git.branches(cwd())).getAsJsonArray();
+                } catch (Exception error) { workspaceEntries = new JsonArray(); workspaceBranches = new JsonArray(); workspaceError = message(error); }
+            }
+            changed("");
+            var source = id.isBlank() ? new Conversation("", cwd()) : chat(id);
+            return object("entries", workspaceEntries, "branches", workspaceBranches, "error", workspaceError,
+                "current", source.get("cwd"), "suggestedName", GitWorktrees.slug(source.get("title")) + "-" + UUID.randomUUID().toString().substring(0, 4),
+                "base", workspaceFor(source.get("cwd")).map(value -> text(value, "branch", "HEAD")).filter(value -> !value.isBlank()).orElse("HEAD"));
+        }, io);
+    }
+    private GitWorktrees gitWorktrees() { return new GitWorktrees(distro(), SystemInfo.isWindows); }
+    private Optional<JsonObject> workspaceFor(String path) {
+        return java.util.stream.StreamSupport.stream(workspaceEntries.spliterator(), false).map(JsonElement::getAsJsonObject)
+            .filter(value -> GitWorktrees.contains(text(value, "path"), path)).max(Comparator.comparingInt(value -> text(value, "path").length()));
+    }
+    public String workspaceLabel(String path) {
+        return workspaceFor(path).map(value -> text(value, "branch").isBlank() ? text(value, "name") : text(value, "branch")).orElseGet(() -> path.replace('\\', '/').replaceAll("/$", "").replaceAll(".*/", ""));
+    }
+    public JsonArray workspaceEntries() { return workspaceEntries.deepCopy(); }
+    public Conversation createInWorkspace(String sourceId) {
+        var source = chat(sourceId);
+        var created = create();
+        created.set("cwd", source.get("cwd")); created.set("workspaceBase", source.get("workspaceBase"));
+        changed(created.id); return created;
+    }
+    public Conversation createForPath(String path) {
+        if (!distro().isBlank()) { path = com.acorn.codextabs.core.Paths.linux(path); }
+        var created = create();
+        workspaceFor(path).ifPresent(workspace -> {
+            String directory = text(workspace, "path");
+            created.set("cwd", directory);
+            chats.values().stream().filter(chat -> GitWorktrees.same(chat.get("cwd"), directory) && !chat.get("workspaceBase").isBlank())
+                .findFirst().ifPresent(chat -> created.set("workspaceBase", chat.get("workspaceBase")));
+        });
+        changed(created.id); return created;
+    }
+    /** A saved conversation keeps its checkout. Selecting another checkout forks it into a new native tab. */
+    public CompletableFuture<JsonObject> changeWorkspace(String id, JsonObject payload) {
+        var result = new CompletableFuture<JsonObject>();
+        sessions.retain(id);
+        sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((value, error) -> null))
+            .thenRunAsync(() -> {
+            workspaceLock.readLock().lock();
+            try {
+                var source = chat(id);
+                if (!source.canArchive()) { throw new IllegalStateException("Let this chat finish before continuing in another worktree."); }
+                if (source.archived()) { throw new IllegalStateException("Restore this chat first."); }
+                var git = gitWorktrees();
+                var available = git.list(cwd());
+                String path = text(payload, "path"), warning = "", base = "";
+                if (flag(payload, "create")) {
+                    String sourceRoot = git.root(source.get("cwd"));
+                    if (available.stream().noneMatch(value -> GitWorktrees.same(value.path(), sourceRoot))) { throw new IllegalStateException("This chat belongs to a different repository."); }
+                    var created = git.create(sourceRoot, text(payload, "name"), text(payload, "base", "HEAD"), flag(payload, "includeChanges"));
+                    path = created.workspace().path(); base = created.workspace().head(); warning = created.warning();
+                } else {
+                    String target = path;
+                    var workspace = available.stream().filter(value -> GitWorktrees.same(value.path(), target)).findFirst().orElseThrow(() -> new IllegalArgumentException("Select a registered worktree."));
+                    if (workspace.missing()) { throw new IllegalStateException("This worktree directory is missing."); }
+                    base = chats.values().stream().filter(value -> GitWorktrees.same(value.get("cwd"), target) && !value.get("workspaceBase").isBlank()).map(value -> value.get("workspaceBase")).findFirst().orElseGet(() -> git.reviewBase(target));
+                }
+                if (GitWorktrees.same(source.get("cwd"), path)) { result.complete(object("id", id, "warning", warning)); return; }
+                var target = source;
+                if (!source.get("threadId").isBlank()) {
+                    try {
+                        var fork = rpc("thread/fork", object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true)).join();
+                        target = importThread(obj(fork, "thread"));
+                        target.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
+                    } catch (Exception error) {
+                        workspaces(id);
+                        throw new IllegalStateException("Could not copy the conversation. The checkout at " + path + " is kept. Select it in the workspace menu to retry. " + message(error));
+                    }
+                    target.set("title", source.get("title")); target.set("renamed", true);
+                    target.set("draft", text(payload, "draft", source.get("draft")));
+                    target.set("draftAttachments", payload.has("attachments") ? array(payload, "attachments") : array(source.snapshot(), "draftAttachments"));
+                    target.set("draftInput", array(source.snapshot(), "draftInput"));
+                }
+                target.set("cwd", path); target.set("workspaceBase", base); target.set("workspaceNotice", warning);
+                changed(target.id);
+                // thread/fork starts a subscription even before the editor is shown. Register its lifetime.
+                if (!target.get("threadId").isBlank()) {
+                    String targetId = target.id;
+                    sessions.retain(targetId);
+                    try {
+                        sessions.load(targetId, () -> CompletableFuture.completedFuture(null)).join();
+                        try { older(targetId, "").join(); }
+                        catch (Exception error) { target.loadFailed("The conversation was copied, but history needs a retry. " + message(error)); }
+                    } finally { sessions.release(targetId); }
+                }
+                workspaces(id);
+                result.complete(object("id", target.id, "warning", warning));
+            } catch (Exception error) { result.completeExceptionally(error); }
+            finally { workspaceLock.readLock().unlock(); }
+        }, io).whenComplete((value, error) -> sessions.release(id)));
+        return result;
+    }
+    private String removalBlock(String path) {
+        if (GitWorktrees.contains(path, cwd())) { return "This checkout is open as the current IDEA project."; }
+        for (var open : com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()) {
+            String directory = Objects.toString(open.getBasePath(), "");
+            if (!distro().isBlank()) { directory = com.acorn.codextabs.core.Paths.linux(directory); }
+            if (!directory.isBlank() && GitWorktrees.contains(path, directory)) { return "This checkout is open in another IDEA project. Close that project first."; }
+        }
+        for (var chat : chats.values()) {
+            if (GitWorktrees.contains(path, chat.get("cwd")) && (!chat.canArchive() || sends.containsKey(chat.id) && !sends.get(chat.id).isDone())) {
+                return "A chat is still working or waiting for your answer in this worktree.";
+            }
+        }
+        return gitWorktrees().removalBlock(cwd(), path);
+    }
+    public CompletableFuture<JsonObject> inspectWorktree(String path) {
+        return CompletableFuture.supplyAsync(() -> object("path", path, "blocked", removalBlock(path), "chats",
+            chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd"))).count()), io);
+    }
+    public CompletableFuture<JsonObject> removeWorktree(String path) {
+        return CompletableFuture.supplyAsync(() -> {
+            workspaceLock.writeLock().lock();
+            try {
+                String reason = removalBlock(path);
+                if (!reason.isBlank()) { throw new IllegalStateException(reason); }
+                gitWorktrees().remove(cwd(), path);
+                changed(""); workspaces("");
+                return object("removed", true);
+            } finally { workspaceLock.writeLock().unlock(); }
+        }, io);
+    }
+    public CompletableFuture<java.util.List<GitWorktrees.Change>> workspaceChanges(String id) {
+        return CompletableFuture.supplyAsync(() -> {
+            var chat = chat(id); var git = gitWorktrees();
+            return git.changes(chat.get("cwd"), chat.get("workspaceBase").isBlank() ? git.reviewBase(chat.get("cwd")) : chat.get("workspaceBase"));
+        }, io);
     }
     public void listen(Consumer<String> listener) { listeners.add(listener); }
     public void unlisten(Consumer<String> listener) { listeners.remove(listener); }
@@ -183,7 +334,17 @@ public final class CodexService implements Disposable {
         return history(search, cursor, false);
     }
     public CompletableFuture<JsonObject> history(String search, String cursor, boolean archived) {
-        var params = object("limit", 100, "cwd", cwd(), "sortKey", "updated_at", "useStateDbOnly", true, "archived", archived);
+        return history(search, cursor, archived, "");
+    }
+    public CompletableFuture<JsonObject> history(String search, String cursor, boolean archived, String workspace) {
+        var directories = new LinkedHashSet<String>();
+        if (!workspace.isBlank()) { directories.add(workspace); }
+        else {
+            directories.add(cwd());
+            for (var value : workspaceEntries) { directories.add(text(value.getAsJsonObject(), "path")); }
+            for (var chat : chats.values()) { directories.add(chat.get("cwd")); }
+        }
+        var params = object("limit", 100, "cwd", directories, "sortKey", "updated_at", "useStateDbOnly", true, "archived", archived);
         if (!search.isBlank()) { params.addProperty("searchTerm", search); }
         if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
         return rpc("thread/list", params);
@@ -201,10 +362,13 @@ public final class CodexService implements Disposable {
         if (chat.get("threadId").isBlank()) { return connect().thenApply(ignored -> null); }
         // Reading an archived chat must not resume or restore its backend session.
         if (chat.archived()) { return older(id, "").thenApply(ignored -> null); }
+        if (!gitWorktrees().exists(chat.get("cwd"))) {
+            return older(id, "").thenAccept(ignored -> { chat.loadFailed("This checkout is missing. Use the workspace menu to continue in another worktree."); changed(id); });
+        }
         return connect().thenCompose(rpc -> sessions.load(id, () -> {
             long revision = chat.revision();
             if (client != rpc || !rpc.isAlive()) { return CompletableFuture.failedFuture(new CancellationException("Connection was replaced")); }
-            return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "excludeTurns", true)).thenCompose(result -> {
+            return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "cwd", chat.get("cwd"), "excludeTurns", true)).thenCompose(result -> {
                 if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
                 chat.resumed(obj(result, "thread"), revision);
                 sessions.working(id, chat.busy());
@@ -235,7 +399,9 @@ public final class CodexService implements Disposable {
         sessions.retain(id);
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
             .thenRunAsync(() -> {
+                workspaceLock.readLock().lock();
                 try {
+                    if (!gitWorktrees().exists(chat.get("cwd"))) { throw new IllegalStateException("This chat's checkout is missing. Use the workspace menu to continue in an existing worktree."); }
                     if (chat.archived()) { throw new IllegalStateException("Restore this chat before sending a message."); }
                     String prompt = text(payload, "text");
                     var input = array(payload, "input").deepCopy();
@@ -280,12 +446,15 @@ public final class CodexService implements Disposable {
                     sessions.working(id, chat.busy());
                     changed(id);
                 } catch (Exception error) { chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }
+                finally { workspaceLock.readLock().unlock(); }
             }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
     /** Continue an edited turn in a new chat, leaving the source conversation and its active work intact. */
     public CompletableFuture<JsonObject> editMessage(String id, JsonObject payload) {
         return CompletableFuture.supplyAsync(() -> {
+            workspaceLock.readLock().lock();
+            try {
             var source = chat(id);
             String itemId = text(payload, "itemId");
             String threadId = source.get("threadId");
@@ -321,6 +490,7 @@ public final class CodexService implements Disposable {
             }
             var branch = obj(rpc.request(method, params).join(), "thread");
             var revised = importThread(branch);
+            revised.set("cwd", source.get("cwd")); revised.set("workspaceBase", source.get("workspaceBase"));
             revised.set("title", source.get("title") + " (edited)");
             revised.set("renamed", true);
             revised.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
@@ -334,17 +504,18 @@ public final class CodexService implements Disposable {
             revised.set("draft", String.join("\n", prompt));
             revised.set("draftInput", retained);
             changed(revised.id);
+            return revised;
+            } finally { workspaceLock.readLock().unlock(); }
+        }, io).thenCompose(revised -> {
             var sendPayload = payload.deepCopy();
             sendPayload.addProperty("text", revised.get("draft"));
-            sendPayload.add("input", retained);
-            try { send(revised.id, sendPayload).join(); }
-            catch (CompletionException error) {
-                // The new tab displays the error and keeps the entire edited input ready for retry.
-                revised.set("error", message(error));
-            }
-            changed(revised.id);
-            return object("id", revised.id);
-        }, io);
+            sendPayload.add("input", array(revised.snapshot(), "draftInput"));
+            return send(revised.id, sendPayload).handle((ignored, error) -> {
+                if (error != null) { revised.set("error", message(error)); }
+                changed(revised.id);
+                return object("id", revised.id);
+            });
+        });
     }
     /** Serialize archive and restore with sends so queued messages cannot be lost to an archive. */
     public CompletableFuture<JsonObject> archive(String id, boolean archived) {
@@ -454,7 +625,7 @@ public final class CodexService implements Disposable {
             for (var file : manager.getOpenFiles()) {
                 if (file instanceof ChatFiles.ChatFile chatFile) {
                     var chat = chat(chatFile.id);
-                    String presentation = chat.status() + "\n" + chat.get("title");
+                    String presentation = chat.status() + "\n" + chat.get("title") + "\n" + chat.get("cwd") + "\n" + workspaceLabel(chat.get("cwd"));
                     if (!presentation.equals(tabPresentations.put(chatFile.id, presentation))) { manager.updateFilePresentation(file); }
                 }
             }

@@ -5,6 +5,7 @@ import { mergeChat, attachmentInput, itemText, modelEffort } from './format';
 import { Icon } from './icons';
 import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
+import { WorkspaceMenu } from './WorkspaceMenu';
 import { ChoiceMenu } from './ChoiceMenu';
 import { ImagePreview } from './Markdown';
 import { ContextInspector } from './ContextInspector';
@@ -238,6 +239,7 @@ export function ChatApp() {
       <div className="min-w-0 flex-1"><p className="text-xs font-medium">This chat is archived</p><p className="mt-1 text-[11px] text-muted">Your messages and saved draft are kept here.</p></div>
       <button onClick={() => void run('restore')} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer hover:brightness-110 active:translate-y-px active:brightness-90">Restore chat</button>
     </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
+      {chat?.workspaceNotice && <div role="status" className="flex items-start gap-2 rounded-lg bg-attention/10 px-3 py-2 text-xs text-attention"><p className="flex-1">{chat.workspaceNotice}</p><SmallButton label="Dismiss workspace notice" icon="close" onClick={() => void run('dismissWorkspaceNotice')} /></div>}
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
       <div className="cursor-text overflow-hidden rounded-xl bg-input shadow-input focus-within:shadow-input-focus">
@@ -268,7 +270,7 @@ export function ChatApp() {
         <div className="@container flex flex-wrap items-center gap-x-2 gap-y-1 px-2 pb-2">
           <div className="flex shrink-0 items-center gap-1">
           <SmallButton label="Attach files" icon="plus" onClick={() => { setUploads((count) => count + 1); void request<{ files: Attachment[] }>('chooseFiles').then((value) => setAttachments((current) => [...current, ...value.files])).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1)); }} />
-          <span title={state?.cwd} className="max-w-28 truncate text-[10px] text-muted">{state?.distro || 'Local'}</span>
+          {chat && <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} />}
           <ChoiceMenu label="Permission mode" value={permissions} onChange={setPermissions} hint={working ? 'Changes apply to the next turn. The current turn keeps its existing permissions.' : undefined} options={[
             { value: 'auto', label: 'Approve for me', description: 'Codex reviews approval requests. Work stays within the selected sandbox.' },
             { value: 'ask', label: 'Ask me', description: 'Review permission requests yourself before Codex proceeds.' },
@@ -278,7 +280,7 @@ export function ChatApp() {
           <div className="flex min-w-0 flex-[1_1_250px] items-center justify-end gap-2">
           <ChoiceMenu label="Model" value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: 'Codex default' }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
           {selectedModel && <ChoiceMenu label="Reasoning effort" value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
-          <button title="Include open files and selected code" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[380px]:hidden">IDE context</span></button>
+          <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[380px]:hidden">IDE context</span></button>
           {working && <button aria-label="Stop Codex" title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
           {(!working || draft.trim() || attachments.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>

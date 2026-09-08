@@ -83,3 +83,11 @@ For images in the inline message editor, run `check-edit-images.mjs` with `CODEX
 For image copying, run `check-copy-image.mjs` with `CODEX_SMOKE_CHROME` set. It checks context menus, full-resolution PNG pixels, modal stacking, Escape, and clipboard-error retry. Run `check-native-copy-image.mjs` on Windows against the test IDEA profile to read back the actual clipboard image and compare dimensions and pixel colors.
 
 Run `check-context-inspector.mjs` with `CODEX_SMOKE_CHROME` to verify on-demand loading, search, repeated-paragraph highlighting, exports, keyboard focus, and startup retry at 360, 520, and 900 pixels. The 500-block case checks bounded rendering. Run `check-native-context-inspector.mjs` against a separate IDEA test profile to verify real WSL session-file reads, compaction replacements, startup execution, clipboard, and text export. Both checks use fixtures and never send a model turn.
+
+### Git worktrees
+
+Run `check-worktrees.mjs` with the built webview to check the picker, create form, removal confirmation, keyboard focus, and narrow layouts at 360, 520, and 900 pixels.
+
+For native checks, use a separate IDEA profile with `-Dcodex.smoke.worktrees.check=true` and a fixture working directory that is a Git repository on branch `main`. Commit `layout.txt` with `original layout`, then change it to `current local layout` with a trailing newline. Ignore the fake server's preview and JSON state files. Set the fake server's `CODEX_SMOKE_ROOT` to that same repository. The native harness creates a uniquely named linked checkout, copies the edit through WSL, forks a chat, sends to its sandbox, checks history scope, and refuses active or dirty cleanup. It writes `worktrees-result.json` in the profile's log directory.
+
+Run `check-native-worktrees.mjs` against that profile's CDP port to check the actual picker and native diff and terminal actions. The native harness runs once per IDE process so opening a checkout as another IDEA project cannot start a second test. Use only disposable Git repositories. These checks never call a model.

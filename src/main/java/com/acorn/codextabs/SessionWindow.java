@@ -64,6 +64,8 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private String cursor = "";
         private int refreshGeneration;
         private String undoId = "";
+        private String workspace = "";
+        private SessionButton workspaceFilter;
 
         Sessions(Project project) {
             this.project = project; service = CodexService.get(project);
@@ -75,7 +77,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             heading.add(title, BorderLayout.CENTER);
             heading.add(button("New chat", "plus", true, "New chat (Ctrl+Alt+N)", () -> {
                 if (archived || attentionOnly) { showArchive(false); attentionOnly = false; dirty = true; }
-                ChatFiles.open(project, service.create().id, false);
+                ChatFiles.open(project, !workspace.isBlank() ? service.createForPath(workspace).id : !activeId.isBlank() ? service.createInWorkspace(activeId).id : service.create().id, false);
             }), BorderLayout.EAST);
             top.add(heading, BorderLayout.NORTH);
             var find = plain(new BorderLayout(JBUI.scale(4), 0));
@@ -87,7 +89,18 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             top.add(find, BorderLayout.CENTER);
             all = button("All", null, false, "Show all active chats", () -> { attentionOnly = false; render(); });
             attention = button("Needs you", null, false, "Show unanswered questions and approvals (Ctrl+Alt+A)", () -> { attentionOnly = true; render(); });
-            filters.add(all); filters.add(attention); top.add(filters, BorderLayout.SOUTH);
+            filters.add(all); filters.add(attention);
+            workspaceFilter = button("", "branch", false, "Filter chats by checkout", () -> {
+                workspaceFilter.setSelected(!workspace.isBlank());
+                var popup = new JPopupMenu();
+                menuItem(popup, "All worktrees", () -> { workspace = ""; workspaceFilter.setSelected(false); workspaceFilter.setToolTipText("All worktrees"); cursor = ""; refresh(false); render(); });
+                for (var value : service.workspaceEntries()) {
+                    var entry = value.getAsJsonObject(); String path = text(entry, "path");
+                    menuItem(popup, service.workspaceLabel(path), () -> { workspace = path; workspaceFilter.setSelected(true); workspaceFilter.setToolTipText("Worktree: " + service.workspaceLabel(path)); cursor = ""; refresh(false); render(); });
+                }
+                popup.show(workspaceFilter, 0, workspaceFilter.getHeight());
+            });
+            workspaceFilter.setPreferredSize(JBUI.size(28, 28)); filters.add(workspaceFilter); top.add(filters, BorderLayout.SOUTH);
             search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
                 public void insertUpdate(javax.swing.event.DocumentEvent e) { dirty = true; }
                 public void removeUpdate(javax.swing.event.DocumentEvent e) { dirty = true; }
@@ -210,6 +223,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                 case "error" -> "Needs a retry";
                 default -> flag(chat, "hasDraft") ? "Draft saved" : text(chat, "preview").isBlank() ? text(chat, "threadId").isBlank() ? "No messages yet" : "Open conversation" : text(chat, "preview");
             };
+            detail = text(chat, "workspaceLabel") + " · " + detail;
             var preview = label(detail, text(chat, "status").equals("attention") ? SessionTheme.ATTENTION : SessionTheme.MUTED);
             preview.setFont(preview.getFont().deriveFont(preview.getFont().getSize2D() - 1)); copy.add(preview, BorderLayout.SOUTH);
             body.add(copy, BorderLayout.CENTER);
@@ -298,7 +312,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                 for (var entry : service.summaries(view)) { archiveStates.put(text(entry.getAsJsonObject(), "threadId"), view); }
             }
             refreshing = true; refresh.setEnabled(false); moreHistory.setEnabled(false); dirty = true;
-            service.history("", nextPage ? cursor : "", archivePage).whenComplete((result, error) -> ui(() -> {
+            service.workspaces("").thenCompose(ignored -> service.history("", nextPage ? cursor : "", archivePage, workspace)).whenComplete((result, error) -> ui(() -> {
                 if (generation != refreshGeneration) { return; }
                 refreshing = false; refresh.setEnabled(true); moreHistory.setEnabled(true);
                 if (error != null) { message("Could not refresh: " + CodexService.message(error), "", true); }
@@ -318,11 +332,12 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private void render() {
             var summaries = service.summaries(archived);
             int archiveCount = service.summaries(true).size();
-            String next = summaries.toString() + archived + attentionOnly + search.getText() + service.connectionStatus() + refreshing + cursor + archiveCount;
+            String next = summaries.toString() + archived + attentionOnly + search.getText() + service.connectionStatus() + refreshing + cursor + archiveCount + workspace;
             if (next.equals(rendered)) { return; }
             rendered = next;
             int waiting = 0;
             for (var value : summaries) { if (text(value.getAsJsonObject(), "status").equals("attention")) { waiting++; } }
+            workspaceFilter.setSelected(!workspace.isBlank());
             all.setText("All  " + summaries.size()); all.setSelected(!attentionOnly);
             attention.setText("Needs you" + (waiting > 0 ? "  " + waiting : "")); attention.setSelected(attentionOnly);
             attention.setForeground(waiting > 0 ? SessionTheme.ATTENTION : SessionTheme.MUTED);
@@ -336,6 +351,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             String query = search.getText().strip().toLowerCase(Locale.ROOT);
             for (var value : summaries) {
                 var item = value.getAsJsonObject(); String status = text(item, "status");
+                if (!workspace.isBlank() && !com.acorn.codextabs.core.GitWorktrees.contains(workspace, text(item, "cwd"))) { continue; }
                 if (attentionOnly && !status.equals("attention")) { continue; }
                 if (!(text(item, "title") + " " + text(item, "preview")).toLowerCase(Locale.ROOT).contains(query)) { continue; }
                 String group = archived ? "Archived" : status.equals("attention") ? "Needs you" : status.equals("working") ? "Working" : flag(item, "pinned") ? "Pinned" : "Recent";

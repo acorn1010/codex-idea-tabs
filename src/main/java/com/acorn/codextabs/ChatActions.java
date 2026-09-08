@@ -8,16 +8,27 @@ import static com.acorn.codextabs.core.Json.*;
 /** Native actions remain available during project indexing. */
 public final class ChatActions {
     private ChatActions() {}
+    private static com.acorn.codextabs.core.Conversation createForContext(AnActionEvent event) {
+        var project = java.util.Objects.requireNonNull(event.getProject());
+        var service = CodexService.get(project);
+        var file = event.getData(CommonDataKeys.VIRTUAL_FILE);
+        if (file == null) {
+            var selected = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).getSelectedFiles();
+            if (selected.length > 0) { file = selected[0]; }
+        }
+        return file instanceof ChatFiles.ChatFile chat ? service.createInWorkspace(chat.id)
+            : file == null ? service.create() : service.createForPath(file.getPath());
+    }
     public static final class NewChat extends DumbAwareAction {
         @Override public void actionPerformed(AnActionEvent event) {
             var project = event.getProject();
-            if (project != null) { ChatFiles.open(project, CodexService.get(project).create().id, false); }
+            if (project != null) { ChatFiles.open(project, createForContext(event).id, false); }
         }
     }
     public static final class NewChatToSide extends DumbAwareAction {
         @Override public void actionPerformed(AnActionEvent event) {
             var project = event.getProject();
-            if (project != null) { ChatFiles.open(project, CodexService.get(project).create().id, true); }
+            if (project != null) { ChatFiles.open(project, createForContext(event).id, true); }
         }
     }
     public static final class SendSelection extends DumbAwareAction {
@@ -27,7 +38,7 @@ public final class ChatActions {
             var file = event.getData(CommonDataKeys.VIRTUAL_FILE);
             if (project == null || editor == null) { return; }
             var service = CodexService.get(project);
-            var chat = service.create();
+            var chat = createForContext(event);
             String path = file == null ? "Selected code" : file.getPath();
             if (!service.distro().isBlank()) { path = com.acorn.codextabs.core.Paths.linux(path); }
             String selected = editor.getSelectionModel().getSelectedText();

@@ -58,7 +58,7 @@ public final class ChatFiles extends DeprecatedVirtualFileSystem {
         @Override public String getEditorTabTooltipText(Project project, VirtualFile file) {
             if (!(file instanceof ChatFile chat)) { return null; }
             var state = CodexService.get(project).chat(chat.id);
-            return state.get("title") + " · " + state.status() + " · " + state.get("cwd");
+            return state.get("title") + " · " + state.status() + " · " + CodexService.get(project).workspaceLabel(state.get("cwd")) + " · " + state.get("cwd");
         }
     }
     public static final class Icons implements FileIconProvider {

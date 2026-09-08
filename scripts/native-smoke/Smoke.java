@@ -14,6 +14,7 @@ import static com.acorn.codextabs.core.Json.*;
 
 /** Test-only plugin opens actual native editors against the deterministic app-server fixture. */
 public final class Smoke implements StartupActivity.DumbAware {
+    private static final java.util.concurrent.atomic.AtomicBoolean worktreeRun = new java.util.concurrent.atomic.AtomicBoolean();
     @Override public void runActivity(Project project) {
         Thread.startVirtualThread(() -> {
             try {
@@ -21,7 +22,7 @@ public final class Smoke implements StartupActivity.DumbAware {
                 var settings = service.settings();
                 settings.binary = java.util.Objects.requireNonNull(System.getProperty("codex.smoke.binary"), "Set -Dcodex.smoke.binary to scripts/fake-codex.py in the backend filesystem");
                 settings.distro = System.getProperty("codex.smoke.distro", "");
-                settings.cwd = System.getProperty("codex.smoke.cwd", "/tmp/codex-idea-smoke-project");
+                settings.cwd = Boolean.getBoolean("codex.smoke.worktrees.check") && worktreeRun.get() ? com.acorn.codextabs.core.Paths.linux(java.util.Objects.toString(project.getBasePath(), "")) : System.getProperty("codex.smoke.cwd", "/tmp/codex-idea-smoke-project");
                 com.intellij.ide.GeneralSettings.getInstance().setConfirmExit(false);
                 if (Boolean.getBoolean("codex.smoke.live")) {
                     settings.permissions = "read";
@@ -32,6 +33,10 @@ public final class Smoke implements StartupActivity.DumbAware {
                     service.changed(chat.id);
                     ApplicationManager.getApplication().invokeAndWait(() -> ChatFiles.open(project, chat.id, false));
                     return;
+                }
+                if (Boolean.getBoolean("codex.smoke.worktrees.check")) {
+                    if (!worktreeRun.compareAndSet(false, true)) { return; }
+                    service.reconnect(); WorktreeSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }
                 if (Boolean.getBoolean("codex.smoke.lifecycle.check")) {
                     service.reconnect();

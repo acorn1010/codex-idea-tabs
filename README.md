@@ -15,6 +15,7 @@ This is an independent client for the [Codex app server](https://developers.open
 - Supports file drops, pasted images, large text attachments, and native file selection. Attached images show a small thumbnail. Click one to preview it, then press Escape to return to the composer. Right-click a chat image, thumbnail, or expanded preview and choose **Copy image** to copy its full-size pixels to the system clipboard.
 - Opens local file and image links in the IDE, including files inside WSL.
 - Keeps workspace, permissions, model, reasoning effort, and IDE context in a compact composer. Controls wrap in narrow panes.
+- Creates and shares Git worktrees across chat tabs, with branch labels, native diffs and terminals, and explicit cleanup.
 - Handles permission approvals and both blocking and asynchronous questions.
 - Lets you steer a running turn, interrupt it, and discuss selected code in a new tab.
 - Edits any user message and continues the revised conversation in a new editor tab, keeping the original chat.
@@ -44,6 +45,20 @@ Set the executable to a Linux Codex binary when using WSL. For example, `/home/y
 For native Windows projects without WSL, use the Windows Codex executable. For Linux or macOS IDEA, use the local Codex executable.
 
 The **Inspect context** button in the chat header opens a searchable view of recorded rules, skills, messages, and tool results, with size estimates and repeated-passage checks. A separate Startup view builds fresh CLI input on request. [Context inspector guide](docs/context-inspector.md) explains the sources, exports, and limits.
+
+## Worktrees
+
+Click the branch label beside the attachment button to select a checkout or create a worktree. Choose a name and starting branch or commit. **Include current local changes** copies tracked edits and untracked files without changing the original checkout. Copied edits are unstaged. Ignored files, dependencies, and environment setup stay in the original checkout.
+
+New worktrees use a `codex/<name>` branch in a sibling directory, `<repository>.worktrees/<name>`. Git runs in the same local or WSL environment as Codex. Several chats can share a checkout. New chats inherit the active chat's worktree, the sidebar's selected worktree, or the checkout of the selected code file. Otherwise they use the current project.
+
+An unsent chat can change checkout in place. For an established conversation, **Continue in new worktree** or selecting another checkout opens a separate chat tab and keeps the original. Edited messages also keep their source worktree. File links, automatic IDE context, thread history, and the writable sandbox use the chat's checkout. Automatic IDE context only includes files and selections from that checkout. Explicitly attached files remain attached.
+
+The workspace menu offers **Review**, **Terminal**, and **IDEA**. Review compares changes with the worktree's starting commit, including local edits and untracked files. For an existing external worktree, it uses the common commit with the primary checkout. Large and binary files have a placeholder in the review. Open the checkout in IDEA for those files. Terminal opens at the checkout directory. On Windows with WSL, it loads your Bash settings before selecting that directory. IDEA opens the checkout as a separate project. The sidebar's branch button filters workspaces while keeping questions and active work first.
+
+Closing or archiving a chat does not remove its worktree. Use the trash button in the workspace menu for explicit removal. Removal refuses primary checkouts, open IDEA projects, active chats, pending questions, locked worktrees, changed or untracked files, and commits that have not reached the primary checkout. Git branches and chat history are kept. A removed or missing checkout remains readable in chat, but needs another checkout before sending. Changes made by other IDE processes or command-line tools should be finished before cleanup.
+
+If local changes cannot all be copied, the plugin keeps the new checkout and explains the problem. If the conversation cannot be forked, the original remains open and the new checkout stays available for retry. Automatic dependency setup and bringing changes back into the primary checkout are not included. Use the terminal or IDEA's Git tools for those steps.
 
 ## Daily use
 

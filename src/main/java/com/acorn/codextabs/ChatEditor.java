@@ -136,7 +136,18 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
                 String id = params.has("thread") ? service.importThread(obj(params, "thread")).id : text(params, "id");
                 ui(() -> ChatFiles.open(project, id, false)); return completed(new JsonObject());
             }
-            case "new": ui(() -> ChatFiles.open(project, service.create().id, flag(params, "split"))); return completed(new JsonObject());
+            case "new": ui(() -> ChatFiles.open(project, service.createInWorkspace(file.id).id, flag(params, "split"))); return completed(new JsonObject());
+            case "workspaces": return service.workspaces(file.id);
+            case "changeWorkspace": return service.changeWorkspace(file.id, params).thenApply(result -> {
+                if (!text(result, "id").equals(file.id)) { ui(() -> ChatFiles.open(project, text(result, "id"), false)); }
+                return result;
+            });
+            case "inspectWorktree": return service.inspectWorktree(text(params, "path"));
+            case "removeWorktree": return service.removeWorktree(text(params, "path"));
+            case "workspaceReview": return service.workspaceChanges(file.id).thenCompose(changes -> uiResult(() -> WorkspaceActions.review(project, changes)));
+            case "workspaceTerminal": return uiResult(() -> WorkspaceActions.terminal(project, chat.get("cwd"), service.distro(), service.workspaceLabel(chat.get("cwd"))));
+            case "workspaceProject": return CompletableFuture.supplyAsync(() -> { WorkspaceActions.openProject(project, chat.get("cwd"), service.distro()); return new JsonObject(); });
+            case "dismissWorkspaceNotice": chat.set("workspaceNotice", ""); service.changed(file.id); return completed(new JsonObject());
             case "settings": ui(() -> ShowSettingsUtil.getInstance().showSettingsDialog(project, CodexConfigurable.class)); return completed(new JsonObject());
             case "reconnect": service.reconnect(); return service.load(file.id).thenApply(ignored -> new JsonObject());
             case "login": return service.rpc("account/login/start", object("type", "chatgptDeviceCode"));
@@ -219,10 +230,16 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             var manager = FileEditorManager.getInstance(project);
             var files = new JsonArray();
             for (var open : manager.getOpenFiles()) {
-                if (!(open instanceof ChatFiles.ChatFile)) { files.add(service.distro().isBlank() ? open.getPath() : com.acorn.codextabs.core.Paths.linux(open.getPath())); }
+                if (!(open instanceof ChatFiles.ChatFile)) {
+                    String path = service.distro().isBlank() ? open.getPath() : com.acorn.codextabs.core.Paths.linux(open.getPath());
+                    if (com.acorn.codextabs.core.GitWorktrees.contains(service.chat(file.id).get("cwd"), path)) { files.add(path); }
+                }
             }
             var editor = manager.getSelectedTextEditor();
-            result.complete(object("files", files, "selection", editor == null ? "" : Objects.toString(editor.getSelectionModel().getSelectedText(), "")));
+            var selectedFile = editor == null ? null : FileDocumentManager.getInstance().getFile(editor.getDocument());
+            String selectedPath = selectedFile == null ? "" : service.distro().isBlank() ? selectedFile.getPath() : com.acorn.codextabs.core.Paths.linux(selectedFile.getPath());
+            boolean belongs = com.acorn.codextabs.core.GitWorktrees.contains(service.chat(file.id).get("cwd"), selectedPath);
+            result.complete(object("files", files, "selection", editor == null || !belongs ? "" : Objects.toString(editor.getSelectionModel().getSelectedText(), "")));
         });
         return result;
     }

@@ -16,6 +16,7 @@ final class SessionIcons {
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 g.setColor(component.getForeground()); g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 switch (name) {
+                    case "branch" -> { g.drawLine(4, 2, 4, 10); g.drawOval(2, 10, 4, 4); g.drawOval(10, 2, 4, 4); g.drawArc(4, 4, 8, 8, 270, 90); }
                     case "plus" -> { g.drawLine(8, 3, 8, 13); g.drawLine(3, 8, 13, 8); }
                     case "refresh" -> { g.drawArc(3, 3, 10, 10, 45, 285); g.drawPolyline(new int[]{10, 14, 14}, new int[]{5, 5, 1}, 3); }
                     case "archive", "restore" -> {

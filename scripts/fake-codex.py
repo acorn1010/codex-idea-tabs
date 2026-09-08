@@ -23,6 +23,11 @@ subscriptions = set()
 resumes = {}
 unsubscribes = {}
 statuses = {}
+cwd_file = root / "thread-cwds.json"
+thread_cwds = json.loads(cwd_file.read_text()) if cwd_file.exists() else {}
+last_turn_params = {}
+last_fork_params = {}
+last_list_params = {}
 
 
 def emit(value):
@@ -64,7 +69,7 @@ def context_record(thread_id):
 
 
 def thread(thread_id):
-    return {"path": str(context_record(thread_id)) if thread_id.startswith("context-") else None, "id": thread_id, "name": titles.get(thread_id, "New task"), "preview": "", "cwd": str(root), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1, "status": {"type": statuses.get(thread_id, "idle")}}
+    return {"path": str(context_record(thread_id)) if thread_id.startswith("context-") else None, "id": thread_id, "name": titles.get(thread_id, "New task"), "preview": "", "cwd": thread_cwds.get(thread_id, str(root)), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1, "status": {"type": statuses.get(thread_id, "idle")}}
 
 
 def items(thread_id):
@@ -109,6 +114,7 @@ def turns(thread_id):
 def save_history():
     """Persist only this fixture's synthetic conversations."""
     history_file.write_text(json.dumps(histories))
+    cwd_file.write_text(json.dumps(thread_cwds))
 
 
 def attention(thread_id):
@@ -120,6 +126,7 @@ def attention(thread_id):
 
 
 def respond(request):
+    global last_turn_params, last_fork_params, last_list_params
     method, params = request.get("method"), request.get("params", {})
     result = {}
     if method == "initialize":
@@ -132,7 +139,11 @@ def respond(request):
             {"id": "fixture-model", "model": "fixture-model", "displayName": "Test model", "defaultReasoningEffort": "low", "supportedReasoningEfforts": [{"reasoningEffort": value, "description": value} for value in ["low", "high"]]},
         ]}
     elif method == "thread/list":
-        result = {"data": [thread(key) for key in titles if (key in archived) == params.get("archived", False)], "nextCursor": None}
+        last_list_params = params
+        directories = params.get("cwd", [])
+        if isinstance(directories, str):
+            directories = [directories]
+        result = {"data": [thread(key) for key in dict.fromkeys([*titles, *thread_cwds]) if (key in archived) == params.get("archived", False) and (not directories or thread(key)["cwd"] in directories)], "nextCursor": None}
     elif method in ("thread/archive", "thread/unarchive"):
         thread_id = params["threadId"]
         if method == "thread/archive":
@@ -145,7 +156,7 @@ def respond(request):
         event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "fixture/stats":
-        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes}
+        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params}
     elif method == "fixture/event":
         notification = params["event"]
         thread_id = notification["params"]["threadId"]
@@ -165,6 +176,9 @@ def respond(request):
         if thread_id.startswith("lifecycle-retry-") and resumes[thread_id] == 1:
             raise RuntimeError("Fixture resume needs a retry")
         subscriptions.add(thread_id)
+        if params.get("cwd"):
+            thread_cwds[thread_id] = params["cwd"]
+            save_history()
         result = {"thread": thread(thread_id)}
         threading.Thread(target=attention, args=(params["threadId"],), daemon=True).start()
     elif method == "thread/read":
@@ -181,20 +195,27 @@ def respond(request):
         result = {"data": entries[offset:offset + 1], "nextCursor": str(offset + 1) if offset + 1 < len(entries) else None}
     elif method == "thread/fork":
         entries = turns(params["threadId"])
-        index = next(index for index, turn in enumerate(entries) if turn["id"] == params["lastTurnId"])
+        last_fork_params = params
+        index = next(index for index, turn in enumerate(entries) if turn["id"] == params["lastTurnId"]) if params.get("lastTurnId") else len(entries) - 1
         new_id = "new-" + str(time.time_ns())
         histories[new_id] = json.loads(json.dumps(entries[:index + 1]))
+        thread_cwds[new_id] = params.get("cwd", thread_cwds.get(params["threadId"], str(root)))
+        subscriptions.add(new_id)
         save_history()
         result = {"thread": thread(new_id)}
     elif method == "thread/start":
-        result = {"thread": thread("new-" + str(time.time_ns()))}
-        subscriptions.add(result["thread"]["id"])
+        new_id = "new-" + str(time.time_ns())
+        thread_cwds[new_id] = params.get("cwd", str(root))
+        result = {"thread": thread(new_id)}
+        subscriptions.add(new_id)
+        save_history()
     elif method == "turn/steer" and params["threadId"].startswith("steer-"):
         if params.get("expectedTurnId") != "fixture-build":
             raise RuntimeError("Steer must target the current fixture turn")
         result = {"turnId": "fixture-build"}
         event("item/completed", params["threadId"], turnId="fixture-build", item={"id": "steer-" + str(time.time_ns()), "type": "userMessage", "content": params["input"]})
     elif method in ("turn/start", "turn/steer"):
+        last_turn_params = params
         thread_id = params["threadId"]
         if "FIXTURE_RETRY_EDIT" in json.dumps(params["input"]) and thread_id not in failed_sends:
             failed_sends.add(thread_id)
