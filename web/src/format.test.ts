@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { attachmentInput, mergeChat } from './format';
-import type { Chat } from './types';
+import { attachmentInput, mergeChat, modelEffort } from './format';
+import type { Chat, Model } from './types';
 
 describe('chat rendering and context', () => {
+  it('keeps compatible reasoning choices and preserves an explicit default', () => {
+    const models = [{ id: 'model', model: 'model', defaultReasoningEffort: 'low', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }] }] as Model[];
+    expect(modelEffort(models, 'model', 'high')).toBe('high');
+    expect(modelEffort(models, 'model', 'xhigh')).toBe('low');
+    expect(modelEffort(models, 'model', '')).toBe('');
+    expect(modelEffort(models, '', 'high')).toBe('');
+  });
   it('keeps unchanged messages stable when a new token arrives', () => {
     const first = { id: '1', type: 'userMessage', text: 'Hi' };
     const old = { id: 'chat', items: [first, { id: '2', type: 'agentMessage', text: 'Hel' }] } as Chat;

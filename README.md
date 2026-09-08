@@ -32,7 +32,7 @@ Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF,
 
 If Codex is not on the IDE's PATH, set its full executable path under **Settings → Tools → Codex Tabs**. The field accepts an executable path, not a command with arguments.
 
-The plugin reads the available models from Codex. An empty model choice uses your Codex default. Sign in through the plugin's ChatGPT sign-in button if the CLI has no account yet.
+The plugin reads the available models from Codex. New workspaces start with **GPT-6-Astra / xhigh** when available. Model and reasoning choices are saved as soon as you select them, before sending a message, and return in new tabs and after an IDEA restart. These preferences are kept per workspace. Choosing **Codex default** is also remembered. Switching models keeps a supported reasoning level or uses the new model's default. Sign in through the plugin's ChatGPT sign-in button if the CLI has no account yet.
 
 ### Windows with WSL
 

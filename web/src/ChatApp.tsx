@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Attachment, Chat, Input, Json, Snapshot } from './types';
 import { request } from './bridge';
-import { mergeChat, attachmentInput } from './format';
+import { mergeChat, attachmentInput, modelEffort } from './format';
 import { Icon } from './icons';
 import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
@@ -35,6 +35,8 @@ export function ChatApp() {
     await request('editMessage', { itemId, text, model, effort, permissions });
   }, [model, effort, permissions]);
   const initial = useRef(false);
+  const modelInitialized = useRef(false);
+  const preferenceSaves = useRef(Promise.resolve());
   const textarea = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
@@ -43,7 +45,11 @@ export function ChatApp() {
     if (!initial.current) {
       initial.current = true; setDraft(snapshot.chat.draft || '');
       setAttachments(snapshot.chat.draftAttachments || []);
-      setModel(snapshot.settings.model || ''); setEffort(snapshot.settings.effort || ''); setPermissions(snapshot.settings.permissions || 'auto');
+      setPermissions(snapshot.settings.permissions || 'auto');
+    }
+    if (!modelInitialized.current && (snapshot.settings.modelSelectionSaved || snapshot.settings.model || snapshot.settings.effort)) {
+      modelInitialized.current = true;
+      setModel(snapshot.settings.model || ''); setEffort(snapshot.settings.effort || '');
     }
     if (snapshot.theme) { document.documentElement.dataset.theme = snapshot.theme; }
     setState((previous) => ({ ...snapshot, chat: mergeChat(previous?.chat, snapshot.chat) }));
@@ -92,6 +98,15 @@ export function ChatApp() {
 
   const changeDraft = (text: string) => {
     setDraft(text);
+  };
+  const rememberModel = (nextModel: string, nextEffort: string) => {
+    modelInitialized.current = true;
+    setModel(nextModel); setEffort(nextEffort);
+    // Keep rapid menu changes ordered, even when the native bridge replies slowly.
+    preferenceSaves.current = preferenceSaves.current.catch(() => {}).then(async () => {
+      try { await request('modelPreferences', { model: nextModel, effort: nextEffort }); }
+      catch (error) { setError(`Could not save model preference: ${(error as Error).message}`); }
+    });
   };
   const run = async (method: string, params: Json = {}) => {
     try { return await request(method, params); } catch (error) { setError((error as Error).message); }
@@ -193,8 +208,8 @@ export function ChatApp() {
           ]} />
           </div>
           <div className="flex min-w-0 flex-[1_1_250px] items-center justify-end gap-2">
-          <ChoiceMenu label="Model" value={model} onChange={(value) => { setModel(value); setEffort(''); }} compact options={[{ value: '', label: 'Codex default' }, ...(state?.models || []).map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
-          {selectedModel && <ChoiceMenu label="Reasoning effort" value={effort} onChange={setEffort} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
+          <ChoiceMenu label="Model" value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: 'Codex default' }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
+          {selectedModel && <ChoiceMenu label="Reasoning effort" value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[380px]:hidden">IDE context</span></button>
           {working && <button aria-label="Stop Codex" title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
           {(!working || draft.trim() || attachments.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Send follow-up to the active turn' : 'Send message (Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}

@@ -57,6 +57,22 @@ public final class CodexService implements Disposable {
     }
     public static CodexService get(Project project) { return project.getService(CodexService.class); }
     public CodexSettings.State settings() { return project.getService(CodexSettings.class).getState(); }
+    /** Save a deliberate selection before a message is sent, independently of active turns. */
+    public synchronized void rememberModel(JsonObject payload) {
+        var options = settings();
+        options.model = text(payload, "model");
+        options.effort = text(payload, "effort");
+        options.modelSelectionSaved = true;
+        changed("");
+    }
+    private synchronized void initializeModelPreferences() {
+        if (models.isEmpty()) { return; }
+        var options = settings();
+        var selection = ModelPreferences.initial(models, options.model, options.effort, options.modelSelectionSaved);
+        options.model = selection.model();
+        options.effort = selection.effort();
+        options.modelSelectionSaved = true;
+    }
     public String distro() {
         var settings = settings();
         return settings.distro.isBlank() ? com.acorn.codextabs.core.Paths.distro(Objects.toString(project.getBasePath(), "")) : settings.distro;
@@ -127,7 +143,7 @@ public final class CodexService implements Disposable {
                 rpc.notify("initialized", new JsonObject());
                 connectionStatus = "connected";
                 rpc.request("account/read", object("refreshToken", false)).thenAccept(value -> { account = value; changed(""); });
-                rpc.request("model/list", object("limit", 100)).thenAccept(value -> { models = array(value, "data"); changed(""); });
+                rpc.request("model/list", object("limit", 100)).thenAccept(value -> { models = array(value, "data"); initializeModelPreferences(); changed(""); });
                 changed("");
                 return rpc;
             } catch (Exception error) {
@@ -234,7 +250,7 @@ public final class CodexService implements Disposable {
                     if (chat.get("draft").equals(prompt)) { chat.set("draft", ""); }
                     chat.set("draftInput", new JsonArray());
                     chat.set("error", "");
-                    options.model = model; options.effort = effort; options.permissions = permissions;
+                    options.permissions = permissions;
                     changed(id);
                 } catch (Exception error) { chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }
             }, io));

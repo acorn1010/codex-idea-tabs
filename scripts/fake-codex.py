@@ -85,7 +85,10 @@ def respond(request):
     elif method == "account/read":
         result = {"account": {"type": "chatgpt", "planType": "pro"}, "requiresOpenaiAuth": True}
     elif method == "model/list":
-        result = {"data": [{"id": "fixture-model", "model": "fixture-model", "displayName": "Test model", "supportedReasoningEfforts": [{"reasoningEffort": "high", "description": "High"}]}]}
+        result = {"data": [
+            {"id": "gpt-6-astra", "model": "gpt-6-astra", "displayName": "GPT-6-Astra", "isDefault": True, "defaultReasoningEffort": "medium", "supportedReasoningEfforts": [{"reasoningEffort": value, "description": value} for value in ["low", "medium", "high", "xhigh"]]},
+            {"id": "fixture-model", "model": "fixture-model", "displayName": "Test model", "defaultReasoningEffort": "low", "supportedReasoningEfforts": [{"reasoningEffort": value, "description": value} for value in ["low", "high"]]},
+        ]}
     elif method == "thread/list":
         result = {"data": [thread(key) for key in titles if (key in archived) == params.get("archived", False)], "nextCursor": None}
     elif method in ("thread/archive", "thread/unarchive"):

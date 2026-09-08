@@ -1,4 +1,13 @@
-import type { Attachment, Chat, Input, Item } from './types';
+import type { Attachment, Chat, Input, Item, Model } from './types';
+
+/** Keep the user's reasoning level when switching models, or use the new model's supported default. */
+export function modelEffort(models: Model[], model: string, effort: string): string {
+  if (!model || !effort) { return ''; }
+  const selected = models.find((item) => item.model === model || item.id === model);
+  if (!selected) { return ''; }
+  const supported = selected.supportedReasoningEfforts;
+  return supported.some((item) => item.reasoningEffort === effort) ? effort : selected.defaultReasoningEffort || '';
+}
 
 /** Preserve unchanged message objects so streaming one item does not rerender the whole transcript. */
 export function mergeChat(previous: Chat | undefined, incoming: Chat): Chat {

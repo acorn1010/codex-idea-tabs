@@ -48,6 +48,14 @@ CODEX_SMOKE_CHROME=/path/to/chrome node scripts/native-smoke/check-edit-layout.m
 
 This opens the bundled UI in a real browser at 360, 520, and 720 pixels wide. It checks image previews, visible edit controls, keyboard submission, and draft recovery after an error. It uses a local fixture bridge and does not launch IDEA or call a model.
 
+To verify model defaults and saving without sending a message, use the fixture's Astra and Test model choices:
+
+```sh
+CODEX_SMOKE_CDP=http://127.0.0.1:9226 node scripts/native-smoke/check-model-preferences.mjs
+```
+
+Start with no saved model preference in the isolated profile. The check verifies Astra with `xhigh`, immediate saving, inheritance by new tabs, supported reasoning levels, and an explicit **Codex default** choice. It leaves **Test model / high** selected. Close and restart that test profile, then run with `--restored` to verify IDEA saved the preference across the restart.
+
 Set `-Dcodex.smoke.sidebar.check=true` to run the native sidebar checks. They click the attention filter, archive a fixture chat, undo that action, browse the archive, and open the archived chat for reading. They also check that active work cannot be archived. Results and hover and pressed captures go to the test log directory. This option requires the fake backend. It leaves an archived chat open so its read-only state and Restore button can be checked in JCEF.
 
 Also check the native sidebar at a narrow width. Rows and toolbar buttons must have distinct hover and pressed states. Clicking a row once should open it. The context menu can open to the side, rename, pin, or archive an idle chat.
