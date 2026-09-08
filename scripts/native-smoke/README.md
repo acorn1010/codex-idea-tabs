@@ -3,7 +3,7 @@
 This harness opens four real IDEA editor panes against `scripts/fake-codex.py`. It never calls a model. Install it only into a separate IDE test profile.
 
 1. Build the main plugin and harness with `./gradlew buildPlugin nativeSmokePlugin`.
-2. Unpack the main plugin ZIP into the test profile's plugin directory.
+2. Unpack the main plugin ZIP into the test profile's plugin directory. Move any previous Codex Tabs folder outside that directory first so an old plugin JAR cannot be loaded.
 3. Put `build/native-smoke/codex-tabs-native-smoke.jar` in a second plugin folder, under `smoke/lib`.
 4. Make `scripts/fake-codex.py` executable in the backend environment.
 5. Start IDEA with a temporary project and separate configuration, system, plugin, and log paths.
@@ -31,6 +31,14 @@ node scripts/native-smoke/check-ui.mjs
 ```
 
 It connects only to the test JCEF debugging port. It checks visible panes, the permission menu, hover and pressed styling, the Stop button, image loading, and large-paste and file-drop handlers. Results and screenshots go under `output/playwright`. It leaves a named draft and an attachment for the next restart check.
+
+To check editing through the native bridge, run:
+
+```sh
+CODEX_SMOKE_CDP=http://127.0.0.1:9226 node scripts/native-smoke/check-edit.mjs
+```
+
+This checks editing old messages, follow-ups sent during a turn, and the first message. It also verifies separate editor tabs, retained context and images, unchanged original drafts, cancel and focus behavior, and retry after a failed send. The fixture returns one turn per history page to exercise pagination. Run the four-pane check first, since editing adds tabs to the test profile.
 
 Set `-Dcodex.smoke.sidebar.check=true` to run the native sidebar checks. They click the attention filter, archive a fixture chat, undo that action, browse the archive, and open the archived chat for reading. They also check that active work cannot be archived. Results and hover and pressed captures go to the test log directory. This option requires the fake backend. It leaves an archived chat open so its read-only state and Restore button can be checked in JCEF.
 

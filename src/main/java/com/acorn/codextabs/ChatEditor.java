@@ -86,6 +86,10 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         switch (method) {
             case "ready": ready = true; dirty = true; service.load(file.id); return completed(service.snapshot(file.id));
             case "send": return service.send(file.id, params);
+            case "editMessage": return service.editMessage(file.id, params).thenApply(result -> {
+                ui(() -> ChatFiles.open(project, text(result, "id"), false));
+                return result;
+            });
             case "answer": return service.answer(file.id, params);
             case "stop": return service.stop(file.id);
             case "restore": return service.archive(file.id, false);

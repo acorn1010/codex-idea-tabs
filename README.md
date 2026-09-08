@@ -17,12 +17,13 @@ This is an independent client for the [Codex app server](https://developers.open
 - Keeps workspace, permissions, model, reasoning effort, and IDE context in a compact composer. Controls wrap in narrow panes.
 - Handles permission approvals and both blocking and asynchronous questions.
 - Lets you steer a running turn, interrupt it, and discuss selected code in a new tab.
+- Edits any user message and continues the revised conversation in a new editor tab, keeping the original chat.
 
 There is one app-server process per project. Restored hidden tabs do not start browser renderers. History loads in pages, the transcript initially renders its latest 80 items, and streaming updates contain only changed items.
 
 ## Install
 
-Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI. Version 0.1.0 was tested with IDEA 2026.1.3 and Codex 0.153.0.
+Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI. Version 0.1.1 was tested with IDEA 2026.1.3 and Codex 0.153.0.
 
 1. Download the plugin ZIP from [Releases](https://github.com/acorn1010/codex-idea-tabs/releases).
 2. In IDEA, open **Settings → Plugins → gear menu → Install Plugin from Disk** and select the ZIP.
@@ -51,6 +52,7 @@ For native Windows projects without WSL, use the Windows Codex executable. For L
 | Go to a chat that needs input | `Ctrl+Alt+A` or the sidebar's **Needs you** filter |
 | Add selected code | Select code, then **Codex: Discuss Selected Code** in the editor context menu |
 | Send a message | `Enter` |
+| Edit a sent message | Hover the message, choose the pencil, then **Edit and resend** or `Ctrl+Enter` (`⌘Enter` on macOS) |
 | Add a line | `Shift+Enter` |
 | Add files or images | Drop, paste, or use the plus button |
 | Change permissions | Open **Approve for me**, **Ask me**, or **Read only** in the composer |
@@ -66,6 +68,10 @@ The sidebar has one primary **New chat** action. Questions and active work appea
 Archiving closes that chat's editor tabs and moves its Codex history into the archive. It does not delete messages, files, or a saved draft. **Undo** restores the last archived chat. You can read archived conversations without resuming them. Restore a chat before sending a new message. Chats with active work or unanswered requests cannot be archived.
 
 Questions stay above the composer until answered or dismissed. An asynchronous question can remain after the turn finishes. A blocking approval belongs to its live server connection, so it is cleared after a disconnect.
+
+Editing opens an inline text field. **Cancel** or `Escape` keeps the original text. **Edit and resend** opens a new chat using history before the edited turn and keeps its attachments. The original chat, its draft, and any active work stay intact. This also works when reading an archived chat. Existing file changes are kept, so editing a message does not undo work on disk.
+
+Codex branches at turn boundaries. When you edit a follow-up sent during a turn, earlier user inputs from that same turn are resent together with the edited message. Assistant responses and tool output from that turn are generated again. Later messages are excluded. If sending fails, the new tab keeps the revised text and attachments ready to retry.
 
 ## Data and execution
 
@@ -99,7 +105,7 @@ For an opt-in integration test using your existing Codex account:
 CODEX_TEST_BINARY=/full/path/to/codex ./gradlew :core:test --rerun-tasks
 ```
 
-This sends two tiny read-only turns in temporary, ephemeral threads. It checks ChatGPT authentication, image reads, streaming, and separation between conversations. It uses a small amount of your subscription allowance.
+This sends five tiny read-only turns. Two ephemeral chats check ChatGPT authentication, image reads, streaming, and separation between conversations. A separate source chat and edited branch check that earlier context is kept and the original history stays unchanged. Those two saved test chats are archived afterward. The tests use a small amount of your subscription allowance.
 
 The [native smoke-test instructions](scripts/native-smoke/README.md) cover the real IDEA editor bridge, four-pane restoration, attachments, and menu interactions. The fixture does not contact a model. Test tooling is not included in the release plugin.
 

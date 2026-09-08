@@ -1,6 +1,8 @@
 import type { CSSProperties } from 'react';
 
 const paths = {
+  newTab: 'M14 3h7v7M21 3l-9 9M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5',
+  edit: 'm16 3 5 5M4 15 15.5 3.5a2.8 2.8 0 0 1 4 4L8 19l-5 2z',
   plus: 'M12 5v14M5 12h14', close: 'm6 6 12 12M6 18 18 6', send: 'M12 19V5m-6 6 6-6 6 6', stop: 'M7 7h10v10H7z',
   search: 'M21 21l-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0', settings: 'M10 2h4l.6 3.2L16 6l3-1 2 3.5-2.4 2.1v1.6l2.4 2.1-2 3.5-3-1-1.4.8L14 21h-4l-.6-3.4-1.4-.8-3 1-2-3.5 2.4-2.1v-1.6L3 8.5 5 5l3 1 1.4-.8zM15 11.5a3 3 0 1 0-6 0 3 3 0 1 0 6 0',
   split: 'M3 4h18v16H3zM12 4v16', check: 'm5 12 4 4L19 6', chevron: 'm9 5 7 7-7 7', down: 'm6 9 6 6 6-6',

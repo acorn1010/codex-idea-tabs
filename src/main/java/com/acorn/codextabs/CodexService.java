@@ -123,7 +123,7 @@ public final class CodexService implements Disposable {
                 });
                 if (disposed || generation != connectionGeneration) { rpc.close(); throw new IllegalStateException("Connection was replaced"); }
                 client = rpc;
-                rpc.request("initialize", object("clientInfo", object("name", "codex_idea_tabs", "title", "Codex Tabs for IDEA", "version", "0.1.0"), "capabilities", object("experimentalApi", true))).join();
+                rpc.request("initialize", object("clientInfo", object("name", "codex_idea_tabs", "title", "Codex Tabs for IDEA", "version", "0.1.1"), "capabilities", object("experimentalApi", true))).join();
                 rpc.notify("initialized", new JsonObject());
                 connectionStatus = "connected";
                 rpc.request("account/read", object("refreshToken", false)).thenAccept(value -> { account = value; changed(""); });
@@ -232,12 +232,75 @@ public final class CodexService implements Disposable {
                         result.complete(response);
                     }
                     if (chat.get("draft").equals(prompt)) { chat.set("draft", ""); }
+                    chat.set("draftInput", new JsonArray());
                     chat.set("error", "");
                     options.model = model; options.effort = effort; options.permissions = permissions;
                     changed(id);
                 } catch (Exception error) { chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }
             }, io));
         return result;
+    }
+    /** Continue an edited turn in a new chat, leaving the source conversation and its active work intact. */
+    public CompletableFuture<JsonObject> editMessage(String id, JsonObject payload) {
+        return CompletableFuture.supplyAsync(() -> {
+            var source = chat(id);
+            String itemId = text(payload, "itemId");
+            String threadId = source.get("threadId");
+            if (threadId.isBlank() || itemId.isBlank()) { throw new IllegalArgumentException("Choose a saved user message to edit."); }
+            var rpc = connect().join();
+            var turns = new JsonArray();
+            String cursor = "";
+            boolean found = false;
+            do {
+                var params = object("threadId", threadId, "limit", 50, "sortDirection", "asc", "itemsView", "full");
+                if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
+                var page = rpc.request("thread/turns/list", params).join();
+                for (var turn : array(page, "data")) {
+                    turns.add(turn);
+                    for (var item : array(turn.getAsJsonObject(), "items")) {
+                        if (text(item.getAsJsonObject(), "id").equals(itemId)) { found = true; break; }
+                    }
+                    if (found) { break; }
+                }
+                cursor = text(page, "nextCursor");
+            } while (!found && !cursor.isBlank());
+            var edit = MessageEdit.prepare(turns, itemId, text(payload, "text"));
+            String permissions = text(payload, "permissions", settings().permissions);
+            var params = object("cwd", source.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
+            if (!text(payload, "model").isBlank()) { params.addProperty("model", text(payload, "model")); }
+            String method = "thread/start";
+            if (!edit.lastTurnId().isBlank()) {
+                method = "thread/fork";
+                params.addProperty("threadId", threadId);
+                params.addProperty("lastTurnId", edit.lastTurnId());
+                params.addProperty("excludeTurns", true);
+            }
+            var branch = obj(rpc.request(method, params).join(), "thread");
+            var revised = importThread(branch);
+            revised.set("title", source.get("title") + " (edited)");
+            revised.set("renamed", true);
+            revised.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
+            // Keep a retryable draft even if the first turn cannot start after the fork succeeds.
+            var retained = new JsonArray();
+            var prompt = new ArrayList<String>();
+            for (var part : edit.input()) {
+                if (text(part.getAsJsonObject(), "type").equals("text")) { prompt.add(text(part.getAsJsonObject(), "text")); }
+                else { retained.add(part.deepCopy()); }
+            }
+            revised.set("draft", String.join("\n", prompt));
+            revised.set("draftInput", retained);
+            changed(revised.id);
+            var sendPayload = payload.deepCopy();
+            sendPayload.addProperty("text", revised.get("draft"));
+            sendPayload.add("input", retained);
+            try { send(revised.id, sendPayload).join(); }
+            catch (CompletionException error) {
+                // The new tab displays the error and keeps the entire edited input ready for retry.
+                revised.set("error", message(error));
+            }
+            changed(revised.id);
+            return object("id", revised.id);
+        }, io);
     }
     /** Serialize archive and restore with sends so queued messages cannot be lost to an archive. */
     public CompletableFuture<JsonObject> archive(String id, boolean archived) {

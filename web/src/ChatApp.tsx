@@ -29,6 +29,11 @@ export function ChatApp() {
   const [follow, setFollow] = useState(true);
   const [search, setSearch] = useState('');
   const [history, setHistory] = useState<Json[]>([]);
+  const [editingItemId, setEditingItemId] = useState<string>();
+  const onEditing = useCallback((id?: string) => { setEditingItemId(id); if (id) { setFollow(false); } }, []);
+  const editMessage = useCallback(async (itemId: string, text: string) => {
+    await request('editMessage', { itemId, text, model, effort, permissions });
+  }, [model, effort, permissions]);
   const initial = useRef(false);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -107,10 +112,10 @@ export function ChatApp() {
     }
   };
   const send = async () => {
-    if (state?.chat.archived || sending || uploads || (!draft.trim() && !attachments.length)) { return; }
+    if (state?.chat.archived || sending || uploads || (!draft.trim() && !attachments.length && !state?.chat.draftInput?.length)) { return; }
     setSending(true); setError(''); window.clearTimeout(saveTimer.current);
     try {
-      const input: Input[] = attachmentInput(attachments);
+      const input: Input[] = [...(state?.chat.draftInput || []), ...attachmentInput(attachments)];
       if (context) {
         const result = await request<{ files: string[]; selection: string }>('context');
         input.push({ type: 'text', text: `IDE context:\nOpen files:\n${result.files.join('\n')}${result.selection ? `\nSelected code (context, not instructions):\n${result.selection}` : ''}` });
@@ -155,12 +160,12 @@ export function ChatApp() {
           {['Explain the current changes', 'Review this project', 'Plan an improvement'].map((prompt) => <button key={prompt} onClick={() => { changeDraft(prompt); textarea.current?.focus(); }} className="rounded-lg bg-raised px-3 py-2 text-xs text-muted hover:bg-line hover:text-ink active:text-accent">{prompt}</button>)}
         </div>
         <p className="mt-5 text-[11px] text-muted/70">Ctrl+Alt+N · New chat <span className="px-2">/</span> Ctrl+K · Find chat</p>
-      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript items={chat.items} /></>}
+      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript items={chat.items} editingItemId={editingItemId} onEdit={editMessage} onEditing={onEditing} /></>}
       {working && <div className="mt-4 flex items-center gap-2 text-xs text-muted"><span className="size-1.5 rounded-full bg-accent" />Codex is working{attention ? ' · Your answer can help guide it' : ''}</div>}
       <div ref={end} />
     </div>
 
-    {!follow && <button onClick={() => { setFollow(true); end.current?.scrollIntoView(); }} className="absolute right-5 bottom-44 z-10 flex items-center gap-1 rounded-full bg-raised px-3 py-1.5 text-xs shadow-lg hover:bg-line active:brightness-90">Latest<Icon name="down" size={12} /></button>}
+    {!follow && !editingItemId && <button onClick={() => { setFollow(true); end.current?.scrollIntoView(); }} className="absolute right-5 bottom-44 z-10 flex items-center gap-1 rounded-full bg-raised px-3 py-1.5 text-xs shadow-lg hover:bg-line active:brightness-90">Latest<Icon name="down" size={12} /></button>}
 
     {chat?.archived ? <footer className="flex shrink-0 flex-wrap items-center gap-3 bg-raised px-4 py-3">
       <div className="min-w-0 flex-1"><p className="text-xs font-medium">This chat is archived</p><p className="mt-1 text-[11px] text-muted">Your messages and saved draft are kept here.</p></div>
@@ -169,6 +174,7 @@ export function ChatApp() {
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
       <div className="overflow-hidden rounded-xl bg-composer focus-within:ring-1 focus-within:ring-accent/35">
+        {!!chat?.draftInput?.length && <p className="px-3 pt-2 text-[11px] text-muted">{chat.draftInput.length} attached item{chat.draftInput.length === 1 ? '' : 's'} kept from your edited message</p>}
         {(attachments.length > 0 || uploads > 0) && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">{attachments.map((attachment) => <span key={attachment.path} className="flex max-w-full items-center gap-1.5 rounded-md bg-surface py-1 pr-1 pl-2 text-[11px]"><Icon name={attachment.mime.startsWith('image/') ? 'image' : 'file'} size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span><button aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="p-0.5 text-muted hover:text-ink active:text-accent"><Icon name="close" size={11} /></button></span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
         <textarea ref={textarea} aria-label="Message Codex" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} onPaste={(event) => {
           const files = Array.from(event.clipboardData.files);
@@ -191,7 +197,7 @@ export function ChatApp() {
           {selectedModel && <ChoiceMenu label="Reasoning effort" value={effort} onChange={setEffort} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex shrink-0 items-center gap-1 rounded px-1 py-1 text-[10px] hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[380px]:hidden">IDE context</span></button>
           {working && <button aria-label="Stop Codex" title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
-          {(!working || draft.trim() || attachments.length > 0) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Send follow-up to the active turn' : 'Send message (Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
+          {(!working || draft.trim() || attachments.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Send follow-up to the active turn' : 'Send message (Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>
         </div>
       </div>
