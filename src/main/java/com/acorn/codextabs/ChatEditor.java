@@ -141,7 +141,8 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "reconnect": service.reconnect(); return service.load(file.id).thenApply(ignored -> new JsonObject());
             case "login": return service.rpc("account/login/start", object("type", "chatgptDeviceCode"));
             case "attachment": return service.attachment(params);
-            case "chooseFiles": return chooseFiles();
+            case "chooseFiles": return chooseFiles(false);
+            case "chooseImages": return chooseFiles(true);
             case "context": return ideContext();
             case "copy": return uiResult(() -> com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(new java.awt.datatransfer.StringSelection(text(params, "text"))));
             case "openLink": return openLink(text(params, "path"));
@@ -164,10 +165,12 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             default: throw new IllegalArgumentException("Unknown chat action: " + method);
         }
     }
-    private CompletableFuture<JsonObject> chooseFiles() {
+    private CompletableFuture<JsonObject> chooseFiles(boolean imagesOnly) {
         var future = new CompletableFuture<JsonObject>();
         ui(() -> {
-            var descriptor = new FileChooserDescriptor(true, false, false, false, false, true).withTitle("Add context to Codex");
+            var descriptor = new FileChooserDescriptor(true, false, false, false, false, true)
+                .withTitle(imagesOnly ? "Attach images to edited message" : "Add context to Codex")
+                .withFileFilter(file -> !imagesOnly || !imageMime(file.getExtension()).isBlank());
             var selected = FileChooser.chooseFiles(descriptor, project, null);
             CompletableFuture.runAsync(() -> {
                 try {
@@ -175,6 +178,10 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
                     for (var value : selected) {
                         if (value.getLength() > 50 * 1024 * 1024) { throw new IllegalArgumentException(value.getName() + " exceeds 50 MB."); }
                         String mime = Files.probeContentType(java.nio.file.Path.of(value.getPath()));
+                        if (imagesOnly) {
+                            mime = imageMime(value.getExtension());
+                            if (mime.isBlank()) { throw new IllegalArgumentException("Choose an image file."); }
+                        }
                         var attachment = service.attachment(object("name", value.getName(), "mime", mime == null ? "application/octet-stream" : mime, "data", Base64.getEncoder().encodeToString(value.contentsToByteArray()))).join();
                         files.add(attachment);
                     }
@@ -183,6 +190,18 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             });
         });
         return future;
+    }
+    private static String imageMime(String extension) {
+        return switch (Objects.toString(extension, "").toLowerCase(Locale.ROOT)) {
+            case "png" -> "image/png";
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "gif" -> "image/gif";
+            case "webp" -> "image/webp";
+            case "svg" -> "image/svg+xml";
+            case "bmp" -> "image/bmp";
+            case "avif" -> "image/avif";
+            default -> "";
+        };
     }
     private CompletableFuture<JsonObject> ideContext() {
         var result = new CompletableFuture<JsonObject>();

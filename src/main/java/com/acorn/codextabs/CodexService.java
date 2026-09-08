@@ -307,7 +307,8 @@ public final class CodexService implements Disposable {
                 }
                 cursor = text(page, "nextCursor");
             } while (!found && !cursor.isBlank());
-            var edit = MessageEdit.prepare(turns, itemId, text(payload, "text"));
+            if (payload.has("images") && !payload.get("images").isJsonArray()) { throw new IllegalArgumentException("Image attachments must be a list."); }
+            var edit = MessageEdit.prepare(turns, itemId, text(payload, "text"), payload.has("images") ? array(payload, "images") : null);
             String permissions = text(payload, "permissions", settings().permissions);
             var params = object("cwd", source.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
             if (!text(payload, "model").isBlank()) { params.addProperty("model", text(payload, "model")); }

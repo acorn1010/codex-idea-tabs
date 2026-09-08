@@ -43,6 +43,43 @@ class MessageEditTest {
         assertEquals(image, MessageEdit.prepare(turns, "image", "").input().get(0));
     }
 
+    @Test void editedImagesReplaceOnlyTheSelectedMessagesImages() {
+        var earlier = object("type", "localImage", "path", "/earlier.png");
+        var old = object("type", "image", "url", "data:image/png;base64,OLD");
+        var mention = object("type", "mention", "name", "Notes", "path", "/notes.txt");
+        var turns = turns(turn("turn", user("before", textInput("Keep this"), earlier), user("edit", textInput("Old text"), old, mention), user("later", textInput("Do not include"))));
+        String saved = GSON.toJson(turns);
+        var images = new JsonArray();
+        images.add(object("type", "localImage", "path", "/added.png"));
+        var input = MessageEdit.prepare(turns, "edit", "New text", images).input();
+        assertEquals(5, input.size());
+        assertEquals(earlier, input.get(1), "Earlier steering images must stay");
+        assertEquals(mention, input.get(3), "Non-image context must stay");
+        assertEquals(images.get(0), input.get(4));
+        assertFalse(input.contains(old), "Removed images must not reach the new turn");
+        input.get(4).getAsJsonObject().addProperty("path", "/changed-copy.png");
+        assertEquals("/added.png", text(images.get(0).getAsJsonObject(), "path"));
+        assertEquals(saved, GSON.toJson(turns), "Editing must not change the original history");
+    }
+
+    @Test void explicitEmptyImageListRemovesAllImagesAndRejectsAnEmptyMessage() {
+        var turns = turns(turn("turn", user("edit", object("type", "localImage", "path", "/old.png"))));
+        var input = MessageEdit.prepare(turns, "edit", "Text only now", new JsonArray()).input();
+        assertEquals(1, input.size());
+        assertEquals("text", text(input.get(0).getAsJsonObject(), "type"));
+        assertThrows(IllegalArgumentException.class, () -> MessageEdit.prepare(turns, "edit", " ", new JsonArray()));
+        var images = new JsonArray(); images.add(object("type", "image", "url", "data:image/png;base64,NEW"));
+        assertEquals(images, MessageEdit.prepare(turns, "edit", "", images).input(), "An image-only replacement is allowed");
+    }
+
+    @Test void rejectsNonImageAndIncompleteReplacementAttachments() {
+        var turns = turns(turn("turn", user("edit", textInput("Original"))));
+        for (var invalid : new JsonElement[]{new JsonPrimitive("bad"), object("type", "text", "text", "Sneak in extra text"), object("type", "localImage", "path", ""), object("type", "image", "url", "")}) {
+            var images = new JsonArray(); images.add(invalid);
+            assertThrows(IllegalArgumentException.class, () -> MessageEdit.prepare(turns, "edit", "New", images));
+        }
+    }
+
     private static JsonObject textInput(String text) { return object("type", "text", "text", text); }
     private static JsonObject user(String id, JsonObject... input) { return object("id", id, "type", "userMessage", "content", input); }
     private static JsonObject turn(String id, JsonObject... items) { return object("id", id, "items", items); }

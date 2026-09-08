@@ -53,6 +53,8 @@ def items(thread_id):
         {"id": thread_id + "-tool", "type": "commandExecution", "command": "npm test", "status": "completed", "aggregatedOutput": "12 tests passed in 0.8 seconds", "exitCode": 0},
         {"id": thread_id + "-answer", "type": "agentMessage", "text": "Each chat has its own editor tab and keeps running while you work elsewhere.\n\n- **Blue** means work is in progress.\n- **Amber** means a question or approval needs you.\n- **Green** marks an unread result.\n\nThe composer keeps the workspace, model, and permissions on one compact row."},
     ]
+    if thread_id.startswith("edit-images-"):
+        messages[0]["content"].append({"type": "localImage", "path": str(image)})
     if thread_id == "image":
         messages[-1]["text"] = "The generated image is ready. You can preview it here or open it in the editor."
         messages.append({"id": "generated-art", "type": "imageGeneration", "status": "completed", "savedPath": str(image), "result": ""})

@@ -7,6 +7,7 @@ import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
 import { ChoiceMenu } from './ChoiceMenu';
 import { ImagePreview } from './Markdown';
+import { uploadAttachment } from './attachments';
 
 type RecallSession = { messages: string[]; seen: Set<string>; index: number; cursor: string; pending: boolean; error?: string };
 
@@ -36,8 +37,8 @@ export function ChatApp() {
   const [history, setHistory] = useState<Json[]>([]);
   const [editingItemId, setEditingItemId] = useState<string>();
   const onEditing = useCallback((id?: string) => { setEditingItemId(id); if (id) { setFollow(false); } }, []);
-  const editMessage = useCallback(async (itemId: string, text: string) => {
-    await request('editMessage', { itemId, text, model, effort, permissions });
+  const editMessage = useCallback(async (itemId: string, text: string, images: Json[]) => {
+    await request('editMessage', { itemId, text, images, model, effort, permissions });
   }, [model, effort, permissions]);
   const initial = useRef(false);
   const modelInitialized = useRef(false);
@@ -165,11 +166,7 @@ export function ChatApp() {
     setUploads((count) => count + files.length); setError('');
     for (const file of files) {
       try {
-        if (file.size > 50 * 1024 * 1024) { throw new Error(`${file.name} exceeds 50 MB.`); }
-        const data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader(); reader.onload = () => resolve(String(reader.result).split(',')[1]); reader.onerror = () => reject(new Error(`Could not read ${file.name}`)); reader.readAsDataURL(file);
-        });
-        const attachment = await request<Attachment>('attachment', { name: file.name, mime: file.type || 'application/octet-stream', data });
+        const attachment = await uploadAttachment(file);
         setAttachments((current) => [...current, attachment]);
       } catch (error) { setError((error as Error).message); }
       finally { setUploads((count) => count - 1); }
@@ -201,7 +198,7 @@ export function ChatApp() {
   const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
 
-  return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(true); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); }}>
+  return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(!editingItemId); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); }}>
     <header className="flex h-10 shrink-0 items-center gap-2 px-3">
       <span className={`size-1.5 shrink-0 rounded-full ${chat?.archived ? 'bg-muted' : attention ? 'bg-attention' : working ? 'bg-accent' : 'bg-success/70'}`} />
       <span className={`truncate text-[11px] ${attention ? 'text-attention' : 'text-muted'}`}>{status}</span>
