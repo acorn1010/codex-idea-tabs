@@ -28,6 +28,7 @@ thread_cwds = json.loads(cwd_file.read_text()) if cwd_file.exists() else {}
 last_turn_params = {}
 last_fork_params = {}
 last_list_params = {}
+goals = {}
 
 
 def emit(value):
@@ -131,11 +132,35 @@ def respond(request):
     result = {}
     if method == "initialize":
         result = {"userAgent": "codex-tabs-fixture"}
+    elif method == "account/rateLimits/read":
+        result = {"rateLimits": {"limitId": "codex", "primary": {"usedPercent": 25, "windowDurationMins": 300, "resetsAt": int(time.time()) + 3600}, "secondary": {"usedPercent": 10, "windowDurationMins": 10080}}}
+    elif method == "skills/list":
+        cwd = params["cwds"][0]
+        result = {"data": [{"cwd": cwd, "errors": [], "skills": [
+            {"name": "analytics-dashboard", "path": str(root / "analytics/SKILL.md"), "description": "Create spreadsheets with the Analytics Dashboard template", "enabled": True, "scope": "user"},
+            {"name": "art-geometry-cleanup", "path": str(root / "geometry/SKILL.md"), "description": "Fix geometry problems and uneven frames", "enabled": True, "scope": "repo"},
+            {"name": "disabled-skill", "path": str(root / "disabled/SKILL.md"), "description": "Should not be offered", "enabled": False, "scope": "repo"},
+        ]}]}
+    elif method == "thread/goal/get":
+        result = {"goal": goals.get(params["threadId"])}
+    elif method == "thread/goal/set":
+        goals[params["threadId"]] = {**params, "tokensUsed": 0, "timeUsedSeconds": 0}
+        result = {"goal": goals[params["threadId"]]}
+    elif method == "thread/goal/clear":
+        result = {"cleared": goals.pop(params["threadId"], None) is not None}
+    elif method == "mcpServerStatus/list":
+        result = {"data": [{"name": "fixture-search", "authStatus": "notLoggedIn", "tools": {"search": {}}}], "nextCursor": None}
+    elif method == "feedback/upload":
+        result = {"threadId": "fixture-feedback-receipt"}
+    elif method == "review/start":
+        turn = {"id": "fixture-review-" + str(time.time_ns()), "status": "inProgress", "items": []}
+        event("turn/started", params["threadId"], turn=turn)
+        result = {"reviewThreadId": params["threadId"], "turn": turn}
     elif method == "account/read":
         result = {"account": {"type": "chatgpt", "planType": "pro"}, "requiresOpenaiAuth": True}
     elif method == "model/list":
         result = {"data": [
-            {"id": "gpt-6-astra", "model": "gpt-6-astra", "displayName": "GPT-6-Astra", "isDefault": True, "defaultReasoningEffort": "medium", "supportedReasoningEfforts": [{"reasoningEffort": value, "description": value} for value in ["low", "medium", "high", "xhigh"]]},
+            {"id": "gpt-6-astra", "model": "gpt-6-astra", "displayName": "GPT-6-Astra", "isDefault": True, "serviceTiers": [{"id": "priority", "name": "Fast", "description": "Faster responses, increased usage"}], "defaultReasoningEffort": "medium", "supportedReasoningEfforts": [{"reasoningEffort": value, "description": value} for value in ["low", "medium", "high", "xhigh"]]},
             {"id": "fixture-model", "model": "fixture-model", "displayName": "Test model", "defaultReasoningEffort": "low", "supportedReasoningEfforts": [{"reasoningEffort": value, "description": value} for value in ["low", "high"]]},
         ]}
     elif method == "thread/list":

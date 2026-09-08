@@ -13,6 +13,8 @@ public final class CodexSettings implements PersistentStateComponent<CodexSettin
         public String model = "";
         public String effort = "";
         public boolean modelSelectionSaved;
+        public boolean fast;
+        public boolean planMode;
         public String permissions = "auto";
     }
     private State state = new State();

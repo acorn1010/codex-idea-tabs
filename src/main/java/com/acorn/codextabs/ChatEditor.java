@@ -118,6 +118,19 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         switch (method) {
             case "ready": ready = true; dirty = true; service.load(file.id); return completed(service.snapshot(file.id));
             case "send": return service.send(file.id, params);
+            case "accountLimits": return service.rpc("account/rateLimits/read", new JsonObject()).orTimeout(15, java.util.concurrent.TimeUnit.SECONDS);
+            case "skills": return service.rpc("skills/list", object("cwds", new String[]{chat.get("cwd")}, "forceReload", true));
+            case "composerPreferences": service.settings().fast = flag(params, "fast"); service.settings().planMode = flag(params, "planMode"); service.changed(""); return completed(new JsonObject());
+            case "getGoal": return chat.get("threadId").isBlank() ? completed(object("goal", JsonNull.INSTANCE)) : service.rpc("thread/goal/get", object("threadId", chat.get("threadId")));
+            case "clearGoal": return chat.get("threadId").isBlank() ? completed(object("cleared", false)) : service.rpc("thread/goal/clear", object("threadId", chat.get("threadId")));
+            case "setGoal": { var payload = params.deepCopy(); payload.addProperty("goalObjective", text(params, "objective")); return service.send(file.id, payload); }
+            case "review": { var payload = params.deepCopy(); payload.add("reviewTarget", obj(params, "target")); return service.send(file.id, payload); }
+            case "mcpStatus": return service.mcpStatus();
+            case "feedback": {
+                String reason = text(params, "reason").strip();
+                if (reason.isBlank() || reason.length() > 4000) { return CompletableFuture.failedFuture(new IllegalArgumentException("Write feedback of up to 4,000 characters.")); }
+                return service.rpc("feedback/upload", object("classification", "other", "reason", reason, "includeLogs", false, "threadId", chat.get("threadId").isBlank() ? null : chat.get("threadId")));
+            }
             case "modelPreferences": service.rememberModel(params); return completed(new JsonObject());
             case "editMessage": return service.editMessage(file.id, params).thenApply(result -> {
                 ui(() -> ChatFiles.open(project, text(result, "id"), false));
@@ -126,7 +139,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "answer": return service.answer(file.id, params);
             case "stop": return service.stop(file.id);
             case "restore": return service.archive(file.id, false);
-            case "draft": chat.set("draft", text(params, "text")); if (params.has("attachments")) { chat.set("draftAttachments", array(params, "attachments")); } service.changed(file.id); return completed(new JsonObject());
+            case "draft": chat.set("draft", text(params, "text")); if (params.has("skills")) { chat.set("draftSkills", array(params, "skills")); } if (params.has("attachments")) { chat.set("draftAttachments", array(params, "attachments")); } service.changed(file.id); return completed(new JsonObject());
             case "older": return service.older(file.id, text(params, "cursor"));
             case "seen": chat.set("unread", false); service.changed(file.id); return completed(new JsonObject());
             case "pin": chat.set("pinned", flag(params, "pinned")); service.changed(file.id); return completed(new JsonObject());

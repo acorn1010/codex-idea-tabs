@@ -326,6 +326,21 @@ public final class CodexService implements Disposable {
         return connection;
     }
     public CompletableFuture<JsonObject> rpc(String method, JsonObject params) { return connect().thenCompose(client -> client.request(method, params)); }
+    /** Load every MCP status page only when the user opens the MCP panel. */
+    public CompletableFuture<JsonObject> mcpStatus() {
+        return CompletableFuture.supplyAsync(() -> {
+            var entries = new JsonArray();
+            String cursor = "";
+            var seen = new HashSet<String>();
+            do {
+                var params = object("limit", 100, "detail", "toolsAndAuthOnly");
+                if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
+                var page = rpc("mcpServerStatus/list", params).join();
+                entries.addAll(array(page, "data")); cursor = text(page, "nextCursor");
+            } while (!cursor.isBlank() && seen.add(cursor));
+            return object("data", entries);
+        }, io);
+    }
     public void reconnect() {
         synchronized (this) { connectionGeneration++; if (client != null) { client.close(); } client = null; connection = null; sessions.disconnected(); attachmentRoot = null; chats.values().forEach(Conversation::disconnected); }
         connect().thenRun(() -> editors.keySet().forEach(this::load));
@@ -404,9 +419,16 @@ public final class CodexService implements Disposable {
                     if (!gitWorktrees().exists(chat.get("cwd"))) { throw new IllegalStateException("This chat's checkout is missing. Use the workspace menu to continue in an existing worktree."); }
                     if (chat.archived()) { throw new IllegalStateException("Restore this chat before sending a message."); }
                     String prompt = text(payload, "text");
+                    boolean goalCommand = payload.has("goalObjective");
+                    boolean reviewCommand = payload.has("reviewTarget");
+                    if (goalCommand) { ComposerOptions.goal(payload, ""); }
+                    if (reviewCommand) {
+                        ComposerOptions.review(obj(payload, "reviewTarget"));
+                        if (chat.busy()) { throw new IllegalStateException("Wait for the current turn to finish before starting a review."); }
+                    }
                     var input = array(payload, "input").deepCopy();
                     if (!prompt.isBlank()) { input.add(object("type", "text", "text", prompt)); }
-                    if (input.isEmpty()) { throw new IllegalArgumentException("Write a message or attach a file first."); }
+                    if (input.isEmpty() && !goalCommand && !reviewCommand) { throw new IllegalArgumentException("Write a message or attach a file first."); }
                     var rpc = connect().join();
                     var options = settings();
                     String model = text(payload, "model", options.model);
@@ -415,14 +437,27 @@ public final class CodexService implements Disposable {
                     if (chat.get("threadId").isBlank()) {
                         var start = object("cwd", chat.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                         if (!model.isBlank()) { start.addProperty("model", model); }
+                        if (!effort.isBlank()) { start.add("config", object("model_reasoning_effort", effort)); }
                         var thread = obj(rpc.request("thread/start", start).join(), "thread");
                         chat.hydrate(thread, chat.revision());
                         if (chat.get("title").equals("New chat") || chat.get("title").isBlank()) { chat.set("title", prompt.lines().findFirst().orElse("New chat").substring(0, Math.min(prompt.lines().findFirst().orElse("New chat").length(), 80))); }
                         sessions.load(id, () -> CompletableFuture.completedFuture(null)).join();
-                    } else { load(id).join(); }
+                    } else {
+                        load(id).join();
+                        if ((goalCommand || reviewCommand) && !chat.busy()) {
+                            // These commands inherit thread settings instead of accepting turn overrides.
+                            var resume = object("threadId", chat.get("threadId"), "excludeTurns", true, "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
+                            if (!model.isBlank()) { resume.addProperty("model", model); }
+                            if (!effort.isBlank()) { resume.add("config", object("model_reasoning_effort", effort)); }
+                            rpc.request("thread/resume", resume).join();
+                        }
+                    }
                     var params = object("threadId", chat.get("threadId"), "input", input);
                     String active = chat.get("turnId");
-                    if (!active.isBlank()) {
+                    if (goalCommand) {
+                        result.complete(rpc.request("thread/goal/set", ComposerOptions.goal(payload, chat.get("threadId"))).join());
+                    } else if (!active.isBlank()) {
+                        if (reviewCommand) { throw new IllegalStateException("Wait for the current turn to finish before starting a review."); }
                         params.addProperty("expectedTurnId", active);
                         result.complete(rpc.request("turn/steer", params).join());
                     } else {
@@ -431,7 +466,9 @@ public final class CodexService implements Disposable {
                         params.addProperty("approvalPolicy", "on-request");
                         params.addProperty("approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                         params.add("sandboxPolicy", permissions.equals("read") ? object("type", "readOnly") : object("type", "workspaceWrite", "writableRoots", new String[]{chat.get("cwd")}, "networkAccess", false, "excludeTmpdirEnvVar", false, "excludeSlashTmp", false));
-                        var response = rpc.request("turn/start", params).join();
+                        if (!reviewCommand) { ComposerOptions.apply(params, payload, models, model, effort, flag(chat.snapshot(), "planModeActive")); }
+                        var response = reviewCommand ? rpc.request("review/start", object("threadId", chat.get("threadId"), "target", ComposerOptions.review(obj(payload, "reviewTarget")), "delivery", "inline")).join() : rpc.request("turn/start", params).join();
+                        if (!reviewCommand) { chat.set("planModeActive", flag(payload, "planMode")); }
                         String returnedTurn = text(obj(response, "turn"), "id");
                         if (chat.get("turnId").isBlank() && !chat.get("completedTurnId").equals(returnedTurn) && !text(obj(response, "turn"), "status").equals("completed")) {
                             // Completion can precede the reply, even after the user has marked the chat read.
@@ -440,7 +477,7 @@ public final class CodexService implements Disposable {
                         result.complete(response);
                     }
                     if (chat.get("draft").equals(prompt)) { chat.set("draft", ""); }
-                    chat.set("draftInput", new JsonArray());
+                    if (!goalCommand && !reviewCommand) { chat.set("draftInput", new JsonArray()); }
                     chat.set("error", "");
                     options.permissions = permissions;
                     sessions.working(id, chat.busy());
