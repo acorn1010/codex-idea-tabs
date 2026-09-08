@@ -48,9 +48,12 @@ public final class ChatFiles extends DeprecatedVirtualFileSystem {
         @Override public boolean isWritable() { return false; }
     }
     public static final class Titles implements EditorTabTitleProvider {
+        private static final int MAX_TAB_TITLE_LENGTH = 40;
         @Override public String getEditorTabTitle(Project project, VirtualFile file) {
             if (!(file instanceof ChatFile chat)) { return null; }
-            return CodexService.get(project).chat(chat.id).get("title");
+            String title = CodexService.get(project).chat(chat.id).get("title").replaceAll("\\s+", " ").strip();
+            return title.codePointCount(0, title.length()) <= MAX_TAB_TITLE_LENGTH ? title
+                : title.substring(0, title.offsetByCodePoints(0, MAX_TAB_TITLE_LENGTH - 1)).stripTrailing() + "…";
         }
         @Override public String getEditorTabTooltipText(Project project, VirtualFile file) {
             if (!(file instanceof ChatFile chat)) { return null; }

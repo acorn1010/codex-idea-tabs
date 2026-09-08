@@ -70,4 +70,4 @@ Close and restart the test profile normally. Verify that the native split layout
 
 Do not install the smoke-test plugin in your daily IDE profile or include it in a release.
 
-Set `-Dcodex.smoke.lifecycle.check=true` to check real editor disposal, idle unsubscribe, close and reopen, background completion, retry recovery, and reconnecting multiple open tabs. The harness uses fresh fixture IDs and writes `lifecycle-result.json`. Its subscription checks verify RPC receipt, not the real app server's memory cleanup delay. It leaves a chat with an image attached for preview checks.
+Set `-Dcodex.smoke.lifecycle.check=true` to check real editor disposal, idle unsubscribe, close and reopen, background completion, retry recovery, reconnecting multiple open tabs, and shortened tab titles. The harness uses fresh fixture IDs and writes `lifecycle-result.json`. Its subscription checks verify RPC receipt, not the real app server's memory cleanup delay. It leaves a chat with an image attached for preview checks.

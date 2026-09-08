@@ -6,7 +6,7 @@ This is an independent client for the [Codex app server](https://developers.open
 
 ## What it does
 
-- Opens each conversation in an ordinary IDEA editor tab. Tabs can be split, moved, pinned, closed, and restored by the IDE.
+- Opens each conversation in an ordinary IDEA editor tab. Tabs can be split, moved, pinned, closed, and restored by the IDE. Displayed titles are capped at 40 characters, with the full title in the tooltip.
 - Uses blue tab icons for work in progress, amber for questions or approvals, and green for unread results.
 - Keeps hidden tabs connected. Closed chats finish active work in the background, then release their subscriptions. Drafts, history, and asynchronous questions remain available.
 - Groups chats by attention, work in progress, pins, and recent activity, with search and readable message previews.

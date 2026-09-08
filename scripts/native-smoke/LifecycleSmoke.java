@@ -75,6 +75,8 @@ final class LifecycleSmoke {
         var file = VirtualFileManager.getInstance().getFileSystem("codex-chat").findFileByPath(project.getLocationHash() + "/" + preview);
         var titles = new ChatFiles.Titles();
         String displayed = titles.getEditorTabTitle(project, file);
+        check(displayed.codePointCount(0, displayed.length()) <= 40 && displayed.endsWith("…"), "Tab title was not capped");
+        check(titles.getEditorTabTooltipText(project, file).startsWith(title), "Tooltip lost the full title");
         Files.writeString(output.resolve("lifecycle-result.json"), GSON.toJson(object("idleReleased", true, "reopened", true, "draftAndHistoryKept", true,
             "backgroundWorkFinished", true, "retryCleared", true, "resumeRetried", true, "allEditorsReconnected", true, "title", displayed, "previewId", preview, "stats", stats(service))));
         NativeUiProbe.start(project);
