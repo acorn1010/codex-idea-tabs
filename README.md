@@ -18,8 +18,9 @@ This is an independent client for the [Codex app server](https://developers.open
 - Handles permission approvals and both blocking and asynchronous questions.
 - Lets you steer a running turn, interrupt it, and discuss selected code in a new tab.
 - Edits any user message and continues the revised conversation in a new editor tab, keeping the original chat.
+- Groups commands, searches, reasoning, and file edits between messages into compact rows. Expand a row to browse details in a scrollable area. Running and failed work stays visible in the summary, and generated images stay visible in the chat.
 
-There is one app-server process per project. Restored hidden tabs do not start browser renderers. History loads in pages, the transcript initially renders its latest 80 items, and streaming updates contain only changed items.
+There is one app-server process per project. Restored hidden tabs do not start browser renderers. History loads in pages, the transcript initially renders its latest 80 messages or activity groups, and streaming updates contain only changed items. Collapsed groups do not render their tool details.
 
 ## Install
 

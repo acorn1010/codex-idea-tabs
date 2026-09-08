@@ -1,4 +1,34 @@
-import type { Attachment, Chat, Input, Item, Model } from './types';
+import type { Attachment, Chat, Input, Item, Json, Model } from './types';
+
+type TranscriptGroup = { kind: 'activity'; items: Item[] } | { kind: 'item'; item: Item };
+
+/** Collapse consecutive activity without hiding messages or generated image previews. */
+export function groupTranscript(items: Item[]): TranscriptGroup[] {
+  const groups: TranscriptGroup[] = [];
+  for (const item of items) {
+    if (item.type === 'userMessage' || item.type === 'agentMessage' || item.type === 'imageGeneration' || toolImagePaths(item).length) {
+      groups.push({ kind: 'item', item });
+    } else {
+      const previous = groups[groups.length - 1];
+      if (previous?.kind === 'activity') { previous.items.push(item); }
+      else { groups.push({ kind: 'activity', items: [item] }); }
+    }
+  }
+  return groups;
+}
+
+/** Command failures must remain visible even when the process completed normally. */
+export function toolFailed(item: Item): boolean {
+  return item.status === 'failed' || item.status === 'declined' || (item.type === 'commandExecution' && typeof item.exitCode === 'number' && item.exitCode !== 0);
+}
+
+/** Use the same image detection for previews and activity grouping so images stay visible. */
+export function toolImagePaths(item: Item): string[] {
+  const result = item.result as Json | undefined;
+  const path = typeof item.savedPath === 'string' ? item.savedPath : typeof item.path === 'string' && /image/i.test(item.type) ? item.path : typeof result?.path === 'string' && /image/i.test(item.type) ? result.path : item.type === 'imageGeneration' && typeof item.result === 'string' && item.result.length > 100 ? `data:image/png;base64,${item.result}` : '';
+  const content = (Array.isArray(result?.content) ? result.content : []) as Json[];
+  return [...(path ? [path] : []), ...content.filter((part) => part.type === 'image' && part.data).map((part) => `data:${part.mimeType || 'image/png'};base64,${part.data}`)];
+}
 
 /** Keep the user's reasoning level when switching models, or use the new model's supported default. */
 export function modelEffort(models: Model[], model: string, effort: string): string {

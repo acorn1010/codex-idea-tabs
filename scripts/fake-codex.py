@@ -36,6 +36,14 @@ def thread(thread_id):
 
 
 def items(thread_id):
+    if thread_id.startswith("activity-"):
+        return [
+            {"id": "activity-user", "type": "userMessage", "content": [{"type": "text", "text": "Run the workspace checks and summarize the results."}]},
+            {"id": "activity-thinking", "type": "reasoning", "summary": ["Check each workspace before summarizing."]},
+            *[{"id": f"activity-command-{index}", "type": "commandExecution", "command": f"npm run check -- workspace-{index}", "status": "completed", "exitCode": 1 if index == 7 else 0, "aggregatedOutput": "Check failed: missing import" if index == 7 else "All checks passed"} for index in range(20)],
+            {"id": "activity-files", "type": "fileChange", "status": "completed", "changes": [{"path": str(root / "preview.txt")}]},
+            {"id": "activity-answer", "type": "agentMessage", "text": "The workspace checks finished. One import needs a fix."},
+        ]
     messages = [
         {"id": thread_id + "-user", "type": "userMessage", "content": [{"type": "text", "text": "Keep chats fast to open, and make it clear when you need my input."}]},
         {"id": thread_id + "-tool", "type": "commandExecution", "command": "npm test", "status": "completed", "aggregatedOutput": "12 tests passed in 0.8 seconds", "exitCode": 0},

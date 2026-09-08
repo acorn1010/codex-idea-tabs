@@ -1,6 +1,6 @@
-import { memo, useEffect, useRef, useState } from 'react';
-import type { Item, Json } from './types';
-import { itemText, toolLabel } from './format';
+import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { Item } from './types';
+import { groupTranscript, itemText, toolFailed, toolImagePaths, toolLabel } from './format';
 import { Markdown, ImagePreview } from './Markdown';
 import { Icon } from './icons';
 import { request } from './bridge';
@@ -56,35 +56,77 @@ const Message = memo(function Message({ item, editing, onEdit, onEditing }: { it
   </article>;
 });
 
-const Tool = memo(function Tool({ item }: { item: Item }) {
-  const [open, setOpen] = useState(false);
+const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }: { item: Item; contained?: boolean; detailsOnly?: boolean }) {
+  const [open, setOpen] = useState(detailsOnly);
   const label = toolLabel(item);
-  const failed = item.status === 'failed' || item.status === 'declined';
+  const failed = toolFailed(item);
   const content = item.aggregatedOutput || itemText(item) || JSON.stringify(item.result || item.arguments || item, null, 2);
-  const result = item.result as Json | undefined;
-  const imagePath = typeof item.savedPath === 'string' ? item.savedPath : typeof item.path === 'string' && /image/i.test(item.type) ? item.path : typeof result?.path === 'string' && /image/i.test(item.type) ? result.path : item.type === 'imageGeneration' && typeof item.result === 'string' && item.result.length > 100 ? `data:image/png;base64,${item.result}` : '';
-  const images = (Array.isArray(result?.content) ? result.content : []) as Json[];
   return <div className="min-w-0 text-xs">
-    <button onClick={() => setOpen(!open)} aria-expanded={open} className={`flex w-full items-center gap-2 rounded-md py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
+    {!detailsOnly && <button onClick={() => setOpen(!open)} aria-expanded={open} title={label} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
       <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
       <Icon name={item.type === 'fileChange' ? 'file' : item.type === 'webSearch' ? 'search' : 'code'} size={13} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      {item.status === 'completed' && <Icon name="check" size={12} />}
+      {item.status === 'completed' && !failed && <Icon name="check" size={12} />}
       {failed && <span>Failed</span>}
-    </button>
+    </button>}
     {item.type === 'fileChange' && item.changes?.map((change, index) => <button key={index} className="ml-6 flex max-w-[calc(100%-1.5rem)] items-center gap-2 py-1 text-accent hover:underline active:text-ink" onClick={() => void request('openLink', { path: String(change.path || '') })}><Icon name="file" size={12} /><span className="truncate">{String(change.path || '')}</span></button>)}
-    {imagePath && <ImagePreview path={imagePath} alt="Generated image" />}
-    {images.filter((part) => part.type === 'image' && part.data).map((part, index) => <ImagePreview key={index} path={`data:${part.mimeType || 'image/png'};base64,${part.data}`} alt="Generated image" />)}
-    {open && <pre className="mt-1 max-h-60 overflow-auto rounded-lg bg-composer p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words">{content}</pre>}
+    {toolImagePaths(item).map((path, index) => <ImagePreview key={index} path={path} alt="Generated image" />)}
+    {(open || detailsOnly) && <pre className={`mt-1 overflow-auto rounded-lg bg-input p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words ${contained ? '' : 'max-h-60'}`}>{content}</pre>}
   </div>;
 });
 
-/** Render a bounded window initially so returning to a long conversation does not build thousands of DOM nodes. */
+function activityLabel(items: Item[]): string {
+  const counts = new Map<string, number>();
+  const files = new Set<string>();
+  for (const item of items) {
+    counts.set(item.type, (counts.get(item.type) || 0) + 1);
+    if (item.type === 'fileChange') {
+      if (item.changes?.length) { item.changes.forEach((change) => files.add(String(change.path || item.id))); }
+      else { files.add(item.id); }
+    }
+  }
+  const labels: string[] = [];
+  const add = (count: number, singular: string, plural: string) => { if (count) { labels.push(`${count} ${count === 1 ? singular : plural}`); } };
+  add(counts.get('commandExecution') || 0, 'command', 'commands');
+  add(files.size, 'file changed', 'files changed');
+  add(counts.get('webSearch') || 0, 'web search', 'web searches');
+  add(counts.get('mcpToolCall') || 0, 'tool call', 'tool calls');
+  const known = new Set(['commandExecution', 'fileChange', 'webSearch', 'mcpToolCall', 'reasoning']);
+  add(items.filter((item) => !known.has(item.type)).length, 'other action', 'other actions');
+  return labels.join(' · ') || 'Thinking';
+}
+
+const ActivityGroup = memo(function ActivityGroup({ items }: { items: Item[] }) {
+  const [open, setOpen] = useState(false);
+  const detailsId = useId();
+  const label = items.length === 1 ? toolLabel(items[0]) : activityLabel(items);
+  const running = items.filter((item) => item.status === 'inProgress').length;
+  const failed = items.filter(toolFailed).length;
+  return <section data-activity-group={items[0].id} className="min-w-0">
+    <button onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={detailsId} title={label} className="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left text-xs text-muted hover:bg-raised hover:text-ink active:bg-line active:text-ink">
+      <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
+      <Icon name={items.some((item) => item.type === 'fileChange') ? 'edit' : 'code'} size={13} />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {running > 0 && <span className="flex shrink-0 items-center gap-1.5 text-accent"><span aria-hidden className="size-1.5 rounded-full bg-current" />{running} running</span>}
+      {failed > 0 && <span className="shrink-0 text-red-400">{failed} failed</span>}
+    </button>
+    {open && <div id={detailsId} role="region" aria-label="Activity details" tabIndex={0} className="mt-1 max-h-[min(16rem,40vh)] space-y-0.5 overflow-y-auto overscroll-contain rounded-lg bg-raised/40 p-1">
+      {items.map((item) => <Tool key={item.id} item={item} contained detailsOnly={items.length === 1} />)}
+    </div>}
+  </section>;
+});
+
+/** Bound the rendered transcript by groups so large command batches stay intact and collapsed. */
 export function Transcript({ items, editingItemId, onEdit, onEditing }: { items: Item[]; editingItemId?: string; onEdit: EditMessage; onEditing: (id?: string) => void }) {
   const [limit, setLimit] = useState(80);
-  const visible = items.slice(-limit);
+  const groups = useMemo(() => groupTranscript(items), [items]);
+  const visible = groups.slice(-limit);
   return <div className="space-y-3">
-    {items.length > limit && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => setLimit(limit + 80)}>Show earlier messages ({items.length - limit})</button>}
-    {visible.map((item) => item.type === 'userMessage' || item.type === 'agentMessage' ? <Message key={item.id} item={item} editing={editingItemId === item.id} onEdit={onEdit} onEditing={onEditing} /> : <Tool key={item.id} item={item} />)}
+    {groups.length > limit && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => setLimit(limit + 80)}>Show earlier activity ({groups.length - limit})</button>}
+    {visible.map((group) => {
+      if (group.kind === 'activity') { return <ActivityGroup key={group.items[0].id} items={group.items} />; }
+      const item = group.item;
+      return item.type === 'userMessage' || item.type === 'agentMessage' ? <Message key={item.id} item={item} editing={editingItemId === item.id} onEdit={onEdit} onEditing={onEditing} /> : <Tool key={item.id} item={item} />;
+    })}
   </div>;
 }
