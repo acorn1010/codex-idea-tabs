@@ -7,6 +7,9 @@ import java.awt.Color;
 final class SessionTheme {
     static final Color TEXT = new JBColor(0x252A34, 0xDFE3EB);
     static final Color MUTED = new JBColor(0x687181, 0x969EAC);
+    static final Color MENU = new JBColor(0xECEEF2, 0x292C31);
+    static final Color MENU_HOVER = new JBColor(0xF7F8FA, 0x202226);
+    static final Color MENU_PRESSED = new JBColor(0xD9DDE5, 0x363B43);
     static final Color HOVER = new JBColor(0xE8ECF2, 0x2B303A);
     static final Color PRESSED = new JBColor(0xCFDAEC, 0x3D4A61);
     static final Color SELECTED = new JBColor(0xE0E8F6, 0x303C51);

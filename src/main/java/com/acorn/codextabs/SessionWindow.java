@@ -92,13 +92,17 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             filters.add(all); filters.add(attention);
             workspaceFilter = button("", "branch", false, "Filter chats by checkout", () -> {
                 workspaceFilter.setSelected(!workspace.isBlank());
-                var popup = new JPopupMenu();
-                menuItem(popup, "All worktrees", () -> { workspace = ""; workspaceFilter.setSelected(false); workspaceFilter.setToolTipText("All worktrees"); cursor = ""; refresh(false); render(); });
+                var options = new ArrayList<WorktreeFilterPopup.Option>();
+                options.add(new WorktreeFilterPopup.Option("", "All worktrees"));
                 for (var value : service.workspaceEntries()) {
                     var entry = value.getAsJsonObject(); String path = text(entry, "path");
-                    menuItem(popup, service.workspaceLabel(path), () -> { workspace = path; workspaceFilter.setSelected(true); workspaceFilter.setToolTipText("Worktree: " + service.workspaceLabel(path)); cursor = ""; refresh(false); render(); });
+                    options.add(new WorktreeFilterPopup.Option(path, service.workspaceLabel(path)));
                 }
-                popup.show(workspaceFilter, 0, workspaceFilter.getHeight());
+                WorktreeFilterPopup.show(workspaceFilter, options, workspace, path -> {
+                    workspace = path; workspaceFilter.setSelected(!path.isBlank());
+                    workspaceFilter.setToolTipText(path.isBlank() ? "All worktrees" : "Worktree: " + service.workspaceLabel(path));
+                    cursor = ""; refresh(false); render();
+                });
             });
             workspaceFilter.setPreferredSize(JBUI.size(28, 28)); filters.add(workspaceFilter); top.add(filters, BorderLayout.SOUTH);
             search.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
