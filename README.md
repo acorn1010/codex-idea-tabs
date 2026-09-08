@@ -43,6 +43,8 @@ Set the executable to a Linux Codex binary when using WSL. For example, `/home/y
 
 For native Windows projects without WSL, use the Windows Codex executable. For Linux or macOS IDEA, use the local Codex executable.
 
+The **Inspect context** button in the chat header opens a searchable view of recorded rules, skills, messages, and tool results, with size estimates and repeated-passage checks. A separate Startup view builds fresh CLI input on request. [Context inspector guide](docs/context-inspector.md) explains the sources, exports, and limits.
+
 ## Daily use
 
 | Action | How |

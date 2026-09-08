@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 
 const paths = {
+  layers: 'm12 3 10 5-10 5L2 8zM2 12l10 5 10-5M2 16l10 5 10-5',
   newTab: 'M14 3h7v7M21 3l-9 9M10 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5',
   edit: 'm16 3 5 5M4 15 15.5 3.5a2.8 2.8 0 0 1 4 4L8 19l-5 2z',
   plus: 'M12 5v14M5 12h14', close: 'm6 6 12 12M6 18 18 6', send: 'M12 19V5m-6 6 6-6 6 6', stop: 'M7 7h10v10H7z',

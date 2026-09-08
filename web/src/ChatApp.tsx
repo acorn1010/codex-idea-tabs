@@ -7,6 +7,7 @@ import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
 import { ChoiceMenu } from './ChoiceMenu';
 import { ImagePreview } from './Markdown';
+import { ContextInspector } from './ContextInspector';
 import { uploadAttachment } from './attachments';
 
 type RecallSession = { messages: string[]; seen: Set<string>; index: number; cursor: string; pending: boolean; error?: string };
@@ -30,6 +31,7 @@ export function ChatApp() {
   const [connectionError, setConnectionError] = useState('');
   const [dragging, setDragging] = useState(false);
   const [context, setContext] = useState(false);
+  const [inspecting, setInspecting] = useState(false);
   const [palette, setPalette] = useState(false);
   const [login, setLogin] = useState<Json>();
   const [follow, setFollow] = useState(true);
@@ -206,8 +208,11 @@ export function ChatApp() {
       {attentionCount > 0 && <button title="See chats that need you" onClick={() => setPalette(true)} className="rounded bg-attention/10 px-1.5 py-0.5 text-[10px] text-attention hover:bg-attention/20 active:bg-attention/30">{attentionCount} waiting</button>}
       <SmallButton label="Find chat (Ctrl+K)" icon="search" onClick={() => setPalette(true)} />
       <SmallButton label="New chat to side" icon="split" onClick={() => void run('new', { split: true })} />
+      <SmallButton label="Inspect context" icon="layers" onClick={() => setInspecting(true)} />
       <SmallButton label="Connection settings" icon="settings" onClick={() => void run('settings')} />
     </header>
+
+    {inspecting && <ContextInspector model={model} effort={effort} status={chat?.status} onClose={() => setInspecting(false)} />}
 
     {(state?.error || error || connectionError || chat?.error) && <div role="alert" className="flex items-start gap-2 border-b border-red-400/20 bg-red-400/5 px-3 py-2 text-xs text-red-300"><span className="min-w-0 flex-1 break-words">{error || chat?.error || state?.error || connectionError}</span><button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded px-1 underline hover:bg-red-400/15 active:bg-red-400/25">Reconnect</button></div>}
     {needsLogin && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs"><span className="flex-1">Use your Codex subscription</span><button className="rounded bg-accent px-2.5 py-1 text-composer hover:brightness-110 active:brightness-90" onClick={() => { void run('login').then((value) => { if (value) { setLogin(value); } }); }}>Sign in with ChatGPT</button></div>}
