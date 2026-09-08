@@ -144,6 +144,10 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "chooseFiles": return chooseFiles(false);
             case "chooseImages": return chooseFiles(true);
             case "context": return ideContext();
+            case "inspectContext": return ContextInspection.recorded(service, file.id);
+            case "inspectStartup": return ContextInspection.startup(service, file.id, params);
+            case "contextExport": return uiResult(() -> FileEditorManager.getInstance(project).openFile(
+                new com.intellij.testFramework.LightVirtualFile("Codex context snapshot.txt", com.intellij.openapi.fileTypes.PlainTextFileType.INSTANCE, text(params, "text")), true));
             case "copy": return uiResult(() -> com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(new java.awt.datatransfer.StringSelection(text(params, "text"))));
             case "copyImage": {
                 try {

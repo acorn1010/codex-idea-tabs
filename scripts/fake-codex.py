@@ -35,8 +35,36 @@ def event(method, thread, **params):
     emit({"method": method, "params": {"threadId": thread, **params}})
 
 
+def context_inputs():
+    """Synthetic rules include one repeated paragraph for inspector checks."""
+    paragraph = "Preserve the existing public behavior while making the requested change. Verify that the full output remains the same before accepting an optimization."
+    def message(role, text):
+        return {"type": "message", "role": role, "content": [{"type": "input_text", "text": text}]}
+    return [
+        message("developer", "# Project rules\n\n" + paragraph + "\n\nRead /project/AGENTS.md before editing."),
+        message("developer", "### Available skills\n- review: Inspect changes at /project/.agents/skills/review/SKILL.md\n\n" + paragraph),
+        message("user", "IDE context:\nOpen files:\n/project/client/src/pages/ShopPage.tsx\n\nKeep this draft unchanged while inspecting context."),
+    ]
+
+
+def context_record(thread_id):
+    """Write an actual JSONL session fixture for Windows-to-WSL read checks."""
+    path = root / (thread_id + ".jsonl")
+    if not path.exists():
+        records = [
+            {"type": "session_meta", "payload": {"base_instructions": {"text": "Fixture base instructions"}}},
+            {"type": "response_item", "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": "OLD_CONTEXT_BEFORE_COMPACTION"}]}},
+            {"type": "compacted", "payload": {"replacement_history": context_inputs()}},
+            {"type": "response_item", "payload": {"type": "custom_tool_call", "name": "functions.exec", "call_id": "context-read", "input": "cat /project/.agents/skills/review/SKILL.md"}},
+            {"type": "response_item", "payload": {"type": "custom_tool_call_output", "call_id": "context-read", "output": "# Review skill\nCheck scope and preserve unrelated work.\n"}},
+            {"type": "event_msg", "payload": {"type": "item_completed", "item": {"text": "DISPLAY_EVENT_MUST_NOT_BE_COUNTED"}}},
+        ]
+        path.write_text("\n".join(json.dumps(record) for record in records) + "\n")
+    return path
+
+
 def thread(thread_id):
-    return {"id": thread_id, "name": titles.get(thread_id, "New task"), "preview": "", "cwd": str(root), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1, "status": {"type": statuses.get(thread_id, "idle")}}
+    return {"path": str(context_record(thread_id)) if thread_id.startswith("context-") else None, "id": thread_id, "name": titles.get(thread_id, "New task"), "preview": "", "cwd": str(root), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1, "status": {"type": statuses.get(thread_id, "idle")}}
 
 
 def items(thread_id):
@@ -139,6 +167,8 @@ def respond(request):
         subscriptions.add(thread_id)
         result = {"thread": thread(thread_id)}
         threading.Thread(target=attention, args=(params["threadId"],), daemon=True).start()
+    elif method == "thread/read":
+        result = {"thread": thread(params["threadId"])}
     elif method == "thread/items/list":
         entries = [{"item": item, "turnId": turn["id"]} for turn in turns(params["threadId"]) for item in turn["items"]]
         result = {"data": list(reversed(entries)), "nextCursor": None}
@@ -192,6 +222,10 @@ def respond(request):
     if "id" in request:
         emit({"id": request["id"], "result": result})
 
+
+if sys.argv[1:3] == ["debug", "prompt-input"]:
+    print(json.dumps(context_inputs()))
+    raise SystemExit(0)
 
 for line in sys.stdin:
     request = {}
