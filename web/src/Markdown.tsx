@@ -1,30 +1,53 @@
-import { memo, useEffect, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { request } from './bridge';
 import { Icon } from './icons';
 
 /** Local images travel through the backend file bridge, never through Windows UNC URLs in the browser. */
-export const ImagePreview = memo(function ImagePreview({ path, alt = 'Image' }: { path: string; alt?: string }) {
+export const ImagePreview = memo(function ImagePreview({ path, alt = 'Image', compact = false }: { path: string; alt?: string; compact?: boolean }) {
   const [url, setUrl] = useState(path.startsWith('data:image/') ? path : '');
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const trigger = useRef<HTMLButtonElement>(null);
   useEffect(() => {
-    if (path.startsWith('data:image/')) { return; }
+    setError('');
+    if (path.startsWith('data:image/')) { setUrl(path); return; }
+    setUrl('');
     let canceled = false;
     request<{ url: string }>('readImage', { path }).then((value) => { if (!canceled) { setUrl(value.url); } }).catch((error: Error) => { if (!canceled) { setError(error.message); } });
     return () => { canceled = true; };
   }, [path]);
-  return <span className="my-2 inline-flex max-w-full flex-col gap-1">
-    {url ? <button className="max-w-full overflow-hidden rounded-lg bg-composer hover:brightness-110 active:brightness-90" onClick={() => setExpanded(true)} aria-label={`Preview ${alt}`}><img src={url} alt={alt} loading="lazy" onError={() => { setUrl(''); setError('This image could not be decoded. Open it in the editor.'); }} className="max-h-72 max-w-full object-contain" /></button> : <span className="rounded-lg bg-raised px-4 py-3 text-muted">{error || 'Loading image…'}</span>}
-    {!path.startsWith('data:') && <button className="self-start text-xs text-accent hover:underline active:text-ink" onClick={() => request('openLink', { path }).catch((error: Error) => setError(error.message))}>Open in editor ↗</button>}
-    {url && error && <span role="alert" className="text-xs text-red-400">{error}</span>}
-    {expanded && <span role="dialog" aria-modal="true" aria-label={alt} className="fixed inset-0 z-50 flex flex-col bg-surface/98 p-4" onKeyDown={(event) => { if (event.key === 'Escape') { setExpanded(false); } }}>
-      <span className="flex items-center justify-between pb-3"><span>{alt}</span><button className="flex size-8 items-center justify-center rounded-md hover:bg-raised active:bg-line" autoFocus aria-label="Close image preview" onClick={() => setExpanded(false)}><Icon name="close" /></button></span>
-      <img src={url} alt={alt} className="min-h-0 flex-1 object-contain" />
-    </span>}
+  const failed = () => { setUrl(''); setError('This image could not be decoded. Open it in the editor.'); };
+  const openInEditor = () => { void request('openLink', { path }).catch((error: Error) => setError(error.message)); };
+  return <span className={compact ? 'inline-flex min-w-0 max-w-full' : 'my-2 inline-flex max-w-full flex-col gap-1'}>
+    {compact ? <button ref={trigger} type="button" title={`Preview ${alt}`} aria-label={`Preview ${alt}`} onClick={() => setExpanded(true)} className="flex min-w-0 items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1 text-[11px] hover:bg-raised active:bg-line">
+      {url ? <img src={url} alt="" onError={failed} className="size-5 shrink-0 rounded-sm bg-composer object-cover" /> : <span className="flex size-5 shrink-0 items-center justify-center text-muted"><Icon name="image" size={14} /></span>}
+      <span className="truncate">{alt}</span>
+    </button> : url ? <button ref={trigger} className="max-w-full overflow-hidden rounded-lg bg-composer hover:brightness-110 active:brightness-90" onClick={() => setExpanded(true)} aria-label={`Preview ${alt}`}><img src={url} alt={alt} loading="lazy" onError={failed} className="max-h-72 max-w-full object-contain" /></button> : <span className="rounded-lg bg-raised px-4 py-3 text-muted">{error || 'Loading image…'}</span>}
+    {!compact && !path.startsWith('data:') && <button className="self-start text-xs text-accent hover:underline active:text-ink" onClick={openInEditor}>Open in editor ↗</button>}
+    {!compact && url && error && <span role="alert" className="text-xs text-red-400">{error}</span>}
+    {expanded && <ImageDialog returnFocus={trigger.current} url={url} alt={alt} error={error} close={() => setExpanded(false)} failed={failed} openInEditor={path.startsWith('data:') ? undefined : openInEditor} />}
   </span>;
 });
+
+function ImageDialog({ returnFocus, url, alt, error, close, failed, openInEditor }: { returnFocus: HTMLButtonElement | null; url: string; alt: string; error: string; close: () => void; failed: () => void; openInEditor?: () => void }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => { element?.close(); returnFocus?.focus(); };
+  }, [returnFocus]);
+  return createPortal(<dialog ref={dialog} aria-label={alt} onCancel={close} onClose={close} className="fixed inset-0 m-0 h-full max-h-none w-full max-w-none bg-surface/98 p-4 text-ink backdrop:bg-black/60">
+    <div className="flex h-full flex-col gap-3">
+      <div className="flex items-center gap-3"><span className="min-w-0 flex-1 truncate text-sm" title={alt}>{alt}</span><button type="button" className="flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-raised active:bg-line" autoFocus aria-label="Close image preview" onClick={close}><Icon name="close" /></button></div>
+      {url ? <img src={url} alt={alt} onError={failed} className="min-h-0 flex-1 object-contain" /> : <div role={error ? 'alert' : 'status'} className="flex flex-1 items-center justify-center text-sm text-muted">{error || 'Loading image…'}</div>}
+      {url && error && <p role="alert" className="text-xs text-red-400">{error}</p>}
+      {openInEditor && <button type="button" onClick={openInEditor} className="self-start rounded px-2 py-1 text-xs text-accent hover:bg-raised active:bg-line">Open in editor ↗</button>}
+    </div>
+  </dialog>, document.body);
+}
 
 /** Render Markdown without raw HTML. Link clicks are handled by the IDE's file and browser actions. */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {

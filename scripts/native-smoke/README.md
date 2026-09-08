@@ -71,3 +71,7 @@ Close and restart the test profile normally. Verify that the native split layout
 Do not install the smoke-test plugin in your daily IDE profile or include it in a release.
 
 Set `-Dcodex.smoke.lifecycle.check=true` to check real editor disposal, idle unsubscribe, close and reopen, background completion, retry recovery, reconnecting multiple open tabs, and shortened tab titles. The harness uses fresh fixture IDs and writes `lifecycle-result.json`. Its subscription checks verify RPC receipt, not the real app server's memory cleanup delay. It leaves a chat with an image attached for preview checks.
+
+Run `check-attachment-preview.mjs` with `CODEX_SMOKE_CHROME` set to a local Chrome executable to check thumbnails and image previews at 360, 520, and 900 pixels wide. It verifies keyboard focus, missing-image fallback, attachment removal, unchanged drafts, transcript previews, and error recovery. Results are written under `output/playwright`.
+
+After the native lifecycle check, run `check-native-attachment-preview.mjs` against that profile to verify a WSL attachment thumbnail, enlarged preview, Escape and focus, and retained draft through the actual IDEA file bridge.

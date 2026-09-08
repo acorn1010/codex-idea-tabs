@@ -6,6 +6,7 @@ import { Icon } from './icons';
 import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
 import { ChoiceMenu } from './ChoiceMenu';
+import { ImagePreview } from './Markdown';
 
 function SmallButton({ label, icon, onClick }: { label: string; icon: Parameters<typeof Icon>[0]['name']; onClick: () => void }) {
   return <button title={label} aria-label={label} onClick={onClick} className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent"><Icon name={icon} /></button>;
@@ -197,7 +198,10 @@ export function ChatApp() {
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
       <div className="cursor-text overflow-hidden rounded-xl bg-input shadow-input focus-within:shadow-input-focus">
         {!!chat?.draftInput?.length && <p className="px-3 pt-2 text-[11px] text-muted">{chat.draftInput.length} attached item{chat.draftInput.length === 1 ? '' : 's'} kept from your edited message</p>}
-        {(attachments.length > 0 || uploads > 0) && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">{attachments.map((attachment) => <span key={attachment.path} className="flex max-w-full items-center gap-1.5 rounded-md bg-surface py-1 pr-1 pl-2 text-[11px]"><Icon name={attachment.mime.startsWith('image/') ? 'image' : 'file'} size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span><button aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="p-0.5 text-muted hover:text-ink active:text-accent"><Icon name="close" size={11} /></button></span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
+        {(attachments.length > 0 || uploads > 0) && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">{attachments.map((attachment) => <span key={attachment.path} className="flex max-w-full items-center gap-1 rounded-md bg-surface pr-1 text-[11px]">
+          {attachment.mime.startsWith('image/') ? <ImagePreview path={attachment.path} alt={attachment.name} compact /> : <span className="flex min-w-0 items-center gap-1.5 py-1 pl-2"><Icon name="file" size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span></span>}
+          <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="close" size={11} /></button>
+        </span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
         <textarea ref={textarea} aria-label="Message Codex" aria-keyshortcuts="Enter Control+Enter Meta+Enter" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onKeyDown={(event) => {
           if (event.key !== 'Enter' || event.nativeEvent.isComposing) { return; }
           if (event.ctrlKey || event.metaKey || !event.shiftKey) {
