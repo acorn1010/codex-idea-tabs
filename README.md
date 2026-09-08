@@ -12,7 +12,7 @@ This is an independent client for the [Codex app server](https://developers.open
 - Groups chats by attention, work in progress, pins, and recent activity, with search and readable message previews.
 - Archives finished chats with Undo, an archive browser, and Restore. History, drafts, and attachments stay available.
 - Streams Markdown, command output, file changes, plans, and generated images.
-- Supports file drops, pasted images, large text attachments, and native file selection. Attached images show a small thumbnail. Click one to preview it, then press Escape to return to the composer.
+- Supports file drops, pasted images, large text attachments, and native file selection. Attached images show a small thumbnail. Click one to preview it, then press Escape to return to the composer. Right-click a chat image, thumbnail, or expanded preview and choose **Copy image** to copy its full-size pixels to the system clipboard.
 - Opens local file and image links in the IDE, including files inside WSL.
 - Keeps workspace, permissions, model, reasoning effort, and IDE context in a compact composer. Controls wrap in narrow panes.
 - Handles permission approvals and both blocking and asynchronous questions.

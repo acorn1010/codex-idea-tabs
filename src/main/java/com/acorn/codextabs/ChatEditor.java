@@ -145,6 +145,12 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "chooseImages": return chooseFiles(true);
             case "context": return ideContext();
             case "copy": return uiResult(() -> com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(new java.awt.datatransfer.StringSelection(text(params, "text"))));
+            case "copyImage": {
+                try {
+                    var image = com.acorn.codextabs.core.ClipboardImage.fromPng(text(params, "data"));
+                    return uiResult(() -> com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(image));
+                } catch (Exception error) { return CompletableFuture.failedFuture(error); }
+            }
             case "openLink": return openLink(text(params, "path"));
             case "readImage": {
                 String path = com.acorn.codextabs.core.Paths.link(text(params, "path"), chat.get("cwd"));
