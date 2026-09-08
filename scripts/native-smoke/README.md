@@ -40,6 +40,14 @@ CODEX_SMOKE_CDP=http://127.0.0.1:9226 node scripts/native-smoke/check-edit.mjs
 
 This checks editing old messages, follow-ups sent during a turn, and the first message. It also verifies separate editor tabs, retained context and images, unchanged original drafts, cancel and focus behavior, and retry after a failed send. The fixture returns one turn per history page to exercise pagination. Run the four-pane check first, since editing adds tabs to the test profile.
 
+For responsive layout checks, build the UI and run:
+
+```sh
+CODEX_SMOKE_CHROME=/path/to/chrome node scripts/native-smoke/check-edit-layout.mjs
+```
+
+This opens the bundled UI in a real browser at 360, 520, and 720 pixels wide. It checks image previews, visible edit controls, keyboard submission, and draft recovery after an error. It uses a local fixture bridge and does not launch IDEA or call a model.
+
 Set `-Dcodex.smoke.sidebar.check=true` to run the native sidebar checks. They click the attention filter, archive a fixture chat, undo that action, browse the archive, and open the archived chat for reading. They also check that active work cannot be archived. Results and hover and pressed captures go to the test log directory. This option requires the fake backend. It leaves an archived chat open so its read-only state and Restore button can be checked in JCEF.
 
 Also check the native sidebar at a narrow width. Rows and toolbar buttons must have distinct hover and pressed states. Clicking a row once should open it. The context menu can open to the side, rename, pin, or archive an idle chat.

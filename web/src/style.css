@@ -4,6 +4,9 @@
   --color-surface: var(--surface);
   --color-raised: var(--raised);
   --color-composer: var(--composer);
+  --color-input: var(--input);
+  --shadow-input: var(--input-shadow);
+  --shadow-input-focus: var(--input-focus-shadow);
   --color-ink: var(--ink);
   --color-muted: var(--muted);
   --color-line: var(--line);
@@ -22,6 +25,9 @@
   --surface: #202226;
   --raised: #292c31;
   --composer: #2c2f34;
+  --input: #17191d;
+  --input-shadow: inset 0 1px 3px rgb(0 0 0 / 30%), 0 1px 0 rgb(255 255 255 / 6%);
+  --input-focus-shadow: inset 0 1px 3px rgb(0 0 0 / 30%), inset 0 0 0 1px rgb(255 255 255 / 12%), 0 1px 0 rgb(255 255 255 / 8%);
   --ink: #d9dce3;
   --muted: #959ba8;
   --line: #363b43;
@@ -43,6 +49,9 @@
   --surface: #f7f8fa;
   --raised: #eceef2;
   --composer: #ffffff;
+  --input: #e6e8ed;
+  --input-shadow: inset 0 1px 3px rgb(35 42 55 / 12%), 0 1px 0 rgb(255 255 255 / 70%);
+  --input-focus-shadow: inset 0 1px 3px rgb(35 42 55 / 12%), inset 0 0 0 1px rgb(35 42 55 / 20%), 0 1px 0 rgb(255 255 255 / 80%);
   --ink: #292e38;
   --muted: #636b78;
   --line: #d9dde5;
