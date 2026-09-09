@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Attachment, Item, Json } from './types';
-import { uploadAttachment } from './attachments';
+import { uploadAttachment, uploadDroppedFiles, useNativeFileDrop } from './attachments';
 import { groupTranscript, itemText, toolFailed, toolImagePaths, toolLabel } from './format';
 import { Markdown, ImagePreview } from './Markdown';
 import { Icon } from './icons';
@@ -40,6 +40,7 @@ function MessageEditor({ item, onEdit, onClose }: { item: Item; onEdit: EditMess
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
   const field = useRef<HTMLTextAreaElement>(null);
+  const editor = useRef<HTMLDivElement>(null);
   const live = useRef(true);
   const pending = useRef(0);
   const submitting = useRef(false);
@@ -68,6 +69,11 @@ function MessageEditor({ item, onEdit, onClose }: { item: Item; onEdit: EditMess
       catch (error) { if (live.current) { setError((error as Error).message); } }
     }
   });
+  useNativeFileDrop((token) => { void attach(async () => {
+    const result = await uploadDroppedFiles(token, true);
+    result.files.forEach(add);
+    if (live.current && result.errors.length) { setError(result.errors.join(' ')); }
+  }); }, (over) => setDragging(over && !saving), editor);
   const save = async () => {
     if (submitting.current || pending.current || (!draft.trim() && !retained.length && !images.length)) { return; }
     submitting.current = true; setSaving(true); setError('');
@@ -75,8 +81,8 @@ function MessageEditor({ item, onEdit, onClose }: { item: Item; onEdit: EditMess
     catch (error) { if (live.current) { setError((error as Error).message); } }
     finally { submitting.current = false; if (live.current) { setSaving(false); } }
   };
-  return <div data-message-editor className={`flex min-w-0 flex-col gap-2 rounded-lg py-1.5 ${dragging ? 'bg-accent/5 ring-1 ring-accent/40' : ''}`}
-    onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); setDragging(!saving); } }}
+  return <div ref={editor} data-message-editor className={`flex min-w-0 flex-col gap-2 rounded-lg py-1.5 ${dragging ? 'bg-accent/5 ring-1 ring-accent/40' : ''}`}
+    onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = saving ? 'none' : 'copy'; setDragging(!saving); } }}
     onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }}
     onDrop={(event) => { if (event.dataTransfer.files.length) { event.preventDefault(); event.stopPropagation(); setDragging(false); void upload(Array.from(event.dataTransfer.files)); } }}>
     <textarea ref={field} aria-label="Edit message text" value={draft} disabled={saving} rows={3} spellCheck={false} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => {

@@ -9,6 +9,8 @@ import com.intellij.openapi.util.*;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import com.intellij.ide.BrowserUtil;
+import com.intellij.ide.dnd.*;
+import com.acorn.codextabs.core.AttachmentFiles;
 import com.intellij.ui.jcef.*;
 import com.intellij.diff.*;
 import com.intellij.diff.requests.SimpleDiffRequest;
@@ -16,7 +18,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.beans.PropertyChangeListener;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.function.Consumer;
@@ -34,8 +36,9 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     private JBCefJSQuery bridge;
     private volatile boolean ready;
     private volatile boolean dirty = true;
-    private boolean disposed;
+    private volatile boolean disposed;
     private long renderedRevision = -1;
+    private final Map<String, java.util.List<Path>> droppedFiles = new ConcurrentHashMap<>();
 
     public ChatEditor(Project project, ChatFiles.ChatFile file) {
         this.project = project; this.file = file; service = CodexService.get(project);
@@ -84,8 +87,63 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             + "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'\">"
             + "<style>" + resource("web/index.css") + "</style></head><body><div id='root'></div><script nonce='" + nonce + "'>" + boot + "</script>"
             + "<script type='module' nonce='" + nonce + "'>" + resource("web/app.js").replace("</script", "<\\/script") + "</script></body></html>";
+        installFileDrops(browser.getComponent());
+        if (browser.getCefBrowser().getUIComponent() instanceof JComponent surface && surface != browser.getComponent()) {
+            installFileDrops(surface);
+        }
         browser.loadHTML(html);
         panel.removeAll(); panel.add(browser.getComponent(), BorderLayout.CENTER); panel.revalidate();
+    }
+    /** Native Explorer and project-tree drops do not reliably become DOM File objects in remote JCEF. */
+    private void installFileDrops(JComponent component) {
+        DnDSupport.createBuilder(component).disableAsSource().enableAsNativeTarget().setDisposableParent(this)
+            .setTargetChecker(event -> {
+                boolean accepted = ready && !disposed && (FileCopyPasteUtil.isFileListFlavorAvailable(event)
+                    || event.getAttachedObject() instanceof FileFlavorProvider);
+                event.setDropPossible(accepted);
+                if (accepted) { event.updateAction(DnDAction.COPY); fileDropEvent("over", event, ""); }
+                return false;
+            })
+            .setDropHandler(event -> {
+                if (!ready || disposed) { return; }
+                var files = FileCopyPasteUtil.getFileListFromAttachedObject(event.getAttachedObject());
+                if (files.isEmpty()) { files = FileCopyPasteUtil.getFileList(event); }
+                String token = UUID.randomUUID().toString();
+                droppedFiles.put(token, files == null ? java.util.List.of() : files.stream().map(java.io.File::toPath).distinct().toList());
+                // The webview can consume only this drop, never an arbitrary host path.
+                var pending = droppedFiles;
+                CompletableFuture.delayedExecutor(1, TimeUnit.MINUTES).execute(() -> pending.remove(token));
+                fileDropEvent("drop", event, token);
+            })
+            .setCleanUpOnLeaveCallback(() -> fileDropEvent("leave", null, ""))
+            .install();
+        component.getDropTarget().setDefaultActions(java.awt.dnd.DnDConstants.ACTION_COPY);
+    }
+    private void fileDropEvent(String phase, DnDEvent event, String token) {
+        var surface = browser.getCefBrowser().getUIComponent();
+        var point = event == null ? new Point() : event.getPointOn(surface);
+        var detail = object("phase", phase, "token", token, "x", point.x, "y", point.y,
+            "width", surface.getWidth(), "height", surface.getHeight());
+        execute("window.dispatchEvent(new CustomEvent('codex-file-drop',{detail:" + GSON.toJson(detail) + "}));");
+    }
+    private CompletableFuture<JsonObject> attachDroppedFiles(JsonObject params) {
+        var paths = droppedFiles.remove(text(params, "token"));
+        if (paths == null) { return CompletableFuture.failedFuture(new IllegalArgumentException("This drop expired. Drop the files again.")); }
+        if (flag(params, "discard")) { return completed(object("files", new JsonArray(), "errors", new JsonArray())); }
+        return CompletableFuture.supplyAsync(() -> {
+            var files = new JsonArray();
+            var errors = new JsonArray();
+            if (paths.isEmpty()) { errors.add("Could not read the dropped files. Try the Attach files button."); }
+            for (var path : paths) {
+                if (disposed) { break; }
+                try { files.add(service.attachment(AttachmentFiles.read(path, flag(params, "imagesOnly"))).join()); }
+                catch (Exception error) {
+                    var cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
+                    errors.add(Objects.toString(cause.getMessage(), "Could not attach " + path.getFileName()));
+                }
+            }
+            return object("files", files, "errors", errors);
+        });
     }
     /** Remote JCEF omits cursor-change callbacks. Apply DOM cursor changes directly to its AWT view. */
     private void updateCursor(String value) {
@@ -167,6 +225,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "reconnect": service.reconnect(); return service.load(file.id).thenApply(ignored -> new JsonObject());
             case "login": return service.rpc("account/login/start", object("type", "chatgptDeviceCode"));
             case "attachment": return service.attachment(params);
+            case "droppedFiles": return attachDroppedFiles(params);
             case "chooseFiles": return chooseFiles(false);
             case "chooseImages": return chooseFiles(true);
             case "context": return ideContext();
@@ -206,19 +265,13 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         ui(() -> {
             var descriptor = new FileChooserDescriptor(true, false, false, false, false, true)
                 .withTitle(imagesOnly ? "Attach images to edited message" : "Add context to Codex")
-                .withFileFilter(file -> !imagesOnly || !imageMime(file.getExtension()).isBlank());
+                .withFileFilter(file -> !imagesOnly || !AttachmentFiles.imageMime(file.getExtension()).isBlank());
             var selected = FileChooser.chooseFiles(descriptor, project, null);
             CompletableFuture.runAsync(() -> {
                 try {
                     var files = new JsonArray();
                     for (var value : selected) {
-                        if (value.getLength() > 50 * 1024 * 1024) { throw new IllegalArgumentException(value.getName() + " exceeds 50 MB."); }
-                        String mime = Files.probeContentType(java.nio.file.Path.of(value.getPath()));
-                        if (imagesOnly) {
-                            mime = imageMime(value.getExtension());
-                            if (mime.isBlank()) { throw new IllegalArgumentException("Choose an image file."); }
-                        }
-                        var attachment = service.attachment(object("name", value.getName(), "mime", mime == null ? "application/octet-stream" : mime, "data", Base64.getEncoder().encodeToString(value.contentsToByteArray()))).join();
+                        var attachment = service.attachment(AttachmentFiles.read(value.toNioPath(), imagesOnly)).join();
                         files.add(attachment);
                     }
                     future.complete(object("files", files));
@@ -226,18 +279,6 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             });
         });
         return future;
-    }
-    private static String imageMime(String extension) {
-        return switch (Objects.toString(extension, "").toLowerCase(Locale.ROOT)) {
-            case "png" -> "image/png";
-            case "jpg", "jpeg" -> "image/jpeg";
-            case "gif" -> "image/gif";
-            case "webp" -> "image/webp";
-            case "svg" -> "image/svg+xml";
-            case "bmp" -> "image/bmp";
-            case "avif" -> "image/avif";
-            default -> "";
-        };
     }
     private CompletableFuture<JsonObject> ideContext() {
         var result = new CompletableFuture<JsonObject>();
@@ -319,7 +360,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     @Override public void selectNotify() { dirty = true; service.chat(file.id).set("unread", false); service.changed(file.id); if (ready) { service.load(file.id); } }
     @Override public void dispose() {
         if (disposed) { return; }
-        disposed = true; updates.stop(); service.unlisten(listener); service.editorClosed(file.id);
+        disposed = true; droppedFiles.clear(); updates.stop(); service.unlisten(listener); service.editorClosed(file.id);
     }
 
     public static final class Provider implements FileEditorProvider, DumbAware {

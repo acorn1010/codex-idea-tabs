@@ -93,6 +93,8 @@ A failed chat load can retry on the same connection. A successful load or renewe
 
 Questions stay above the composer until answered or dismissed. An asynchronous question can remain after the turn finishes. A blocking approval belongs to its live server connection, so it is cleared after a disconnect.
 
+Drop files from Windows Explorer or IDEA’s project tree into the chat input to attach them, including PDFs. The plugin copies each file into Codex’s attachment storage, including when Codex runs in WSL. Files can be up to 50 MB each. Use the **×** on an attachment to remove it before sending. Sending waits until uploads finish. If one file fails, the other attachments and your draft stay in place.
+
 Editing opens an inline text field with removable image thumbnails. Use its **+** button to choose images, or paste or drop images into that editor. Click a thumbnail to preview it and use its **×** button to remove it from the revision. **Cancel** or `Escape` keeps the original text and images. **Edit and resend** opens a new chat using history before the edited turn and sends the revised image selection. Other attached context and earlier images remain available. The original chat, its draft, and any active work stay intact. This also works when reading an archived chat. Existing file changes are kept, so editing a message does not undo work on disk.
 
 Codex branches at turn boundaries. When you edit a follow-up sent during a turn, earlier user inputs from that same turn are resent together with the edited message. Assistant responses and tool output from that turn are generated again. Later messages are excluded. If sending fails, the new tab keeps the revised text and attachments ready to retry.

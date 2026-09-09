@@ -14,7 +14,7 @@ import { useSlashCommands, slashQuery } from './SlashCommands';
 import type { SlashItem, Skill, CommandName } from './SlashCommands';
 import { CommandPanel } from './CommandPanel';
 import type { PanelAction } from './CommandPanel';
-import { uploadAttachment } from './attachments';
+import { uploadAttachment, uploadDroppedFiles, useNativeFileDrop } from './attachments';
 
 type RecallSession = { messages: string[]; seen: Set<string>; index: number; cursor: string; pending: boolean; error?: string };
 
@@ -210,6 +210,14 @@ export function ChatApp() {
       finally { setUploads((count) => count - 1); }
     }
   };
+  useNativeFileDrop((token) => {
+    recall.current = undefined;
+    setUploads((count) => count + 1); setError('');
+    void uploadDroppedFiles(token, false, !!state?.chat.archived).then((result) => {
+      setAttachments((current) => [...current, ...result.files]);
+      if (result.errors.length) { setError(result.errors.join(' ')); }
+    }).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1));
+  }, (over) => setDragging(over && !state?.chat.archived && !editingItemId));
   const send = async () => {
     if (commandRunning.current) { return; }
     if (slash.command) { await runCommand(slash.command); return; }
@@ -306,7 +314,7 @@ export function ChatApp() {
   };
   const slash = useSlashCommands({ draft, field: textarea, items: slashItems, loading: skillsLoading, error: skillsError, onRetry: () => setSkillReload((value) => value + 1), onRun: (item) => void runCommand(item) });
 
-  return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(!editingItemId); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); }}>
+  return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = state?.chat.archived ? 'none' : 'copy'; setDragging(!state?.chat.archived && !editingItemId); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); } }}>
     <header className="flex h-10 shrink-0 items-center gap-2 px-3">
       <span className={`size-1.5 shrink-0 rounded-full ${chat?.archived ? 'bg-muted' : attention ? 'bg-attention' : working ? 'bg-accent' : 'bg-success/70'}`} />
       <span className={`truncate text-[11px] ${attention ? 'text-attention' : 'text-muted'}`}>{status}</span>
