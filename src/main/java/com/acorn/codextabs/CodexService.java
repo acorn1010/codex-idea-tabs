@@ -389,7 +389,7 @@ public final class CodexService implements Disposable {
         return connect().thenCompose(rpc -> sessions.load(id, () -> {
             long revision = chat.revision();
             if (client != rpc || !rpc.isAlive()) { return CompletableFuture.failedFuture(new CancellationException("Connection was replaced")); }
-            return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "cwd", chat.get("cwd"), "excludeTurns", true)).thenCompose(result -> {
+            return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "cwd", chat.get("cwd"), "excludeTurns", true, "config", ComposerOptions.threadConfig(""))).thenCompose(result -> {
                 if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
                 chat.resumed(obj(result, "thread"), revision);
                 sessions.working(id, chat.busy());
@@ -443,7 +443,7 @@ public final class CodexService implements Disposable {
                     if (chat.get("threadId").isBlank()) {
                         var start = object("cwd", chat.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                         if (!model.isBlank()) { start.addProperty("model", model); }
-                        if (!effort.isBlank()) { start.add("config", object("model_reasoning_effort", effort)); }
+                        start.add("config", ComposerOptions.threadConfig(effort));
                         var thread = obj(rpc.request("thread/start", start).join(), "thread");
                         chat.hydrate(thread, chat.revision());
                         if (chat.get("title").equals("New chat") || chat.get("title").isBlank()) { chat.set("title", prompt.lines().findFirst().orElse("New chat").substring(0, Math.min(prompt.lines().findFirst().orElse("New chat").length(), 80))); }
@@ -454,7 +454,7 @@ public final class CodexService implements Disposable {
                             // These commands inherit thread settings instead of accepting turn overrides.
                             var resume = object("threadId", chat.get("threadId"), "excludeTurns", true, "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                             if (!model.isBlank()) { resume.addProperty("model", model); }
-                            if (!effort.isBlank()) { resume.add("config", object("model_reasoning_effort", effort)); }
+                            resume.add("config", ComposerOptions.threadConfig(effort));
                             rpc.request("thread/resume", resume).join();
                         }
                     }

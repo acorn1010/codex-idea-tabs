@@ -112,12 +112,17 @@ function MessageEditor({ item, onEdit, onClose }: { item: Item; onEdit: EditMess
   </div>;
 }
 
+function hasActivityDetails(item: Item): boolean {
+  return item.type !== 'reasoning' || !!itemText(item).trim();
+}
+
 const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }: { item: Item; contained?: boolean; detailsOnly?: boolean }) {
   const [open, setOpen] = useState(detailsOnly);
   const label = toolLabel(item);
   const failed = toolFailed(item);
   const reasoning = item.type === 'reasoning';
   const content = reasoning ? itemText(item) : item.aggregatedOutput || itemText(item) || JSON.stringify(item.result || item.arguments || item, null, 2);
+  if (!hasActivityDetails(item)) { return null; }
   return <div className="min-w-0 text-xs">
     {!detailsOnly && <button onClick={() => setOpen(!open)} aria-expanded={open} title={label} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
       <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
@@ -129,7 +134,7 @@ const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }
     {item.type === 'fileChange' && item.changes?.map((change, index) => <button key={index} className="ml-6 flex max-w-[calc(100%-1.5rem)] items-center gap-2 py-1 text-accent hover:underline active:text-ink" onClick={() => void request('openLink', { path: String(change.path || '') })}><Icon name="file" size={12} /><span className="truncate">{String(change.path || '')}</span></button>)}
     {toolImagePaths(item).map((path, index) => <ImagePreview key={index} path={path} alt="Generated image" />)}
     {(open || detailsOnly) && (reasoning ? <div className={`mt-1 overflow-auto px-3 py-1 text-xs text-ink ${contained ? '' : 'max-h-60'}`}>
-      {content.trim() ? <Markdown text={content} /> : <p className="py-2 text-muted">No thinking text was provided.</p>}
+      <Markdown text={content} />
     </div> : <pre className={`mt-1 overflow-auto rounded-lg bg-input p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words ${contained ? '' : 'max-h-60'}`}>{content}</pre>)}
   </div>;
 });
@@ -159,17 +164,20 @@ const ActivityGroup = memo(function ActivityGroup({ items }: { items: Item[] }) 
   const [open, setOpen] = useState(false);
   const detailsId = useId();
   const label = items.length === 1 ? toolLabel(items[0]) : activityLabel(items);
+  const expandable = items.some(hasActivityDetails);
   const running = items.filter((item) => item.status === 'inProgress').length;
   const failed = items.filter(toolFailed).length;
   return <section data-activity-group={items[0].id} className="min-w-0">
-    <button onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={detailsId} title={label} className="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left text-xs text-muted hover:bg-raised hover:text-ink active:bg-line active:text-ink">
+    {expandable ? <button onClick={() => setOpen(!open)} aria-expanded={open} aria-controls={detailsId} title={label} className="flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-left text-xs text-muted hover:bg-raised hover:text-ink active:bg-line active:text-ink">
       <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
       <Icon name={items.some((item) => item.type === 'fileChange') ? 'edit' : 'code'} size={13} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {running > 0 && <span className="flex shrink-0 items-center gap-1.5 text-accent"><span aria-hidden className="size-1.5 rounded-full bg-current" />{running} running</span>}
       {failed > 0 && <span className="shrink-0 text-red-400">{failed} failed</span>}
-    </button>
-    {open && <div id={detailsId} role="region" aria-label="Activity details" tabIndex={0} className="mt-1 max-h-[min(16rem,40vh)] space-y-0.5 overflow-y-auto overscroll-contain rounded-lg bg-raised/40 p-1">
+    </button> : <div title="Codex did not include a reasoning summary." className="flex items-center gap-1.5 px-1.5 py-1.5 text-xs text-muted">
+      <span aria-hidden className="size-3" /><Icon name="reasoning" size={13} /><span>Thinking</span>
+    </div>}
+    {open && expandable && <div id={detailsId} role="region" aria-label="Activity details" tabIndex={0} className="mt-1 max-h-[min(16rem,40vh)] space-y-0.5 overflow-y-auto overscroll-contain rounded-lg bg-raised/40 p-1">
       {items.map((item) => <Tool key={item.id} item={item} contained detailsOnly={items.length === 1} />)}
     </div>}
   </section>;

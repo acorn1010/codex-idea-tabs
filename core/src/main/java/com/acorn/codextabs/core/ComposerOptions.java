@@ -5,7 +5,15 @@ import static com.acorn.codextabs.core.Json.*;
 
 /** Translate deliberate composer choices into supported app-server turn settings. */
 public final class ComposerOptions {
+    /** Request readable summaries for this plugin without changing the user's global Codex settings. */
+    public static JsonObject threadConfig(String effort) {
+        var config = object("model_reasoning_summary", "detailed");
+        if (!effort.isBlank()) { config.addProperty("model_reasoning_effort", effort); }
+        return config;
+    }
     public static void apply(JsonObject params, JsonObject payload, JsonArray models, String model, String effort, boolean previousPlan) {
+        // Astra's automatic summary setting can return no text even for long reasoning steps.
+        params.addProperty("summary", "detailed");
         JsonObject selected = new JsonObject();
         for (var entry : models) {
             var candidate = entry.getAsJsonObject();

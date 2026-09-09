@@ -6,6 +6,16 @@ import static com.acorn.codextabs.core.Json.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ComposerOptionsTest {
+    @Test void asksForReadableSummariesWithoutOverridingAnUnselectedEffort() {
+        var config = ComposerOptions.threadConfig("");
+        assertEquals("detailed", text(config, "model_reasoning_summary"));
+        assertFalse(config.has("model_reasoning_effort"));
+        assertEquals("xhigh", text(ComposerOptions.threadConfig("xhigh"), "model_reasoning_effort"));
+        var params = object("summary", "none");
+        ComposerOptions.apply(params, new JsonObject(), models(), "test", "xhigh", false);
+        assertEquals("detailed", text(params, "summary"), "A resumed thread must not keep an inherited disabled-summary setting");
+        assertFalse(params.has("effort"));
+    }
     private JsonArray models() { return JsonParser.parseString("[{\"model\":\"test\",\"isDefault\":true,\"serviceTiers\":[{\"id\":\"priority\",\"name\":\"Fast\"}]}]").getAsJsonArray(); }
     @Test void fastUsesTheCatalogTierAndStandardExplicitlyResetsIt() {
         var params = new JsonObject();

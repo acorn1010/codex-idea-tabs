@@ -91,6 +91,8 @@ Archiving closes that chat's editor tabs and moves its Codex history into the ar
 
 A failed chat load can retry on the same connection. A successful load or renewed streaming clears its temporary connection error. A failed send or failed turn remains visible until addressed. Reconnect restores all open chats.
 
+Thinking rows expand when Codex provides a readable reasoning summary. The plugin requests detailed summaries for new turns, including resumed chats. Some short steps still have no summary, and old empty blocks cannot be filled in afterward. Empty rows show activity without an expand button.
+
 Questions stay above the composer until answered or dismissed. An asynchronous question can remain after the turn finishes. A blocking approval belongs to its live server connection, so it is cleared after a disconnect.
 
 Drop files from Windows Explorer or IDEA’s project tree into the chat input to attach them, including PDFs. The plugin copies each file into Codex’s attachment storage, including when Codex runs in WSL. Files can be up to 50 MB each. Use the **×** on an attachment to remove it before sending. Sending waits until uploads finish. If one file fails, the other attachments and your draft stay in place.

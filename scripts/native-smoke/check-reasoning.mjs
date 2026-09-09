@@ -25,6 +25,9 @@ try {
       { id: 'update', type: 'agentMessage', text: 'I found the state update path.' },
       { id: 'content', type: 'reasoning', summary: [], content: ['Compare the active turn IDs.', 'Keep older events from replacing the current turn.'] },
       { id: 'update-2', type: 'agentMessage', text: 'The regression now passes.' },
+      { id: 'empty-mixed', type: 'reasoning', summary: [], content: [] },
+      { id: 'command', type: 'commandExecution', command: 'npm test', status: 'completed', aggregatedOutput: 'Tests passed.' },
+      { id: 'update-3', type: 'agentMessage', text: 'Checking the next event.' },
       { id: 'rs_internal_id', type: 'reasoning', summary: [], content: [] },
     ], requests: [], status: 'working', working: true, unread: false, pinned: false, revision: 1 } };
     window.__thinkingFixture = snapshot;
@@ -47,8 +50,13 @@ try {
     assert.ok((await content.innerText()).includes('Compare the active turn IDs.'));
     assert.equal(await content.locator('p').count(), 2, 'Reasoning content parts stay separate paragraphs');
     const empty = page.locator('[data-activity-group="rs_internal_id"]');
-    await empty.locator(':scope > button').click();
-    await empty.getByText('No thinking text was provided.', { exact: true }).waitFor();
+    assert.equal(await empty.locator('button').count(), 0, 'Empty reasoning must not offer an expansion that has no content');
+    assert.equal((await empty.innerText()).trim(), 'Thinking');
+    const mixed = page.locator('[data-activity-group="empty-mixed"]');
+    await mixed.locator(':scope > button').click();
+    assert.equal(await mixed.getByRole('button', { name: 'Thinking', exact: true }).count(), 0, 'Mixed groups omit empty thinking details');
+    await mixed.getByRole('button', { name: 'npm test', exact: true }).click();
+    await mixed.getByText('Tests passed.', { exact: true }).waitFor();
     assert.ok(!(await empty.innerText()).includes('rs_internal_id'));
     assert.ok(!(await empty.innerText()).includes('"summary"'));
     await page.screenshot({ path: `${output}/thinking-empty-${width}.png` });
@@ -58,6 +66,9 @@ try {
       snapshot.chat.revision++;
       window.dispatchEvent(new CustomEvent('codex-state', { detail: structuredClone(snapshot) }));
     });
+    await empty.locator(':scope > button').waitFor();
+    assert.equal(await empty.locator(':scope > button').getAttribute('aria-expanded'), 'false');
+    await empty.locator(':scope > button').click();
     await empty.getByText('Check the completion event.', { exact: true }).waitFor();
     assert.equal(await empty.locator(':scope > button').getAttribute('aria-expanded'), 'true');
     assert.equal(await empty.getByText('No thinking text was provided.', { exact: true }).count(), 0);
@@ -67,7 +78,7 @@ try {
     await empty.locator(':scope > button').focus();
     await page.keyboard.press('Space');
     assert.equal(await empty.locator(':scope > button').getAttribute('aria-expanded'), 'false');
-    results.push({ width, summary: true, content: true, noMetadataDump: true, liveUpdates: true, keyboard: true, noOverflow: true });
+    results.push({ width, summary: true, content: true, noMetadataDump: true, emptyRowsDoNotExpand: true, mixedGroupsOmitEmptyDetails: true, liveUpdates: true, keyboard: true, noOverflow: true });
   }
   assert.deepEqual(errors, []);
   writeFileSync(`${output}/reasoning-result.json`, JSON.stringify(results, null, 2));
