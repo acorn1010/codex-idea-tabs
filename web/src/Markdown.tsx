@@ -1,6 +1,6 @@
-import { memo, useEffect, useRef, useState, type MouseEvent } from 'react';
+import { memo, useEffect, useRef, useState, type MouseEvent, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
-import ReactMarkdown from 'react-markdown';
+import ReactMarkdown, { type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { request } from './bridge';
 import { Icon } from './icons';
@@ -59,6 +59,35 @@ function ImageDialog({ imageMenu, returnFocus, url, alt, error, close, failed, o
   </dialog>, document.body);
 }
 
+function CodeBlock({ node, children }: ComponentProps<'pre'> & ExtraProps) {
+  const code = node?.children[0];
+  const text = code?.type === 'element' ? code.children.map((child) => child.type === 'text' ? child.value : '').join('') : '';
+  const [copiedText, setCopiedText] = useState<string>();
+  const [copying, setCopying] = useState(false);
+  const [error, setError] = useState('');
+  const copied = copiedText === text;
+  useEffect(() => {
+    if (copiedText === undefined) { return; }
+    const timer = window.setTimeout(() => setCopiedText(undefined), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copiedText]);
+  const copy = async () => {
+    if (copying) { return; }
+    setCopying(true); setError('');
+    try { await request('copy', { text }); setCopiedText(text); }
+    catch (error) { setError((error as Error).message); }
+    finally { setCopying(false); }
+  };
+  const label = error ? 'Copy failed. Try again' : copied ? 'Block copied' : 'Copy block';
+  return <div data-code-block className="my-3 flex min-w-0 items-start rounded-lg bg-composer">
+    <pre className="m-0 min-w-0 flex-1 overflow-x-auto p-3 text-xs leading-relaxed">{children}</pre>
+    <button type="button" aria-label={label} title={error || label} aria-disabled={copying} aria-busy={copying} onClick={() => void copy()} className={`m-1.5 ml-0 flex size-7 shrink-0 items-center justify-center rounded-md aria-disabled:cursor-wait aria-disabled:opacity-50 enabled:hover:bg-raised enabled:hover:text-ink enabled:active:bg-line enabled:active:text-accent ${error ? 'text-red-400' : copied ? 'text-success' : 'text-muted'}`}>
+      <Icon name={copied ? 'check' : 'copy'} size={14} />
+    </button>
+    <span role="status" className="sr-only">{error ? `Copy failed: ${error}` : copied ? 'Block copied' : ''}</span>
+  </div>;
+}
+
 /** Render Markdown without raw HTML. Link clicks are handled by the IDE's file and browser actions. */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(url) => url} components={{
@@ -70,7 +99,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
     ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
     li: ({ children }) => <li className="pl-1 leading-relaxed">{children}</li>,
     blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-accent/50 pl-3 text-muted">{children}</blockquote>,
-    pre: ({ children }) => <pre className="my-3 overflow-x-auto rounded-lg bg-composer p-3 text-xs leading-relaxed">{children}</pre>,
+    pre: CodeBlock,
     code: ({ children, className }) => <code className={`${className || ''} rounded bg-raised px-1 py-0.5 text-[.92em]`}>{children}</code>,
     a: ({ href, children }) => <a href="#" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent active:bg-accent/15 active:text-ink" onClick={(event) => { event.preventDefault(); if (href) { void request('openLink', { path: href }); } }}>{children}</a>,
     img: ({ src, alt }) => typeof src === 'string' ? <ImagePreview path={src} alt={alt} /> : null,

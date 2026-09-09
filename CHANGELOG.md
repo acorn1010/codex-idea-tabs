@@ -2,6 +2,7 @@
 
 ## 0.1.1
 
+- Copy individual code and Markdown blocks from their top-right corner.
 - Keep sidebar action targets aligned with their icons, prevent long-title tooltips from covering them, and retain clicks during chat updates.
 
 ## 0.1.0
