@@ -25,16 +25,24 @@ final class LifecycleSmoke {
         open(project, idle); open(project, active);
         service.load(idle).get(15, TimeUnit.SECONDS); service.load(active).get(15, TimeUnit.SECONDS);
         service.chat(idle).set("draft", "Keep this draft");
+        service.chat(idle).set("updatedAt", 100000L);
+        notify(service, "thread/status/changed", idle, object("status", object("type", "idle")));
+        check(service.chat(idle).get("updatedAt").equals("100000"), "Loading an idle chat changed its activity time");
         close(project, idle);
         waitFor(() -> !subscribed(service, idle));
         check(subscribed(service, active), "Closing one tab released another chat");
+        notify(service, "thread/closed", idle, new JsonObject());
+        check(service.chat(idle).get("updatedAt").equals("100000"), "Closing a chat changed its activity time");
         open(project, idle); service.load(idle).get(15, TimeUnit.SECONDS);
         check(subscribed(service, idle), "Reopened chat did not subscribe");
         check(obj(stats(service), "resumes").get(idle).getAsInt() == 2, "Reopened chat reused an old resume");
         check(service.chat(idle).get("draft").equals("Keep this draft"), "Draft was lost");
+        check(service.chat(idle).get("updatedAt").equals("100000"), "Reopening a chat changed its activity time");
         check(!array(service.chat(idle).snapshot(), "items").isEmpty(), "History was lost");
 
+        service.chat(active).set("updatedAt", 100000L);
         notify(service, "turn/started", active, object("turn", object("id", "background-turn", "status", "inProgress")));
+        check(service.chat(active).summary().get("updatedAt").getAsLong() > 100000L, "Work did not update the activity time");
         close(project, active);
         Thread.sleep(300);
         check(subscribed(service, active), "Closing an active tab interrupted its subscription");
@@ -78,6 +86,7 @@ final class LifecycleSmoke {
         check(displayed.codePointCount(0, displayed.length()) <= 40 && displayed.endsWith("…"), "Tab title was not capped");
         check(titles.getEditorTabTooltipText(project, file).startsWith(title), "Tooltip lost the full title");
         Files.writeString(output.resolve("lifecycle-result.json"), GSON.toJson(object("idleReleased", true, "reopened", true, "draftAndHistoryKept", true,
+            "passiveEventsKeepActivityTime", true, "reopenKeepsActivityTime", true, "workUpdatesActivityTime", true,
             "backgroundWorkFinished", true, "retryCleared", true, "resumeRetried", true, "allEditorsReconnected", true, "title", displayed, "previewId", preview, "stats", stats(service))));
         NativeUiProbe.start(project);
     }

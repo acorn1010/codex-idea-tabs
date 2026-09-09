@@ -248,7 +248,8 @@ public final class Conversation {
             }
             default -> { return; }
         }
-        if (!method.endsWith("Delta") && !method.endsWith("/delta") && !method.startsWith("item/started") && !method.startsWith("item/completed") && !method.equals("thread/tokenUsage/updated")) {
+        // Thread loading and metadata changes are not chat activity. Record whole items rather than every streamed token.
+        if (!method.startsWith("thread/") && !method.endsWith("Delta") && !method.endsWith("/delta")) {
             state.addProperty("updatedAt", System.currentTimeMillis());
         }
         revision++;

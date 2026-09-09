@@ -6,6 +6,55 @@ import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class ConversationTest {
+    @Test void openingAndClosingAnIdleChatKeepsItsLastActivityTime() {
+        var chat = new Conversation("chat", "/project");
+        chat.hydrate(object("id", "thread", "updatedAt", 100), chat.revision());
+        assertEquals("100000", chat.get("updatedAt"));
+        chat.set("unread", false);
+        chat.resumed(object("id", "thread", "updatedAt", 100, "status", object("type", "idle")), chat.revision());
+        chat.loaded();
+        chat.historyPage(historyEntries(0, 2), "");
+        for (String type : new String[]{"idle", "notLoaded", "idle"}) {
+            chat.event(object("method", "thread/status/changed", "params", object("status", object("type", type))));
+            assertEquals("100000", chat.get("updatedAt"), type);
+        }
+        chat.event(object("method", "thread/closed", "params", object("threadId", "thread")));
+        assertEquals("100000", chat.get("updatedAt"));
+        assertEquals("100000", Conversation.restore(chat.snapshot()).get("updatedAt"));
+    }
+    @Test void sidebarChangesAndConnectionMetadataAreNotChatActivity() {
+        var chat = new Conversation("chat", "/project");
+        chat.set("updatedAt", 100000L);
+        chat.set("pinned", true);
+        chat.set("draft", "An unsent draft");
+        chat.event(object("method", "thread/name/updated", "params", object("threadName", "Renamed chat")));
+        chat.event(object("method", "thread/archived", "params", object("threadId", "thread")));
+        chat.event(object("method", "thread/unarchived", "params", object("threadId", "thread")));
+        chat.event(object("method", "thread/tokenUsage/updated", "params", object("tokenUsage", object("total", 1))));
+        assertEquals("100000", text(chat.summary(), "updatedAt"));
+    }
+    @Test void messagesToolsTurnsAndQuestionsStillUpdateActivityTime() {
+        var events = new com.google.gson.JsonObject[]{
+            object("method", "turn/started", "params", object("turn", object("id", "turn"))),
+            object("method", "item/started", "params", object("item", object("id", "user", "type", "userMessage"))),
+            object("method", "item/completed", "params", object("item", object("id", "tool", "type", "commandExecution", "status", "completed"))),
+            object("method", "item/completed", "params", object("item", historyItem(0))),
+            object("method", "item/tool/requestUserInput", "params", object("itemId", "choice", "isBlocking", false)),
+            object("method", "turn/completed", "params", object("turn", object("id", "turn", "status", "completed"))),
+        };
+        for (var event : events) {
+            var chat = new Conversation("chat", "/project");
+            chat.set("updatedAt", 100000L);
+            chat.event(event);
+            assertTrue(chat.summary().get("updatedAt").getAsLong() > 100000L, text(event, "method"));
+        }
+    }
+    @Test void historyCanStillImportNewerActivityFromAnotherClient() {
+        var chat = new Conversation("chat", "/project");
+        chat.hydrate(object("id", "thread", "updatedAt", 100), chat.revision());
+        chat.hydrate(object("id", "thread", "updatedAt", 200), chat.revision());
+        assertEquals("200000", chat.get("updatedAt"));
+    }
     @Test void successfulResumeClearsConnectionErrorButKeepsFailedTurn() {
         var chat = new Conversation("chat", "/project");
         chat.loadFailed("Disconnected during resume"); assertEquals("error", chat.status());
