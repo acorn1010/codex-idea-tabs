@@ -1,6 +1,9 @@
 package com.acorn.codextabs;
 
 import com.google.gson.JsonObject;
+import com.intellij.ide.IdeTooltip;
+import com.intellij.ide.IdeTooltipManager;
+import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
@@ -30,6 +33,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         window.getContentManager().addContent(content);
     }
     private record Row(JsonObject chat, String group, int count) {}
+    private record HitAreas(int index, Rectangle cell, float scale, Rectangle body, Rectangle archive, Rectangle more) {}
 
     private static final class Sessions implements Disposable {
         final JPanel panel = new JPanel(new BorderLayout(0, JBUI.scale(8)));
@@ -59,6 +63,10 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private int hoverAction;
         private int pressedIndex = -1;
         private int pressedAction;
+        private String pressedId = "";
+        private Point hoverPoint;
+        private HitAreas hitAreas;
+        private IdeTooltip tooltip;
         private String rendered = "";
         private String activeId = "";
         private String cursor = "";
@@ -139,32 +147,33 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             bottom.add(footer, BorderLayout.SOUTH); panel.add(bottom, BorderLayout.SOUTH);
             list.addMouseListener(new MouseAdapter() {
                 @Override public void mousePressed(MouseEvent event) {
-                    pressedIndex = rowAt(event.getPoint()); pressedAction = actionAt(event.getPoint()); list.repaint(); popup(event);
+                    pressedIndex = rowAt(event.getPoint()); pressedAction = actionAt(event.getPoint());
+                    pressedId = pressedIndex < 0 ? "" : text(model.get(pressedIndex).chat(), "id");
+                    hideTooltip(); list.setToolTipText(null); list.repaint(); popup(event);
                 }
                 @Override public void mouseReleased(MouseEvent event) {
                     int index = rowAt(event.getPoint()), action = actionAt(event.getPoint());
-                    if (SwingUtilities.isLeftMouseButton(event) && index >= 0 && index == pressedIndex && action == pressedAction) {
+                    if (SwingUtilities.isLeftMouseButton(event) && index >= 0 && text(model.get(index).chat(), "id").equals(pressedId) && action == pressedAction) {
                         list.setSelectedIndex(index);
                         var item = model.get(index).chat();
                         if (action == 1) { archive(text(item, "id"), !archived); }
                         else if (action == 2) { menu(index, event.getX(), event.getY()); }
                         else { open(); }
                     }
-                    pressedIndex = -1; pressedAction = 0; list.repaint(); popup(event);
+                    pressedIndex = -1; pressedAction = 0; pressedId = ""; list.repaint(); popup(event);
                 }
-                @Override public void mouseExited(MouseEvent event) { hoverIndex = -1; hoverAction = 0; pressedIndex = -1; list.repaint(); }
+                @Override public void mouseExited(MouseEvent event) {
+                    hoverPoint = null; hoverIndex = -1; hoverAction = 0; pressedIndex = -1; pressedId = "";
+                    hideTooltip(); list.setToolTipText(null); list.repaint();
+                }
             });
             list.addMouseMotionListener(new MouseMotionAdapter() {
                 @Override public void mouseMoved(MouseEvent event) {
-                    int index = rowAt(event.getPoint()), action = actionAt(event.getPoint());
-                    if (hoverIndex != index || hoverAction != action) {
-                        hoverIndex = index; hoverAction = action;
-                        list.setCursor(Cursor.getPredefinedCursor(index >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
-                        list.setToolTipText(index < 0 ? null : action == 1 ? archived ? "Restore chat" : canArchive(model.get(index).chat()) ? "Archive chat (Delete)" : "Finish the active work and answer requests before archiving"
-                            : action == 2 ? "More chat actions" : text(model.get(index).chat(), "title"));
-                        list.repaint();
-                    }
+                    hoverPoint = event.getPoint(); updateHover();
                 }
+            });
+            list.addComponentListener(new ComponentAdapter() {
+                @Override public void componentResized(ComponentEvent event) { hitAreas = null; hideTooltip(); updateHover(); }
             });
             key(KeyEvent.VK_ENTER, 0, "open", this::open);
             key(KeyEvent.VK_DELETE, 0, "archive", () -> { if (list.getSelectedValue() != null) { archive(text(list.getSelectedValue().chat(), "id"), !archived); } });
@@ -190,7 +199,8 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             archives.setIcon(SessionIcons.icon(value ? "back" : "archive"));
             dirty = true; refresh(false);
         }
-        private JComponent row(Row value, int index, boolean selected) {
+        private JComponent row(Row value, int index, boolean selected) { return row(value, index, selected, false); }
+        private JComponent row(Row value, int index, boolean selected, boolean showActions) {
             var chat = value.chat();
             boolean hover = index == hoverIndex, pressed = index == pressedIndex;
             boolean active = text(chat, "id").equals(activeId);
@@ -233,7 +243,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             body.add(copy, BorderLayout.CENTER);
             var actions = plain(new FlowLayout(FlowLayout.RIGHT, 0, 0));
             actions.setPreferredSize(JBUI.size(56, 28));
-            if (hover || selected && list.hasFocus()) {
+            if (showActions || hover || selected && list.hasFocus()) {
                 actions.add(actionIcon(archived ? "restore" : "archive", archived || canArchive(chat), hoverAction == 1 && hover, pressedAction == 1 && pressed));
                 actions.add(actionIcon("more", true, hoverAction == 2 && hover, pressedAction == 2 && pressed));
             } else {
@@ -262,16 +272,68 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             return icon;
         }
         private void open() { if (list.getSelectedValue() != null) { ChatFiles.open(project, text(list.getSelectedValue().chat(), "id"), false); } }
+        // Measure the same renderer used for painting. Font size, cell insets, and UI scaling can
+        // change its button positions. Cache one row so pointer movement does not keep laying it out.
+        private HitAreas hitAreas(int index) {
+            var cell = list.getCellBounds(index, index);
+            if (hitAreas != null && hitAreas.index() == index && hitAreas.cell().equals(cell) && hitAreas.scale() == JBUI.scale(1f)) { return hitAreas; }
+            var renderer = row(model.get(index), index, false, true);
+            renderer.setBounds(0, 0, cell.width, cell.height); renderer.doLayout();
+            var body = (JPanel) ((BorderLayout) renderer.getLayout()).getLayoutComponent(BorderLayout.CENTER);
+            body.doLayout();
+            var actions = (JPanel) ((BorderLayout) body.getLayout()).getLayoutComponent(BorderLayout.EAST);
+            actions.doLayout();
+            var bodyBounds = new Rectangle(cell.x + body.getX(), cell.y + body.getY(), body.getWidth(), body.getHeight());
+            var archive = SwingUtilities.convertRectangle(actions, actions.getComponent(0).getBounds(), renderer);
+            var more = SwingUtilities.convertRectangle(actions, actions.getComponent(1).getBounds(), renderer);
+            archive.translate(cell.x, cell.y); more.translate(cell.x, cell.y);
+            hitAreas = new HitAreas(index, cell, JBUI.scale(1f), bodyBounds, archive, more);
+            return hitAreas;
+        }
         private int rowAt(Point point) {
             int index = list.locationToIndex(point);
-            if (index < 0) { return -1; }
-            var bounds = list.getCellBounds(index, index);
-            if (!bounds.contains(point)) { return -1; }
-            int group = model.get(index).group().isBlank() ? 0 : list.getFontMetrics(list.getFont().deriveFont(list.getFont().getSize2D() - 1)).getHeight() + JBUI.scale(15);
-            return point.y < bounds.y + group ? -1 : index;
+            return index >= 0 && hitAreas(index).body().contains(point) ? index : -1;
         }
         private int actionAt(Point point) {
-            return rowAt(point) < 0 || point.x < list.getWidth() - JBUI.scale(62) ? 0 : point.x < list.getWidth() - JBUI.scale(34) ? 1 : 2;
+            int index = rowAt(point);
+            if (index < 0) { return 0; }
+            var areas = hitAreas(index);
+            return areas.archive().contains(point) ? 1 : areas.more().contains(point) ? 2 : 0;
+        }
+        private void updateHover() {
+            int index = hoverPoint == null ? -1 : rowAt(hoverPoint);
+            int action = index < 0 ? 0 : actionAt(hoverPoint);
+            boolean moved = hoverIndex != index || hoverAction != action;
+            hoverIndex = index; hoverAction = action;
+            list.setCursor(Cursor.getPredefinedCursor(index >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
+            String hint = index < 0 || !pressedId.isBlank() ? null : action == 1 ? archived ? "Restore chat" : canArchive(model.get(index).chat()) ? "Archive chat (Delete)" : "Finish the active work and answer requests before archiving"
+                : action == 2 ? "More chat actions" : text(model.get(index).chat(), "title");
+            if (moved || !Objects.equals(list.getToolTipText(), hint) || tooltip == null && hint != null) {
+                hideTooltip(); list.setToolTipText(hint);
+                if (hint != null && pressedId.isBlank()) {
+                    var areas = hitAreas(index);
+                    // IDEA uses its own balloon tooltips, not JComponent.createToolTip(). Keep their
+                    // wrapped content to the left of both actions, even for long unbroken file names.
+                    int padding = JBUI.scale(8), width = Math.max(1, Math.min(JBUI.scale(280), areas.archive().x - areas.body().x - padding * 4));
+                    var content = new JTextArea(hint);
+                    content.setFont(list.getFont()); content.setForeground(SessionTheme.TEXT);
+                    width = Math.max(1, Math.min(width, content.getFontMetrics(content.getFont()).stringWidth(hint)));
+                    content.setOpaque(false); content.setEditable(false); content.setFocusable(false);
+                    content.setLineWrap(true); content.setWrapStyleWord(true); content.setBorder(null);
+                    content.setSize(width, Short.MAX_VALUE);
+                    content.setPreferredSize(new Dimension(width, content.getPreferredSize().height));
+                    var point = new Point(areas.body().x + padding * 2 + width / 2, areas.body().y + areas.body().height + padding);
+                    tooltip = new IdeTooltip(list, point, content, text(model.get(index).chat(), "id"), action, hint)
+                        .setPreferredPosition(Balloon.Position.below).setShowCallout(false).setToCenter(false).setToCenterIfSmall(false)
+                        .setBorderInsets(JBUI.insets(8)).setRequestFocus(false);
+                    IdeTooltipManager.getInstance().setCustomTooltip(list, tooltip);
+                }
+            }
+            if (moved) { list.repaint(); }
+        }
+        private void hideTooltip() {
+            if (tooltip != null) { tooltip.hide(); tooltip = null; }
+            IdeTooltipManager.getInstance().setCustomTooltip(list, null);
         }
         private void popup(MouseEvent event) { if (event.isPopupTrigger()) { int index = rowAt(event.getPoint()); if (index >= 0) { menu(index, event.getX(), event.getY()); } } }
         private void menu(int index, int x, int y) {
@@ -361,23 +423,24 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                 String group = archived ? "Archived" : status.equals("attention") ? "Needs you" : status.equals("working") ? "Working" : flag(item, "pinned") ? "Pinned" : "Recent";
                 groups.get(group).add(item);
             }
-            model.clear(); hoverIndex = -1; pressedIndex = -1;
+            model.clear(); hitAreas = null; pressedIndex = -1;
             groups.forEach((group, items) -> {
                 for (int i = 0; i < items.size(); i++) {
                     var item = items.get(i); model.addElement(new Row(item, i == 0 ? group : "", items.size()));
                     if (text(item, "id").equals(selected)) { list.setSelectedIndex(model.size() - 1); }
+                    if (text(item, "id").equals(pressedId)) { pressedIndex = model.size() - 1; }
                 }
             });
             list.getEmptyText().setText(!query.isBlank() ? "No matching chats" : archived ? "No archived chats" : attentionOnly ? "You're all caught up" : "Start your first chat");
             list.getEmptyText().appendLine(!query.isBlank() ? "Try a different search." : archived ? "Archive a finished chat to keep this list clear." : attentionOnly ? "Questions and approvals will appear here." : "Use New chat to begin a task.");
-            panel.revalidate(); list.repaint();
+            panel.revalidate(); updateHover(); list.repaint();
         }
         private void key(int code, int modifiers, String name, Runnable action) {
             list.getInputMap().put(KeyStroke.getKeyStroke(code, modifiers), name);
             list.getActionMap().put(name, new AbstractAction() { @Override public void actionPerformed(ActionEvent event) { action.run(); } });
         }
         private void ui(Runnable action) { ApplicationManager.getApplication().invokeLater(() -> { if (!disposed && !project.isDisposed()) { action.run(); } }); }
-        @Override public void dispose() { disposed = true; timer.stop(); service.unlisten(listener); }
+        @Override public void dispose() { disposed = true; timer.stop(); hideTooltip(); service.unlisten(listener); }
     }
     private static boolean canArchive(JsonObject chat) { return !Set.of("working", "attention").contains(text(chat, "status")); }
     private static Color groupColor(String group) { return group.equals("Needs you") ? SessionTheme.ATTENTION : group.equals("Working") ? SessionTheme.ACCENT : SessionTheme.MUTED; }
