@@ -206,7 +206,7 @@ public final class Conversation {
                 clearRecoverableError();
                 if (method.equals("item/started")) { liveActivity = observeActivity(params); }
                 var item = obj(params, "item");
-                if (text(item, "type").equals("reasoning") && items.containsKey(text(item, "id")) && !item.has("text")) {
+                if (text(item, "type").equals("reasoning") && items.containsKey(text(item, "id")) && !item.has("text") && array(item, "summary").isEmpty() && array(item, "content").isEmpty()) {
                     String streamed = text(items.get(text(item, "id")), "text");
                     if (!streamed.isBlank()) { item = item.deepCopy(); item.addProperty("text", streamed); }
                 }

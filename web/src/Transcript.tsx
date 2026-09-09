@@ -30,7 +30,7 @@ const Message = memo(function Message({ item, editing, onEdit, onEditing }: { it
   </article>;
 });
 
-function isImage(part: Json): boolean { return part.type === 'localImage' || part.type === 'image'; }
+function isImage(part: Json | string): part is Json { return typeof part !== 'string' && (part.type === 'localImage' || part.type === 'image'); }
 
 function MessageEditor({ item, onEdit, onClose }: { item: Item; onEdit: EditMessage; onClose: () => void }) {
   const [draft, setDraft] = useState(() => itemText(item));
@@ -43,7 +43,7 @@ function MessageEditor({ item, onEdit, onClose }: { item: Item; onEdit: EditMess
   const live = useRef(true);
   const pending = useRef(0);
   const submitting = useRef(false);
-  const retained = (item.content || []).filter((part) => part.type !== 'text' && !isImage(part));
+  const retained = (item.content || []).filter((part) => typeof part !== 'string' && part.type !== 'text' && !isImage(part));
   useEffect(() => { live.current = true; field.current?.focus(); return () => { live.current = false; }; }, []);
   useEffect(() => {
     if (field.current) { field.current.style.height = 'auto'; field.current.style.height = `${Math.min(320, field.current.scrollHeight)}px`; }
@@ -110,7 +110,8 @@ const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }
   const [open, setOpen] = useState(detailsOnly);
   const label = toolLabel(item);
   const failed = toolFailed(item);
-  const content = item.aggregatedOutput || itemText(item) || JSON.stringify(item.result || item.arguments || item, null, 2);
+  const reasoning = item.type === 'reasoning';
+  const content = reasoning ? itemText(item) : item.aggregatedOutput || itemText(item) || JSON.stringify(item.result || item.arguments || item, null, 2);
   return <div className="min-w-0 text-xs">
     {!detailsOnly && <button onClick={() => setOpen(!open)} aria-expanded={open} title={label} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
       <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
@@ -121,7 +122,9 @@ const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }
     </button>}
     {item.type === 'fileChange' && item.changes?.map((change, index) => <button key={index} className="ml-6 flex max-w-[calc(100%-1.5rem)] items-center gap-2 py-1 text-accent hover:underline active:text-ink" onClick={() => void request('openLink', { path: String(change.path || '') })}><Icon name="file" size={12} /><span className="truncate">{String(change.path || '')}</span></button>)}
     {toolImagePaths(item).map((path, index) => <ImagePreview key={index} path={path} alt="Generated image" />)}
-    {(open || detailsOnly) && <pre className={`mt-1 overflow-auto rounded-lg bg-input p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words ${contained ? '' : 'max-h-60'}`}>{content}</pre>}
+    {(open || detailsOnly) && (reasoning ? <div className={`mt-1 overflow-auto px-3 py-1 text-xs text-ink ${contained ? '' : 'max-h-60'}`}>
+      {content.trim() ? <Markdown text={content} /> : <p className="py-2 text-muted">No thinking text was provided.</p>}
+    </div> : <pre className={`mt-1 overflow-auto rounded-lg bg-input p-3 text-[11px] leading-relaxed whitespace-pre-wrap break-words ${contained ? '' : 'max-h-60'}`}>{content}</pre>)}
   </div>;
 });
 
