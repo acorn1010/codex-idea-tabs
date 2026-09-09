@@ -116,7 +116,9 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         if (disposed) { return CompletableFuture.failedFuture(new IllegalStateException("Chat was closed")); }
         var chat = service.chat(file.id);
         switch (method) {
-            case "ready": ready = true; dirty = true; service.load(file.id); return completed(service.snapshot(file.id));
+            case "ready": return service.restoreReady().thenApply(ignored -> {
+                ready = true; dirty = true; service.load(file.id); return service.snapshot(file.id);
+            });
             case "send": return service.send(file.id, params);
             case "accountLimits": return service.rpc("account/rateLimits/read", new JsonObject()).orTimeout(15, java.util.concurrent.TimeUnit.SECONDS);
             case "skills": return service.rpc("skills/list", object("cwds", new String[]{chat.get("cwd")}, "forceReload", true));

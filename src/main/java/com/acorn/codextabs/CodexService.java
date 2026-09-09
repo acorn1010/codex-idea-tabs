@@ -27,6 +27,7 @@ public final class CodexService implements Disposable {
     });
     private final ScheduledExecutorService persistence = Executors.newSingleThreadScheduledExecutor();
     private final java.nio.file.Path cache;
+    private final CompletableFuture<Void> restored;
     private volatile boolean dirty;
     private volatile boolean disposed;
     private volatile RpcClient client;
@@ -47,7 +48,7 @@ public final class CodexService implements Disposable {
     public CodexService(Project project) {
         this.project = project;
         cache = java.nio.file.Path.of(PathManager.getConfigPath(), "codex-tabs", project.getLocationHash(), "chats.json");
-        io.submit(() -> {
+        restored = CompletableFuture.runAsync(() -> {
             try {
                 var legacy = java.nio.file.Path.of(PathManager.getSystemPath(), "codex-tabs", project.getLocationHash(), "chats.json");
                 var saved = Files.exists(cache) ? cache : legacy;
@@ -59,7 +60,7 @@ public final class CodexService implements Disposable {
                     changed("");
                 }
             } catch (Exception error) { connectionError = "Saved chat cache could not be read. Codex history is still available."; }
-        });
+        }, io);
         persistence.scheduleWithFixedDelay(this::save, 2, 2, TimeUnit.SECONDS);
         persistence.scheduleWithFixedDelay(this::refreshTabs, 0, 300, TimeUnit.MILLISECONDS);
     }
@@ -372,7 +373,12 @@ public final class CodexService implements Disposable {
         changed(chat.id);
         return chat;
     }
+    /** Restored editors must read their saved identity and draft before publishing or resuming. */
+    public CompletableFuture<Void> restoreReady() { return restored; }
     public CompletableFuture<Void> load(String id) {
+        return restored.thenComposeAsync(ignored -> loadRestored(id), io);
+    }
+    private CompletableFuture<Void> loadRestored(String id) {
         var chat = chat(id);
         if (chat.get("threadId").isBlank()) { return connect().thenApply(ignored -> null); }
         // Reading an archived chat must not resume or restore its backend session.
@@ -669,7 +675,7 @@ public final class CodexService implements Disposable {
         });
     }
     private synchronized void save() {
-        if (!dirty) { return; }
+        if (!dirty || !restored.isDone()) { return; }
         dirty = false;
         try {
             Files.createDirectories(cache.getParent());
