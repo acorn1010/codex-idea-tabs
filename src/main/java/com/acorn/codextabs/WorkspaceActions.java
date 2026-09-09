@@ -24,9 +24,8 @@ final class WorkspaceActions {
     }
     static void terminal(Project project, String cwd, String distro, String label) {
         try {
-            var plugin = com.intellij.ide.plugins.PluginManagerCore.getPlugin(com.intellij.openapi.extensions.PluginId.getId("org.jetbrains.plugins.terminal"));
-            if (plugin == null || !plugin.isEnabled()) { throw new IllegalStateException("Enable IDEA's Terminal plugin to use this action."); }
-            var managerClass = Class.forName("org.jetbrains.plugins.terminal.TerminalToolWindowManager", true, plugin.getPluginClassLoader());
+            // The optional Terminal dependency supplies its classes through this plugin's own loader.
+            var managerClass = Class.forName("org.jetbrains.plugins.terminal.TerminalToolWindowManager", true, WorkspaceActions.class.getClassLoader());
             var manager = managerClass.getMethod("getInstance", Project.class).invoke(null, project);
             String host = com.acorn.codextabs.core.Paths.host(cwd, distro, SystemInfo.isWindows);
             if (SystemInfo.isWindows && !distro.isBlank()) {
@@ -35,14 +34,19 @@ final class WorkspaceActions {
                 var command = List.of("wsl.exe", "--distribution", distro, "--exec", "/usr/bin/env", "CODEX_TABS_WORKTREE=" + cwd, "/bin/bash", "-c", startup);
                 managerClass.getMethod("createNewSession", String.class, String.class, List.class, boolean.class, boolean.class).invoke(manager, host, label, command, true, false);
             } else { managerClass.getMethod("createShellWidget", String.class, String.class, boolean.class, boolean.class).invoke(manager, host, label, true, false); }
-        } catch (ReflectiveOperationException error) { throw new IllegalStateException("Could not open IDEA's terminal.", error); }
+        } catch (ClassNotFoundException error) { throw new IllegalStateException("Enable IDEA's Terminal plugin to use this action.", error); }
+        catch (ReflectiveOperationException error) { throw new IllegalStateException("Could not open IDEA's terminal.", error); }
     }
     static void openProject(Project source, String cwd, String distro) {
         var path = Path.of(com.acorn.codextabs.core.Paths.host(cwd, distro, SystemInfo.isWindows));
         var options = new com.intellij.ide.impl.OpenProjectTaskBuilder();
         options.setForceOpenInNewFrame(true);
         options.setNewProject(!java.nio.file.Files.isDirectory(path.resolve(".idea")));
-        options.setRunConfigurators(true);
+        try {
+            // IDEA 2026.3 changed this public property's type from boolean to Boolean.
+            var valueType = options.getClass().getMethod("getRunConfigurators").getReturnType();
+            options.getClass().getMethod("setRunConfigurators", valueType).invoke(options, true);
+        } catch (ReflectiveOperationException error) { throw new IllegalStateException("Could not configure the worktree project for IDEA.", error); }
         var opened = com.intellij.openapi.project.ex.ProjectManagerEx.getInstanceEx().openProject(path, options.build(builder -> kotlin.Unit.INSTANCE));
         if (opened == null || opened == source) { return; }
         var settings = opened.getService(CodexSettings.class);

@@ -4,6 +4,7 @@
     <vendor url="https://github.com/acorn1010/codex-idea-tabs">Acorn</vendor>
     <description><![CDATA[Independent Codex conversations in native editor tabs. Split chats beside code, keep working sessions visible, and answer questions from an attention-first session list. Uses your Codex CLI and ChatGPT subscription. Supports Windows with WSL.]]></description>
     <depends>com.intellij.modules.platform</depends>
+    <depends optional="true" config-file="com.acorn.codex.tabs-terminal.xml">org.jetbrains.plugins.terminal</depends>
     <extensions defaultExtensionNs="com.intellij">
         <virtualFileSystem key="codex-chat" implementationClass="com.acorn.codextabs.ChatFiles"/>
         <fileEditorProvider implementation="com.acorn.codextabs.ChatEditor$Provider"/>

@@ -1,11 +1,9 @@
 package com.acorn.codextabs;
 
 import com.intellij.openapi.ui.popup.JBPopupFactory;
-import com.intellij.ui.ClientProperty;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.components.JBLabel;
 import com.intellij.ui.components.JBList;
-import com.intellij.ui.render.RenderingUtil;
 import com.intellij.util.ui.JBUI;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
@@ -22,9 +20,6 @@ final class WorktreeFilterPopup {
         var list = new JBList<>(options);
         list.setExpandableItemsEnabled(false);
         list.setBackground(SessionTheme.MENU);
-        // The renderer owns the rounded highlight. Keep IDEA's full-width selection neutral.
-        ClientProperty.put(list, RenderingUtil.CUSTOM_SELECTION_BACKGROUND, () -> SessionTheme.MENU);
-        RenderingUtil.setHoverPaintingDisabled(list, true);
         list.setFixedCellWidth(JBUI.scale(260));
         list.setFixedCellHeight(JBUI.scale(32));
         list.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
@@ -66,6 +61,8 @@ final class WorktreeFilterPopup {
             .setRequestFocus(true)
             .setAccessibleName("Filter chats by worktree")
             .createPopup();
+        // The row renderer owns selection and hover. Swing's list UI does not add a second highlight.
+        list.setUI(new javax.swing.plaf.basic.BasicListUI());
         // The popup builder replaces list insets, so apply the final gutter after it runs.
         list.setBorder(JBUI.Borders.empty(4));
         popup.getContent().setBackground(SessionTheme.MENU);
