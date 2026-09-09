@@ -59,8 +59,8 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
     finally { setBusy(false); }
   };
   return <>
-    <button ref={trigger} type="button" aria-label={`Workspace: ${label || chat.cwd}`} title={`${label || 'Workspace'}\n${chat.cwd}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-0 max-w-32 items-center gap-1 rounded-md px-1.5 text-[11px] text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent">
-      <span className="shrink-0"><Icon name="branch" size={13} /></span><span className="truncate">{label || chat.cwd.split('/').pop() || 'Workspace'}</span><span className="shrink-0"><Icon name="down" size={10} /></span>
+    <button ref={trigger} type="button" aria-label={`Workspace: ${label || chat.cwd}`} title={`${label || 'Workspace'}\n${chat.cwd}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-7 max-w-24 items-center justify-center gap-1 rounded-md px-1 @min-[640px]/composer:max-w-32 text-[11px] text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent">
+      <span className="shrink-0"><Icon name="branch" size={13} /></span><span className="truncate @max-[400px]/composer:hidden">{label || chat.cwd.split('/').pop() || 'Workspace'}</span><span className="shrink-0 @max-[400px]/composer:hidden"><Icon name="down" size={10} /></span>
     </button>
     {open && createPortal(<div ref={panel} role="dialog" aria-label="Workspace" tabIndex={-1} style={position} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-2 shadow-2xl outline-none" onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }

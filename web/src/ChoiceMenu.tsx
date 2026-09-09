@@ -2,10 +2,10 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './icons';
 
-type Choice = { value: string; label: string; description?: string };
+type Choice = { value: string; label: string; shortLabel?: string; description?: string };
 
-/** A keyboard-accessible composer menu keeps its selected label intact and opens outside the composer clip. */
-export function ChoiceMenu({ label, value, options, onChange, compact = false, hint, openRequest = 0 }: { label: string; value: string; options: Choice[]; onChange: (value: string) => void; compact?: boolean; hint?: string; openRequest?: number }) {
+/** A keyboard-accessible composer menu keeps full labels in its popup while its trigger adapts to the composer width. */
+export function ChoiceMenu({ label, value, options, onChange, compact = false, hint, icon, openRequest = 0 }: { label: string; value: string; options: Choice[]; onChange: (value: string) => void; compact?: boolean; hint?: string; openRequest?: number; icon?: Parameters<typeof Icon>[0]['name'] }) {
   const [open, setOpen] = useState(false);
   useEffect(() => { if (openRequest) { setOpen(true); } }, [openRequest]);
   const [position, setPosition] = useState({ left: 0, bottom: 0, width: 260, height: 300 });
@@ -29,8 +29,11 @@ export function ChoiceMenu({ label, value, options, onChange, compact = false, h
     return () => { window.clearTimeout(timer); document.removeEventListener('mousedown', outside); window.removeEventListener('resize', place); };
   }, [open]);
   return <>
-    <button ref={trigger} aria-label={`${label}: ${selected?.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined} title={selected?.label} onClick={() => setOpen(!open)} className={`flex h-7 items-center gap-1.5 rounded-md px-1.5 text-[11px] text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent ${compact ? 'min-w-0 max-w-40' : 'shrink-0 whitespace-nowrap'}`}>
-      <span className={compact ? 'truncate' : ''}>{selected?.label}</span><span className="shrink-0"><Icon name="down" size={11} /></span>
+    <button ref={trigger} aria-label={`${label}: ${selected?.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined} title={`${label}: ${selected?.label}`} onClick={() => setOpen(!open)} className={`flex h-7 min-w-7 items-center justify-center gap-1 rounded-md px-1 text-[11px] text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent ${compact ? 'max-w-40' : 'shrink-0 whitespace-nowrap'}`}>
+      {icon && <span className="hidden @max-[380px]/composer:block"><Icon name={icon} size={14} /></span>}
+      <span className={`${compact ? 'truncate' : ''} ${selected?.shortLabel ? '@max-[640px]/composer:hidden' : ''}`}>{selected?.label}</span>
+      {selected?.shortLabel && <span className={`hidden @max-[640px]/composer:block ${icon ? '@max-[380px]/composer:hidden' : ''}`}>{selected.shortLabel}</span>}
+      <span className={`shrink-0 ${icon ? '@max-[380px]/composer:hidden' : ''}`}><Icon name="down" size={11} /></span>
     </button>
     {open && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} style={{ left: position.left, bottom: position.bottom, width: position.width, maxHeight: position.height }} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-1 shadow-2xl" onKeyDown={(event) => {
       const entries = Array.from(menu.current!.querySelectorAll<HTMLButtonElement>('[role="option"]'));
