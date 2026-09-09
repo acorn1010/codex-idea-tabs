@@ -5,6 +5,15 @@
 - Copy individual code and Markdown blocks from their top-right corner.
 - Keep sidebar action targets aligned with their icons, prevent long-title tooltips from covering them, and retain clicks during chat updates.
 - Keep terminal and worktree project actions compatible with newer IDEA releases.
+- Create and share Git worktrees across chats, with native diffs, terminals, and guarded cleanup.
+- Use slash commands and skills from the composer, with compact context and account status.
+- Inspect recorded and startup context with search and text export.
+- Edit earlier messages in a separate chat, add or remove images, and recall previous messages with Up arrow.
+- Preview attachments and copy full-size chat images to the clipboard.
+- Expand grouped tool activity and steer a running turn immediately with Ctrl+Enter.
+- Keep model and reasoning choices across tabs and restarts.
+- Restore saved chats and paged history in order, release idle closed chats, and clear recovered connection errors.
+- Keep composer controls compact in narrow panes and restore native text cursors.
 
 ## 0.1.0
 
