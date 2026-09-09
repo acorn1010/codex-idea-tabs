@@ -1,6 +1,14 @@
 import type { CSSProperties } from 'react';
 
 const paths = {
+  review: 'M9 3h6l1 3h3v15H5V6h3zM9 11h6M9 15h4',
+  bolt: 'm13 2-9 12h7l-1 8 10-13h-7z',
+  feedback: 'M4 3h16v14H9l-5 4zM8 7h8M8 11h5',
+  target: 'M21 12a9 9 0 1 1-9-9M17 12a5 5 0 1 1-5-5M12 12l9-9M17 3h4v4',
+  plan: 'M9 6h12M9 12h12M9 18h12M3 5l1 1 2-2M3 11l1 1 2-2M3 17l1 1 2-2',
+  reasoning: 'M12 4C8 0 3 4 5 8c-4 2-3 7 0 8-1 5 5 7 7 3M12 4c4-4 9 0 7 4 4 2 3 7 0 8 1 5-5 7-7 3zM7 8l3 2M17 8l-3 2M7 15l3-1M17 15l-3-1',
+  status: 'M5 19a9 9 0 1 1 14 0M12 12l5-5M10 12a2 2 0 1 0 4 0 2 2 0 0 0-4 0',
+  skill: 'm12 2 8 5v10l-8 5-8-5V7zM4 7l8 5 8-5M12 12v10M8 10l8-5',
   layers: 'm12 3 10 5-10 5L2 8zM2 12l10 5 10-5M2 16l10 5 10-5',
   branch: 'M6 3v12M9 18a3 3 0 1 1-6 0a3 3 0 0 1 6 0M21 6a3 3 0 1 1-6 0a3 3 0 0 1 6 0M18 9a9 9 0 0 1-9 9',
   terminal: 'M3 4h18v16H3zM6 8l4 4-4 4M13 16h5',

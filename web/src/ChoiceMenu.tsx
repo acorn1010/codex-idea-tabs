@@ -5,8 +5,9 @@ import { Icon } from './icons';
 type Choice = { value: string; label: string; description?: string };
 
 /** A keyboard-accessible composer menu keeps its selected label intact and opens outside the composer clip. */
-export function ChoiceMenu({ label, value, options, onChange, compact = false, hint }: { label: string; value: string; options: Choice[]; onChange: (value: string) => void; compact?: boolean; hint?: string }) {
+export function ChoiceMenu({ label, value, options, onChange, compact = false, hint, openRequest = 0 }: { label: string; value: string; options: Choice[]; onChange: (value: string) => void; compact?: boolean; hint?: string; openRequest?: number }) {
   const [open, setOpen] = useState(false);
+  useEffect(() => { if (openRequest) { setOpen(true); } }, [openRequest]);
   const [position, setPosition] = useState({ left: 0, bottom: 0, width: 260, height: 300 });
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);

@@ -60,6 +60,8 @@ Closing or archiving a chat does not remove its worktree. Use the trash button i
 
 If local changes cannot all be copied, the plugin keeps the new checkout and explains the problem. If the conversation cannot be forked, the original remains open and the new checkout stays available for retry. Automatic dependency setup and bringing changes back into the primary checkout are not included. Use the terminal or IDEA's Git tools for those steps.
 
+Type `/` in the composer for [chat commands and skills](docs/slash-commands.md), including `/status` for a compact view of context and account limits.
+
 ## Daily use
 
 | Action | How |

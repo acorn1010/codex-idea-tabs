@@ -10,7 +10,7 @@ const number = new Intl.NumberFormat('en', { notation: 'compact', maximumFractio
 const control = 'flex size-8 shrink-0 items-center justify-center rounded-md text-muted hover:bg-raised hover:text-ink active:bg-line disabled:cursor-default disabled:opacity-40';
 
 /** A full-pane inspector preserves the chat and draft underneath, including in narrow editor splits. */
-export function ContextInspector({ model, effort, status, onClose }: { model: string; effort: string; status?: string; onClose: () => void }) {
+export function ContextInspector({ model, effort, status, onClose, initialSearch = '' }: { initialSearch?: string; model: string; effort: string; status?: string; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const searchField = useRef<HTMLInputElement>(null);
   const [view, setView] = useState<'recorded' | 'startup'>('recorded');
@@ -19,7 +19,7 @@ export function ContextInspector({ model, effort, status, onClose }: { model: st
   const [errors, setErrors] = useState<Partial<Record<'recorded' | 'startup', string>>>({});
   const [actionError, setActionError] = useState('');
   const [copied, setCopied] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(initialSearch);
   const [category, setCategory] = useState<keyof typeof categories>('all');
   const [duplicatesOnly, setDuplicatesOnly] = useState(false);
   const [sort, setSort] = useState<'largest' | 'order'>('largest');
