@@ -16,8 +16,8 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>0.1.1 adds Git worktrees, slash commands and skills, context inspection, message editing with images, attachment previews, image copying, grouped activity, and immediate Ctrl+Enter steering.</p>
-        <p>Model choices now persist across tabs and restarts. This release also fixes restored history ordering, closed-chat cleanup, connection recovery, narrow composer layouts, and native text cursors.</p>
+        <p>1.0.0 brings native chat tabs, shared Git worktrees, slash commands and skills, context inspection, message editing with images, attachment previews, and immediate Ctrl+Enter steering.</p>
+        <p>Copy individual code and Markdown blocks, drop files from the IDE or file manager, and expand readable reasoning summaries. Model choices persist across tabs and restarts. This release includes fixes for sidebar clicks, restored history, closed-chat cleanup, connection recovery, and narrow composer layouts.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
     <depends optional="true" config-file="com.acorn.codex.tabs-terminal.xml">org.jetbrains.plugins.terminal</depends>

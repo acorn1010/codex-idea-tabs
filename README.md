@@ -11,7 +11,7 @@ This is an independent client for the [Codex app server](https://developers.open
 - Keeps hidden tabs connected. Closed chats finish active work in the background, then release their subscriptions. Drafts, history, and asynchronous questions remain available.
 - Groups chats by attention, work in progress, pins, and recent activity, with search and readable message previews.
 - Archives finished chats with Undo, an archive browser, and Restore. History, drafts, and attachments stay available.
-- Streams Markdown, command output, file changes, plans, and generated images.
+- Streams Markdown, command output, file changes, plans, and generated images. Each fenced code or Markdown block has its own copy button.
 - Supports file drops, pasted images, large text attachments, and native file selection. Attached images show a small thumbnail. Click one to preview it, then press Escape to return to the composer. Right-click a chat image, thumbnail, or expanded preview and choose **Copy image** to copy its full-size pixels to the system clipboard.
 - Opens local file and image links in the IDE, including files inside WSL.
 - Keeps workspace, permissions, model, reasoning effort, and IDE context in a compact composer. Secondary labels shorten in narrow panes to keep the controls on one row.
@@ -25,7 +25,7 @@ There is one app-server process per project. Restored hidden tabs do not start b
 
 ## Install
 
-Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI. Version 0.1.1 was tested with IDEA 2026.1.3 and Codex 0.153.0.
+Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI. Native integration has been tested with IDEA 2026.1.3 and Codex 0.153.0.
 
 1. Download the plugin ZIP from [Releases](https://github.com/acorn1010/codex-idea-tabs/releases).
 2. In IDEA, open **Settings → Plugins → gear menu → Install Plugin from Disk** and select the ZIP.
@@ -139,7 +139,7 @@ The [native smoke-test instructions](scripts/native-smoke/README.md) cover the r
 
 ## Scope
 
-The first release focuses on concurrent local work in IDEA. It does not implement T3 Code's worktree management, cloud tasks, voice mode, or every experimental Codex app-server extension. Unknown server requests receive an explicit unsupported response. Remote HTTP images are opened as links rather than fetched into the local preview.
+This release focuses on concurrent local work in IDEA, including shared Git worktrees. It does not include cloud tasks, voice mode, or every experimental Codex app-server extension. Unknown server requests receive an explicit unsupported response. Remote HTTP images are opened as links rather than fetched into the local preview.
 
 The design takes ideas from [T3 Code](https://github.com/pingdotgg/t3code), the Codex editor extension, and a workflow with several chats visible at once. This repository is an original implementation, not a repackaged OpenAI extension or a fork of T3 Code's server.
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0
+
+First stable release, including the worktree, context, and chat improvements listed below.
+
+- Copy individual fenced code and Markdown blocks without copying the full response.
+- Drop files from the native IDE or file manager into chat, including when Codex runs in WSL.
+- Request readable reasoning summaries and keep empty thinking rows from expanding.
+- Keep sidebar archive and menu clicks aligned with their icons while chats update.
+- Support newer IDEA APIs for worktree actions and use portable worktree menu rendering.
+
 ## 0.1.1
 
 - Copy individual code and Markdown blocks from their top-right corner.
