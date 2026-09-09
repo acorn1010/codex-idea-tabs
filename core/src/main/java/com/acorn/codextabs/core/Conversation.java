@@ -24,6 +24,8 @@ public final class Conversation {
         for (var entry : saved.entrySet()) { chat.state.add(entry.getKey(), entry.getValue().deepCopy()); }
         chat.state.remove("items"); chat.state.remove("requests");
         for (var item : array(saved, "items")) { chat.put(item.getAsJsonObject()); }
+        // Cached items predate every live event in this process.
+        chat.itemRevisions.clear();
         for (var request : array(saved, "requests")) {
             var value = request.getAsJsonObject();
             if (!value.has("rpcId")) { chat.requests.put(text(value, "key"), value.deepCopy()); }
@@ -134,9 +136,13 @@ public final class Conversation {
         }
     }
     public synchronized void historyPage(JsonArray entries, String cursor) {
-        historyPage(entries, cursor, revision);
+        historyPage(entries, cursor, revision, true);
     }
     public synchronized void historyPage(JsonArray entries, String cursor, long startedRevision) {
+        historyPage(entries, cursor, startedRevision, true);
+    }
+    /** Refresh from the newest page, or prepend an older page. Live events received during the fetch always win. */
+    public synchronized void historyPage(JsonArray entries, String cursor, long startedRevision, boolean latest) {
         var history = new LinkedHashMap<String, JsonObject>();
         for (int i = entries.size() - 1; i >= 0; i--) {
             var entry = entries.get(i).getAsJsonObject();
@@ -144,7 +150,7 @@ public final class Conversation {
             history.put(text(item, "id"), item.deepCopy());
         }
         items.forEach((id, item) -> {
-            if (!history.containsKey(id) || itemRevisions.getOrDefault(id, 0L) > startedRevision) { history.put(id, item); }
+            if ((!latest && !history.containsKey(id)) || itemRevisions.getOrDefault(id, 0L) > startedRevision) { history.put(id, item); }
         });
         items.clear(); items.putAll(history);
         items.values().forEach(this::questions);

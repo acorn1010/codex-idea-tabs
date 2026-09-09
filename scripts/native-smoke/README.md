@@ -92,4 +92,10 @@ For native checks, use a separate IDEA profile with `-Dcodex.smoke.worktrees.che
 
 Run `check-native-worktrees.mjs` against that profile's CDP port to check the actual picker and native diff and terminal actions. The native harness runs once per IDE process so opening a checkout as another IDEA project cannot start a second test. Use only disposable Git repositories. These checks never call a model.
 
+### Restored history
+
+Run `check-native-history-restore.mjs` in an isolated profile whose `review` fixture has 160 agent messages with IDs `restore-0` through `restore-159`. Use `Latest reply 159` as the final message text and enough text in earlier replies to require scrolling. The fake server must honor the requested page size and `excludeTurns`.
+
+The first run checks that the newest 100 items are in order and the final reply is visible. It then loads earlier history and saves a draft. Close the test IDE normally, reopen the same profile, and run the script with `--restored`. It checks the latest reply, the saved draft, and all 160 items after loading earlier history. Results and screenshots go under `output/playwright`.
+
 Run `check-slash-commands.mjs` for the command and skill picker at 360, 520, and 900 pixels. It checks keyboard selection, compact status, draft skill restoration, explicit skill inputs, action forms, retry, and ordinary sends. `check-native-slash-commands.mjs` checks the real JCEF bridge with the deterministic fixture, including account limits, skills, goals, and MCP status. Never run the native script against a real account backend.

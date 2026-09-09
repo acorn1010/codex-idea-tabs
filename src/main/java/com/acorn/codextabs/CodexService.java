@@ -405,7 +405,7 @@ public final class CodexService implements Disposable {
         if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
         return rpc.request("thread/items/list", params).thenApply(page -> {
             if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
-            chat.historyPage(array(page, "data"), text(page, "nextCursor"), startedRevision); changed(id); return page;
+            chat.historyPage(array(page, "data"), text(page, "nextCursor"), startedRevision, cursor.isBlank()); changed(id); return page;
         });
     }
     public CompletableFuture<JsonObject> send(String id, JsonObject payload) {

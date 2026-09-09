@@ -106,6 +106,53 @@ class ConversationTest {
         chat.historyPage(page, "", started);
         assertEquals("Server plus live text", text(chat.items().get(0).getAsJsonObject(), "text"));
     }
+    @Test void restartLoadsTheLatestPageAtTheEndInsteadOfAppendingOldCache() {
+        var chat = new Conversation("chat", "/project");
+        for (int i = 0; i < 140; i++) { chat.event(object("method", "item/completed", "params", object("item", historyItem(i)))); }
+        var restored = Conversation.restore(chat.snapshot());
+        restored.historyPage(historyEntries(40, 145), "earlier", restored.revision());
+        assertEquals("message-144", text(restored.items().get(restored.items().size() - 1).getAsJsonObject(), "id"));
+        assertEquals(105, restored.items().size());
+        assertEquals("message-40", text(restored.items().get(0).getAsJsonObject(), "id"));
+        assertEquals("earlier", restored.get("historyCursor"));
+        assertEquals("Reply 144", text(restored.summary(), "preview"));
+    }
+    @Test void refreshRepairsAlreadyMisorderedCacheAndPublishesAFullSnapshot() {
+        var chat = new Conversation("chat", "/project");
+        for (int i : new int[]{4, 5, 0, 1, 2, 3}) { chat.event(object("method", "item/completed", "params", object("item", historyItem(i)))); }
+        var restored = Conversation.restore(chat.snapshot());
+        long before = restored.revision();
+        restored.historyPage(historyEntries(2, 7), "earlier", before);
+        assertFalse(flag(restored.changes(before), "partial"));
+        for (int i = 0; i < 5; i++) { assertEquals("message-" + (i + 2), text(restored.items().get(i).getAsJsonObject(), "id")); }
+        assertEquals("Reply 6", text(restored.summary(), "preview"));
+    }
+    @Test void latestPageKeepsMessagesStreamedWhileHistoryWasLoading() {
+        var chat = new Conversation("chat", "/project");
+        chat.event(object("method", "item/completed", "params", object("item", historyItem(0))));
+        long started = chat.revision();
+        chat.event(object("method", "item/completed", "params", object("item", historyItem(3))));
+        chat.historyPage(historyEntries(1, 3), "older", started);
+        assertEquals(3, chat.items().size());
+        assertEquals("message-3", text(chat.items().get(2).getAsJsonObject(), "id"));
+    }
+    @Test void earlierPagesPrependWithoutDroppingTheLatestMessages() {
+        var chat = new Conversation("chat", "/project");
+        chat.historyPage(historyEntries(100, 140), "100");
+        chat.historyPage(historyEntries(0, 100), "", chat.revision(), false);
+        assertEquals(140, chat.items().size());
+        for (int i = 0; i < 140; i++) { assertEquals("message-" + i, text(chat.items().get(i).getAsJsonObject(), "id")); }
+        assertEquals("", chat.get("historyCursor"));
+        assertEquals("Reply 139", text(chat.summary(), "preview"));
+    }
+    private static com.google.gson.JsonObject historyItem(int index) {
+        return object("id", "message-" + index, "type", "agentMessage", "text", "Reply " + index);
+    }
+    private static JsonArray historyEntries(int from, int to) {
+        var entries = new JsonArray();
+        for (int i = to - 1; i >= from; i--) { entries.add(object("item", historyItem(i))); }
+        return entries;
+    }
     @Test void streamingChangesAreBoundedByTheChangedItem() {
         var chat = new Conversation("local", "/project");
         for (int i = 0; i < 1000; i++) {

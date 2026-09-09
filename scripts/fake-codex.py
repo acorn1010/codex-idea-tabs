@@ -204,13 +204,19 @@ def respond(request):
         if params.get("cwd"):
             thread_cwds[thread_id] = params["cwd"]
             save_history()
-        result = {"thread": thread(thread_id)}
+        resumed = thread(thread_id)
+        if params.get("excludeTurns"):
+            resumed["turns"] = []
+        result = {"thread": resumed}
         threading.Thread(target=attention, args=(params["threadId"],), daemon=True).start()
     elif method == "thread/read":
         result = {"thread": thread(params["threadId"])}
     elif method == "thread/items/list":
         entries = [{"item": item, "turnId": turn["id"]} for turn in turns(params["threadId"]) for item in turn["items"]]
-        result = {"data": list(reversed(entries)), "nextCursor": None}
+        if params.get("sortDirection") == "desc":
+            entries.reverse()
+        offset, limit = int(params.get("cursor", "0")), params.get("limit", 100)
+        result = {"data": entries[offset:offset + limit], "nextCursor": str(offset + limit) if offset + limit < len(entries) else None}
     elif method == "thread/turns/list":
         entries = turns(params["threadId"])
         if params.get("sortDirection") == "desc":
