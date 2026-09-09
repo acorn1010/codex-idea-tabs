@@ -183,6 +183,7 @@ public final class Conversation {
     public synchronized void event(JsonObject event) {
         String method = text(event, "method");
         var params = obj(event, "params");
+        boolean liveActivity = false;
         switch (method) {
             case "turn/started" -> {
                 state.addProperty("turnId", text(obj(params, "turn"), "id"));
@@ -203,6 +204,7 @@ public final class Conversation {
             }
             case "item/started", "item/completed" -> {
                 clearRecoverableError();
+                if (method.equals("item/started")) { liveActivity = observeActivity(params); }
                 var item = obj(params, "item");
                 if (text(item, "type").equals("reasoning") && items.containsKey(text(item, "id")) && !item.has("text")) {
                     String streamed = text(items.get(text(item, "id")), "text");
@@ -213,6 +215,7 @@ public final class Conversation {
             }
             case "item/agentMessage/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/commandExecution/outputDelta" -> {
                 clearRecoverableError();
+                liveActivity = observeActivity(params);
                 String id = text(params, "itemId");
                 String type = method.contains("agentMessage") ? "agentMessage" : method.contains("reasoning") ? "reasoning" : "commandExecution";
                 String field = type.equals("commandExecution") ? "aggregatedOutput" : "text";
@@ -253,7 +256,17 @@ public final class Conversation {
             state.addProperty("updatedAt", System.currentTimeMillis());
         }
         revision++;
-        if (method.startsWith("turn/") || method.equals("thread/status/changed") || method.equals("thread/closed")) { runtimeRevision = revision; }
+        if (liveActivity || method.startsWith("turn/") || method.equals("thread/status/changed") || method.equals("thread/closed")) { runtimeRevision = revision; }
+    }
+    /** Live activity recovers a missed turn start. Cached history and late output must not revive finished work. */
+    private boolean observeActivity(JsonObject params) {
+        String turnId = text(params, "turnId");
+        if (turnId.isBlank() || turnId.equals(get("completedTurnId"))) { return false; }
+        if (!get("turnId").isBlank() && !turnId.equals(get("turnId"))) { return false; }
+        state.addProperty("turnId", turnId);
+        state.addProperty("working", true);
+        state.addProperty("unread", false);
+        return true;
     }
     private void put(JsonObject item) {
         if (!text(item, "id").isBlank()) { items.put(text(item, "id"), item.deepCopy()); itemRevisions.put(text(item, "id"), revision + 1); questions(item); }
