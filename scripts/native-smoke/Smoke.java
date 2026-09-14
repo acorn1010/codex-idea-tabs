@@ -18,6 +18,8 @@ public final class Smoke implements StartupActivity.DumbAware {
     @Override public void runActivity(Project project) {
         Thread.startVirtualThread(() -> {
             try {
+                // JCEF moved behind an explicit dependency in IDEA 2026.2. Resolve it through the real plugin classloader.
+                Class.forName("com.intellij.ui.jcef.JBCefBrowserBase", false, ChatEditor.class.getClassLoader());
                 var service = CodexService.get(project);
                 var settings = service.settings();
                 settings.binary = java.util.Objects.requireNonNull(System.getProperty("codex.smoke.binary"), "Set -Dcodex.smoke.binary to scripts/fake-codex.py in the backend filesystem");

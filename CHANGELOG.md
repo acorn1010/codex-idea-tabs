@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Fix chat editors failing to open in IntelliJ IDEA 2026.2 with `NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowserBase` by declaring the required JCEF dependency.
+
 ## 1.0.0
 
 First stable release, including the worktree, context, and chat improvements listed below.

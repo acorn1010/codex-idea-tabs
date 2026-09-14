@@ -16,10 +16,10 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.0 brings native chat tabs, shared Git worktrees, slash commands and skills, context inspection, message editing with images, attachment previews, and immediate Ctrl+Enter steering.</p>
-        <p>Copy individual code and Markdown blocks, drop files from the IDE or file manager, and expand readable reasoning summaries. Model choices persist across tabs and restarts. This release includes fixes for sidebar clicks, restored history, closed-chat cleanup, connection recovery, and narrow composer layouts.</p>
+        <p>1.0.1 fixes chat editors failing to open in IntelliJ IDEA 2026.2 by declaring the required embedded browser (JCEF) dependency.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.jcef</depends>
     <depends optional="true" config-file="com.acorn.codex.tabs-terminal.xml">org.jetbrains.plugins.terminal</depends>
     <extensions defaultExtensionNs="com.intellij">
         <virtualFileSystem key="codex-chat" implementationClass="com.acorn.codextabs.ChatFiles"/>
