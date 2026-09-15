@@ -296,7 +296,7 @@ public final class CodexService implements Disposable {
         }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
-    private String removalBlock(String path) {
+    private String removalBlock(String path, boolean discardChanges) {
         if (GitWorktrees.contains(path, cwd())) { return "This checkout is open as the current IDEA project."; }
         for (var open : com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()) {
             String directory = Objects.toString(open.getBasePath(), "");
@@ -308,22 +308,25 @@ public final class CodexService implements Disposable {
                 return "A chat is still working or waiting for your answer in this worktree.";
             }
         }
-        return gitWorktrees().removalBlock(registeredRepository(path).path(), path);
+        return gitWorktrees().removalBlock(registeredRepository(path).path(), path, discardChanges);
     }
     public CompletableFuture<JsonObject> inspectWorktree(String path) {
         return CompletableFuture.supplyAsync(() -> {
             synchronized (workspaceRefresh) { refreshRepositories(); }
-            return object("path", path, "blocked", removalBlock(path), "chats", chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd"))).count());
+            String blocked = removalBlock(path, true);
+            return object("path", path, "blocked", blocked, "files", blocked.isBlank() ? gitWorktrees().removalFiles(path) : java.util.List.of(),
+                "chats", chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd"))).count());
         }, io);
     }
-    public CompletableFuture<JsonObject> removeWorktree(String path) {
+    public CompletableFuture<JsonObject> removeWorktree(String path) { return removeWorktree(path, false); }
+    public CompletableFuture<JsonObject> removeWorktree(String path, boolean discardChanges) {
         return CompletableFuture.supplyAsync(() -> {
             workspaceLock.writeLock().lock();
             try {
                 synchronized (workspaceRefresh) { refreshRepositories(); }
-                String reason = removalBlock(path);
+                String reason = removalBlock(path, discardChanges);
                 if (!reason.isBlank()) { throw new IllegalStateException(reason); }
-                gitWorktrees().remove(registeredRepository(path).path(), path);
+                gitWorktrees().remove(registeredRepository(path).path(), path, discardChanges);
                 changed(""); workspaces("");
                 return object("removed", true);
             } finally { workspaceLock.writeLock().unlock(); }

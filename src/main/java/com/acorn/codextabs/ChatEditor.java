@@ -225,7 +225,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
                 return result;
             });
             case "inspectWorktree": return service.inspectWorktree(text(params, "path"));
-            case "removeWorktree": return service.removeWorktree(text(params, "path"));
+            case "removeWorktree": return service.removeWorktree(text(params, "path"), flag(params, "discardChanges"));
             case "workspaceReview": return service.workspaceChanges(file.id).thenCompose(changes -> uiResult(() -> WorkspaceActions.review(project, changes)));
             case "workspaceTerminal": return uiResult(() -> WorkspaceActions.terminal(project, chat.get("cwd"), service.distro(), service.workspaceLabel(chat.get("cwd"))));
             case "workspaceProject": return CompletableFuture.supplyAsync(() -> { WorkspaceActions.openProject(project, chat.get("cwd"), service.distro()); return new JsonObject(); });

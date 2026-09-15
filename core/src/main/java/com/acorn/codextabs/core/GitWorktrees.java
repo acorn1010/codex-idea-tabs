@@ -17,6 +17,7 @@ public final class GitWorktrees {
     }
     public record Change(String path, String status, String before, String after, boolean binary) {}
     public record Created(Workspace workspace, String warning) {}
+    public record RemovalFile(String path, String status) {}
     private record Result(int code, byte[] bytes, String error) {
         String text() { return new String(bytes, StandardCharsets.UTF_8).stripTrailing(); }
     }
@@ -97,23 +98,43 @@ public final class GitWorktrees {
     private List<String> untracked(String cwd) {
         return Arrays.stream(git(cwd, "ls-files", "--others", "--exclude-standard", "-z").text().split("\0")).filter(value -> !value.isEmpty()).toList();
     }
-    /** Removal is conservative: keep dirty trees, locks, and commits that have not reached the primary checkout. */
-    public String removalBlock(String cwd, String target) {
+    /** Keep local edits and locks. Named branches retain their commits after the worktree is removed. */
+    public String removalBlock(String cwd, String target) { return removalBlock(cwd, target, false); }
+    public String removalBlock(String cwd, String target, boolean discardChanges) {
         var all = list(cwd);
         var workspace = all.stream().filter(value -> same(value.path, target)).findFirst().orElseThrow(() -> new IllegalArgumentException("This worktree is no longer registered."));
         if (workspace.main) { return "The primary checkout cannot be removed."; }
         if (workspace.locked) { return "This worktree is locked. Unlock it in Git first."; }
         if (workspace.missing) { return "The directory is missing. Repair or prune its Git entry first."; }
-        if (!git(target, "status", "--porcelain", "--untracked-files=all").text().isEmpty()) { return "Commit or move the changed and untracked files first."; }
-        if (run(cwd, null, "merge-base", "--is-ancestor", workspace.head, all.getFirst().head).code != 0) {
-            return "This worktree has commits that are not in the primary checkout.";
+        if (!discardChanges && !removalFiles(target).isEmpty()) { return "This worktree has changed, untracked, or ignored files. Review them and confirm discard before removing it."; }
+        if (workspace.branch.isBlank() && run(cwd, null, "merge-base", "--is-ancestor", workspace.head, all.getFirst().head).code != 0) {
+            return "This detached worktree has commits that are not in the primary checkout. Create a branch here to keep them, then retry.";
         }
         return "";
     }
-    public void remove(String cwd, String target) {
-        String reason = removalBlock(cwd, target);
+    /** List local data that removal would discard, grouping untracked and ignored directories. */
+    public List<RemovalFile> removalFiles(String target) {
+        var fields = git(target, "status", "--porcelain=v1", "-z", "--untracked-files=normal", "--ignored=matching").text().split("\0", -1);
+        var files = new ArrayList<RemovalFile>();
+        for (int i = 0; i < fields.length; i++) {
+            var field = fields[i];
+            if (field.length() < 4) { continue; }
+            String status = field.substring(0, 2);
+            String path = field.substring(3);
+            if (status.indexOf('R') >= 0 || status.indexOf('C') >= 0) {
+                // Porcelain -z puts the destination first and the original name in the next field.
+                if (++i < fields.length) { path = fields[i] + " → " + path; }
+            }
+            files.add(new RemovalFile(path, status.equals("??") ? "Untracked" : status.equals("!!") ? "Ignored" : "Changed"));
+        }
+        return List.copyOf(files);
+    }
+    public void remove(String cwd, String target) { remove(cwd, target, false); }
+    public void remove(String cwd, String target, boolean discardChanges) {
+        String reason = removalBlock(cwd, target, discardChanges);
         if (!reason.isEmpty()) { throw new IllegalStateException(reason); }
-        git(cwd, "worktree", "remove", "--", target);
+        if (discardChanges) { git(cwd, "worktree", "remove", "--force", "--", target); }
+        else { git(cwd, "worktree", "remove", "--", target); }
     }
     /** Review branch changes, local edits and untracked files against the saved starting commit. */
     public List<Change> changes(String cwd, String base) {

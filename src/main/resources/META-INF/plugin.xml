@@ -16,7 +16,7 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.9 fixes configured text navigation shortcuts, gives workspace labels more room, and replaces the Start from popup with a searchable branch dropdown.</p>
+        <p>1.0.10 simplifies worktree removal after squash merges and adds explicit confirmation to discard local files while keeping branches, commits, and chats.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>

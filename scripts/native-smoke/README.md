@@ -88,7 +88,7 @@ Run `check-context-inspector.mjs` with `CODEX_SMOKE_CHROME` to verify on-demand 
 
 ### Git worktrees
 
-Run `check-worktrees.mjs` with the built webview to check the picker, create form, removal confirmation, keyboard focus, and narrow layouts at 360, 520, and 900 pixels.
+Run `check-worktrees.mjs` with the built webview to check the picker, create form, removal confirmation, keyboard focus, and narrow layouts at 360, 520, and 900 pixels. Removal checks cover the affected file list, ignored files, Cancel, explicit discard requests, and retry after a Git error. `GitWorktreesTest` verifies squash-merge cleanup, preserved branches, dirty and ignored-only worktrees, rename parsing, and protections that discard cannot bypass.
 
 For native checks, use a separate IDEA profile with `-Dcodex.smoke.worktrees.check=true` and a fixture working directory that is a Git repository on branch `main`. Commit `layout.txt` with `original layout`, then change it to `current local layout` with a trailing newline. Ignore the fake server's preview and JSON state files. Set the fake server's `CODEX_SMOKE_ROOT` to that same repository. The native harness creates a uniquely named linked checkout, copies the edit through WSL, forks a chat, sends to its sandbox, checks history scope, and refuses active or dirty cleanup. It writes `worktrees-result.json` in the profile's log directory.
 

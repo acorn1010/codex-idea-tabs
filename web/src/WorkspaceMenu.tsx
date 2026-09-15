@@ -7,6 +7,7 @@ import type { Attachment, Chat } from './types';
 type Workspace = { path: string; name: string; branch: string; main: boolean; locked: boolean; missing: boolean; chats: number };
 type Repository = { path: string; name: string; project: boolean };
 type Workspaces = { repositories?: Repository[]; repository?: string; projectPath?: string; sharedGuidanceFolder?: string; entries: Workspace[]; branches: string[]; current: string; base: string; suggestedName: string; error: string };
+type Removal = { path: string; blocked: string; chats: number; files: { path: string; status: string }[] };
 const rowStyle = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-surface active:bg-line focus-visible:bg-surface focus-visible:outline-none';
 const inputStyle = 'mt-1.5 w-full min-w-0 rounded-lg bg-input px-3 py-2 text-xs shadow-input focus:shadow-input-focus';
 
@@ -63,7 +64,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
   const [repositorySearch, setRepositorySearch] = useState('');
   const [base, setBase] = useState('HEAD');
   const [includeChanges, setIncludeChanges] = useState(false);
-  const [remove, setRemove] = useState<{ path: string; blocked: string; chats: number }>();
+  const [remove, setRemove] = useState<Removal & { branch: string }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [position, setPosition] = useState({ left: 12, bottom: 40, width: 320, maxHeight: 400 });
@@ -149,7 +150,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
                 <span className="min-w-0 flex-1"><span className="block truncate">{workspace.branch || workspace.name}</span><span className="block truncate text-[10px] text-muted">{workspace.main ? 'Primary checkout' : workspace.name}{workspace.missing ? ' · Missing' : workspace.locked ? ' · Locked' : ''}{workspace.chats ? ` · ${workspace.chats} chat${workspace.chats === 1 ? '' : 's'}` : ''}</span></span>
                 {established && !selected && <Icon name="newTab" size={12} />}
               </button>
-              {!workspace.main && <button disabled={busy} aria-label={`Remove worktree ${workspace.name}`} title="Remove worktree" onClick={() => { setBusy(true); setError(''); void request<{ path: string; blocked: string; chats: number }>('inspectWorktree', { path: workspace.path }).then((value) => { setRemove(value); setMode('remove'); }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-red-400/10 hover:text-red-400 active:bg-red-400/20"><Icon name="trash" size={13} /></button>}
+              {!workspace.main && <button disabled={busy} aria-label={`Remove worktree ${workspace.name}`} title="Remove worktree" onClick={() => { setBusy(true); setError(''); void request<Removal>('inspectWorktree', { path: workspace.path }).then((value) => { setRemove({ ...value, files: value.files || [], branch: workspace.branch }); setMode('remove'); }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-red-400/10 hover:text-red-400 active:bg-red-400/20"><Icon name="trash" size={13} /></button>}
             </div>;
           })}</div>
         </>}
@@ -183,8 +184,18 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
       </form>}
       {mode === 'remove' && remove && <div className="space-y-3 px-2 pb-2 text-xs">
         <p className="break-all text-muted">{remove.path}</p>
-        {remove.blocked ? <p role="status">{remove.blocked}</p> : <><p>Remove this directory? Its Git branch and {remove.chats || 'saved'} chat{remove.chats === 1 ? '' : 's'} will be kept.</p><p className="text-[11px] text-muted">Chats that used it will need another checkout before sending.</p>
-          <button disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path }).then(refresh).then(() => setMode('list')).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="w-full rounded-lg bg-red-400/15 px-3 py-2 font-medium text-red-400 hover:bg-red-400/25 active:bg-red-400/35">{busy ? 'Removing…' : 'Remove directory'}</button></>}
+        {remove.blocked ? <p role="status">{remove.blocked}</p> : <><p>Remove this worktree folder and its files? {remove.branch ? <>The local branch <strong className="break-all font-medium text-ink">{remove.branch}</strong> and all its commits will be kept. </> : ''}{remove.chats || 'Saved'} chat{remove.chats === 1 ? '' : 's'} will also be kept.</p><p className="text-[11px] text-muted">Chats that used it will need another checkout before sending.</p>
+          {remove.files.length > 0 && <>
+            <p className="text-red-400">These local changes and files will be permanently deleted. They are not saved by keeping the branch.</p>
+            <ul aria-label="Local changes and files to discard" className="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-input p-2">
+              {remove.files.slice(0, 100).map((file, index) => <li key={index} className="flex items-start gap-2"><span className="w-16 shrink-0 text-[10px] text-muted">{file.status}</span><span className="min-w-0 whitespace-pre-wrap break-all text-[11px]">{file.path}</span></li>)}
+            </ul>
+            {remove.files.length > 100 && <p className="text-[11px] text-muted">And {remove.files.length - 100} more entries. All local files in this worktree will be deleted.</p>}
+          </>}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" disabled={busy} onClick={close} className="flex-1 rounded-lg bg-surface px-3 py-2 hover:bg-line">Cancel</button>
+            <button type="button" disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path, discardChanges: remove.files.length > 0 }).then(refresh).then(() => setMode('list')).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="flex-auto rounded-lg bg-red-400/15 px-3 py-2 font-medium text-red-400 hover:bg-red-400/25 active:bg-red-400/35">{busy ? 'Removing…' : remove.files.length ? 'Discard changes and remove' : 'Remove directory'}</button>
+          </div></>}
       </div>}
     </div>, document.body)}
   </>;

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.10
+
+- Allow clean worktrees on named branches to be removed after squash merges. Keep their branches and commits, and explain this in the confirmation.
+- Show changed, untracked, and ignored files before an explicit Discard changes and remove confirmation. No worktree backup is created.
+- Keep removal blocked for locks, active chats, open projects, and detached commits that have not reached the primary checkout.
+
 ## 1.0.9
 
 - Replace the Start from browser popup with a searchable branch dropdown that also accepts Git references.

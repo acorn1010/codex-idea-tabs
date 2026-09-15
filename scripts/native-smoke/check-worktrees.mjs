@@ -18,14 +18,21 @@ try {
     const chat = { id: 'worktree-source', threadId: 'worktree-source', title: 'Improve the shop', cwd: '/project', draft: 'Keep my current draft.', draftAttachments: [], items: [{ id: 'user', type: 'userMessage', content: [{ type: 'text', text: 'Improve the shop layout.' }] }, { id: 'answer', type: 'agentMessage', text: 'Ready to work in a separate checkout.' }], requests: [], status: 'idle', working: false, unread: false, pinned: false, revision: 1 };
     const snapshot = { connection: 'connected', error: '', project: 'Foony', cwd: '/project', workspaceLabel: 'master', distro: 'Ubuntu', settings: { model: '', effort: '', permissions: 'auto' }, models: [], account: {}, sessions: [], chat };
     window.__requests = [];
-    const entries = [{ path: '/project', name: 'project', branch: 'master', main: true, chats: 6 }, { path: '/project.worktrees/shop-layout', name: 'shop-layout', branch: 'codex/shop-layout', chats: 2 }, { path: '/project.worktrees/completed', name: 'completed', branch: 'codex/completed', chats: 1 }];
+    let failDiscard = true;
+    const entries = [{ path: '/project', name: 'project', branch: 'master', main: true, chats: 6 }, { path: '/project.worktrees/shop-layout', name: 'shop-layout', branch: 'codex/shop-layout', chats: 2 }, { path: '/project.worktrees/dirty', name: 'dirty', branch: 'codex/dirty', chats: 1 }, { path: '/project.worktrees/completed', name: 'completed', branch: 'codex/completed', chats: 1 }];
     window.__codexSend = message => {
       const { id, method, params } = JSON.parse(message); window.__requests.push({ method, params });
       let result = {};
       if (method === 'ready') { result = snapshot; }
       if (method === 'workspaces') { result = { entries, current: chat.cwd, branches: ['master', 'develop'], base: 'master', suggestedName: 'shop-layout-a1b2', error: '' }; }
       if (method === 'changeWorkspace') { result = { id: 'new-fork' }; }
-      if (method === 'inspectWorktree') { result = { path: params.path, chats: 2, blocked: params.path.endsWith('completed') ? '' : 'A chat is still working or waiting for your answer in this worktree.' }; }
+      if (method === 'inspectWorktree') { result = { path: params.path, chats: 2, blocked: !params.path.endsWith('shop-layout') ? '' : 'A chat is still working or waiting for your answer in this worktree.' }; }
+      if (method === 'inspectWorktree' && params.path.endsWith('dirty')) { result.files = [{ path: 'src/edited.ts', status: 'Changed' }, { path: 'new.txt', status: 'Untracked' }, { path: '.local-cache/', status: 'Ignored' }]; }
+      if (method === 'removeWorktree' && params.path.endsWith('dirty') && failDiscard) {
+        failDiscard = false;
+        queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, error: 'Git removal failed. Try again.' } })));
+        return;
+      }
       if (method === 'removeWorktree') { entries.splice(entries.findIndex(entry => entry.path === params.path), 1); }
       queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, result } })));
     };
@@ -68,11 +75,33 @@ try {
     await picker.click(); await menu.getByRole('button', { name: 'Remove worktree shop-layout', exact: true }).click();
     await menu.getByRole('status').filter({ hasText: 'still working' }).waitFor(); assert.equal(await menu.getByRole('button', { name: 'Remove directory', exact: true }).count(), 0);
     await page.keyboard.press('Escape'); assert.equal(await picker.evaluate(element => element === document.activeElement), true);
+    await picker.click(); await menu.getByRole('button', { name: 'Remove worktree dirty', exact: true }).click();
+    await menu.getByRole('list', { name: 'Local changes and files to discard' }).waitFor();
+    assert.equal(await menu.getByRole('listitem').count(), 3);
+    await menu.getByText('.local-cache/', { exact: true }).waitFor();
+    assert.ok(await menu.getByText(/permanently deleted/).isVisible());
+    assert.equal(await menu.getByRole('button', { name: 'Remove directory', exact: true }).count(), 0);
+    await page.screenshot({ path: `${output}/worktrees-discard-${width}.png` });
+    await menu.getByRole('button', { name: 'Cancel', exact: true }).click();
+    assert.equal(await page.evaluate(() => window.__requests.filter(value => value.method === 'removeWorktree').length), 0);
+    await picker.click(); await menu.getByRole('button', { name: 'Remove worktree dirty', exact: true }).click();
+    const discard = menu.getByRole('button', { name: 'Discard changes and remove', exact: true });
+    await discard.click(); await menu.getByRole('alert').filter({ hasText: 'Git removal failed' }).waitFor();
+    assert.ok(await discard.isEnabled());
+    await discard.click();
+    await menu.getByRole('button', { name: 'Remove worktree dirty', exact: true }).waitFor({ state: 'detached' });
+    const discarded = await page.evaluate(() => window.__requests.filter(value => value.method === 'removeWorktree'));
+    assert.equal(discarded.length, 2); assert.ok(discarded.every(call => call.params.discardChanges === true));
+    await page.keyboard.press('Escape');
     await picker.click(); await menu.getByRole('button', { name: 'Remove worktree completed', exact: true }).click();
+    await menu.getByText('codex/completed', { exact: true }).waitFor();
+    assert.ok(await menu.getByText(/and all its commits will be kept/).isVisible());
+    await page.screenshot({ path: `${output}/worktrees-remove-${width}.png` });
     await menu.getByRole('button', { name: 'Remove directory', exact: true }).click(); await menu.getByText('codex/completed', { exact: true }).waitFor({ state: 'detached' });
+    assert.equal(await page.evaluate(() => window.__requests.filter(value => value.method === 'removeWorktree').at(-1).params.discardChanges), false);
     await menu.getByRole('button', { name: 'Review', exact: true }).click();
     assert.ok(await page.evaluate(() => window.__requests.some(value => value.method === 'workspaceReview')));
-    results.push({ width, picker: true, create: true, draftKept: true, cleanupBlockedWhenBusy: true, cleanupConfirmation: true, review: true, noOverflow: true, escapeRestoresFocus: true });
+    results.push({ width, picker: true, create: true, draftKept: true, cleanupBlockedWhenBusy: true, cleanupConfirmation: true, explicitDiscard: true, cancelKeptFiles: true, retry: true, review: true, noOverflow: true, escapeRestoresFocus: true });
   }
   writeFileSync(`${output}/worktrees-browser-result.json`, JSON.stringify(results, null, 2)); console.log(results);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
