@@ -11,21 +11,22 @@ export function RequestCard({ pending }: { pending: Pending }) {
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState(true);
   const questions = pending.questions || [];
+  const choices = pending.approvalChoices ?? [{ decision: 'decline', label: 'Decline', description: '' }, { decision: 'accept', label: 'Allow once', description: '' }];
   const isQuestion = pending.method === 'item/tool/requestUserInput';
-  const submit = async (decision?: string, dismiss = false) => {
+  const submit = async (decision?: string | Json, dismiss = false) => {
     setBusy(true); setError('');
     try {
       await request('answer', { key: pending.key, decision, dismiss, content: form, answers: Object.fromEntries(questions.map((question) => [question.id, { answers: [answers[question.id] || ''] }])) });
     } catch (error) { setError((error as Error).message); setBusy(false); }
   };
   const fields = ((pending.requestedSchema as Json | undefined)?.properties || {}) as Record<string, { type?: string; title?: string; description?: string; enum?: string[] }>;
-  return <section className="overflow-hidden rounded-xl bg-attention-surface [--focus-color:var(--attention)]" aria-label={isQuestion ? 'Codex needs your input' : 'Approval needed'}>
-    <button onClick={() => setExpanded(!expanded)} className="flex w-full items-center gap-2.5 px-4 py-3 text-left text-xs font-medium text-attention hover:bg-attention-hover active:bg-attention-pressed" aria-expanded={expanded}>
+  return <section className="flex max-h-[38vh] flex-col overflow-hidden rounded-xl bg-attention-surface [--focus-color:var(--attention)]" aria-label={isQuestion ? 'Codex needs your input' : 'Approval needed'}>
+    <button onClick={() => setExpanded(!expanded)} className="flex w-full shrink-0 items-center gap-2.5 px-4 py-3 text-left text-xs font-medium text-attention hover:bg-attention-hover active:bg-attention-pressed" aria-expanded={expanded}>
       <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-attention" />
       <span className="flex-1">{isQuestion ? 'Needs your input' : 'Approval needed'}</span>
       <span className="text-[10px] font-normal opacity-75">{pending.rpcId === undefined ? 'Work can continue' : 'Waiting for you'}</span><Icon name="down" size={13} />
     </button>
-    {expanded && <div className="max-h-[38vh] space-y-4 overflow-y-auto px-4 pt-1 pb-3">
+    {expanded && <><div className="min-h-0 space-y-4 overflow-y-auto px-4 pt-1 pb-3">
       {questions.map((question) => <fieldset key={question.id} className="space-y-1">
         <legend className="mb-3 text-[13px] leading-relaxed font-medium">{question.question}</legend>
         {question.options?.map((option) => <label key={option.label} className={`flex cursor-pointer items-start gap-3 rounded-lg px-3 py-2.5 ${answers[question.id] === option.label ? 'bg-attention-selected hover:brightness-110 active:brightness-90' : 'hover:bg-attention-hover active:bg-attention-pressed'}`}>
@@ -43,15 +44,18 @@ export function RequestCard({ pending }: { pending: Pending }) {
         </label>)}
       </>}
       {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
-      <div className="flex justify-end gap-2 pb-1">
+    </div>
+      {!isQuestion && choices.some(choice => choice.label === 'Always allow') && <div className="max-h-24 shrink-0 space-y-2 overflow-y-auto px-4 pb-2 text-[11px] leading-relaxed text-muted">
+        {choices.filter(choice => choice.label === 'Always allow').map((choice, index) => <p key={index} className="break-words"><span className="font-medium">{choice.label}: </span>{choice.description}</p>)}
+      </div>}
+      <div className="flex shrink-0 flex-wrap justify-end gap-2 px-4 pb-3 pt-1">
         {isQuestion ? <>
           {pending.rpcId === undefined && <button disabled={busy} onClick={() => void submit(undefined, true)} className="rounded-lg px-3 py-2 text-xs text-muted hover:bg-attention-hover active:bg-attention-pressed">Dismiss</button>}
           <button disabled={busy || questions.some((question) => !answers[question.id]?.trim())} onClick={() => void submit()} className="flex items-center gap-2 rounded-md bg-attention px-3 py-1.5 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:brightness-90 enabled:active:translate-y-px">{busy ? 'Sending…' : 'Send answer'}<Icon name="arrow" size={13} /></button>
         </> : <>
-          <button disabled={busy} onClick={() => void submit('decline')} className="rounded-lg px-3 py-2 text-xs hover:bg-attention-hover active:bg-attention-pressed">Decline</button>
-          <button disabled={busy} onClick={() => void submit('accept')} className="rounded-md bg-attention px-3 py-1.5 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:brightness-90 enabled:active:translate-y-px">{busy ? 'Sending…' : 'Allow once'}</button>
+          {choices.map((choice, index) => <button key={index} disabled={busy} title={choice.description || undefined} onClick={() => void submit(choice.decision)} className={choice.decision === 'accept' ? 'rounded-md bg-attention px-3 py-1.5 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:brightness-90' : 'rounded-lg px-3 py-2 text-xs hover:bg-attention-hover active:bg-attention-pressed'}>{choice.label}</button>)}
         </>}
       </div>
-    </div>}
+    </>}
   </section>;
 }

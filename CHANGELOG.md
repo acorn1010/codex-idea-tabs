@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.5
+
+- Add Always allow for command and network rules offered by Codex. Show the rule scope and support session approvals for commands, file edits, and requested permissions.
+
 ## 1.0.4
 
 - Focus the message input when opening a new chat, including chats opened beside the current editor. Wait for the input to render and keep focus in another tab if the user has moved away.

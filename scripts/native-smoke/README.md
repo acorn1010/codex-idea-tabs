@@ -117,3 +117,7 @@ Launch the isolated profile with `-Dcodex.smoke.repositories.check=true`, the fa
 ## New chat focus
 
 Enable `-Dcodex.smoke.focus.check=true` in the disposable profile, then run `check-native-focus.mjs` from that profile directory. Keep the test IDEA window active. When running outside the profile directory, set `CODEX_SMOKE_FOCUS_STATE` to its `logs/focus-state.json` path. It verifies DOM focus and the native keyboard focus owner, types without selecting the input, and checks ordinary and split tabs. State updates must preserve focus in an open workspace menu. No model messages are sent.
+
+## Approval choices
+
+Run `./gradlew :core:test buildPlugin`, then `check-approvals.mjs` with `CODEX_SMOKE_CHROME` set. The browser check uses approval choices written by the Java tests to `core/build/approval-fixtures.json`. It checks saved command rules, session grants, once and decline responses, retries, draft retention, and visible actions at 360, 520, and 900 pixels. The Java tests reject changed command prefixes, changed network hosts, and decisions excluded by the server. All requests are fixtures and no real permissions are granted.

@@ -156,3 +156,7 @@ Selecting another checkout for an established chat opens a new chat tab and carr
 Discovery checks the project folder and nested repository folders, skips dependency and generated folders, and does not follow directory symlinks. For a deeply nested repository or one outside the project folder, open a file there and create a chat to add it. Repositories are grouped by their primary checkout, so linked worktrees are not listed as separate repositories.
 
 Codex loads instructions and skills for the chat's selected checkout. Parent `AGENTS.md` files and `.agents/skills` above a nested Git root are not automatically inherited. Share common instructions explicitly from each repository's `AGENTS.md`, or distribute shared skills as a Codex plugin or through the user skill directory. Keep repository-specific guidance in that repository and commit it if new worktrees need it. The extension does not copy or rewrite instruction files.
+
+### Remembering approvals
+
+Approval cards show **Always allow** when Codex offers a saved command-prefix or network-host rule. The card shows the rule before you select it. **Allow for session** remembers a command or file approval, or keeps the requested permissions for later turns in that session. **Allow once** and **Decline** remain separate choices. Available buttons follow the choices supported by the current Codex request.

@@ -73,7 +73,7 @@ public final class Conversation {
         var snapshot = state.deepCopy();
         snapshot.add("items", items());
         var pending = new JsonArray();
-        requests.values().forEach(request -> pending.add(request.deepCopy()));
+        requests.values().forEach(request -> pending.add(approvalChoices(request)));
         snapshot.add("requests", pending);
         snapshot.addProperty("status", status());
         snapshot.addProperty("revision", revision);
@@ -87,7 +87,7 @@ public final class Conversation {
         items.forEach((id, item) -> { if (itemRevisions.getOrDefault(id, 0L) > since) { changedItems.add(item.deepCopy()); } });
         result.add("items", changedItems);
         var pending = new JsonArray();
-        requests.values().forEach(value -> pending.add(value.deepCopy()));
+        requests.values().forEach(value -> pending.add(approvalChoices(value)));
         result.add("requests", pending);
         result.addProperty("partial", true); result.addProperty("revision", revision); result.addProperty("status", status());
         result.addProperty("archived", archived());
@@ -159,6 +159,13 @@ public final class Conversation {
         }
         state.addProperty("historyCursor", cursor);
         historyRevision = ++revision;
+    }
+    private static JsonObject approvalChoices(JsonObject request) {
+        var copy = request.deepCopy();
+        if (java.util.Set.of("item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval").contains(text(request, "method"))) {
+            copy.add("approvalChoices", ApprovalDecisions.choices(request));
+        }
+        return copy;
     }
     public synchronized JsonObject request(String key) {
         var value = requests.get(key);
