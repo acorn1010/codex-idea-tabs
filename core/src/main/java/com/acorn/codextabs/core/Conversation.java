@@ -162,7 +162,7 @@ public final class Conversation {
     }
     private static JsonObject approvalChoices(JsonObject request) {
         var copy = request.deepCopy();
-        if (java.util.Set.of("item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval").contains(text(request, "method"))) {
+        if (java.util.Set.of("item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request").contains(text(request, "method"))) {
             copy.add("approvalChoices", ApprovalDecisions.choices(request));
         }
         return copy;

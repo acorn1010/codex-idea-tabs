@@ -654,8 +654,7 @@ public final class CodexService implements Disposable {
             String method = text(pending, "method");
             JsonObject response;
             if (method.equals("item/tool/requestUserInput")) { response = object("answers", obj(payload, "answers")); }
-            else if (method.equals("mcpServer/elicitation/request")) { response = object("action", text(payload, "decision").equals("accept") ? "accept" : "decline", "content", obj(payload, "content")); }
-            else { response = ApprovalDecisions.response(pending, payload.has("decision") ? payload.get("decision") : new JsonPrimitive("decline")); }
+            else { response = ApprovalDecisions.response(pending, payload.has("decision") ? payload.get("decision") : new JsonPrimitive("decline"), obj(payload, "content")); }
             rpc.respond(pending.get("rpcId"), response);
             chat.resolve(key); changed(id);
             sessions.working(id, chat.busy());

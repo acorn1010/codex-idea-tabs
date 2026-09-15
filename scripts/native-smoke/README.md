@@ -121,3 +121,5 @@ Enable `-Dcodex.smoke.focus.check=true` in the disposable profile, then run `che
 ## Approval choices
 
 Run `./gradlew :core:test buildPlugin`, then `check-approvals.mjs` with `CODEX_SMOKE_CHROME` set. The browser check uses approval choices written by the Java tests to `core/build/approval-fixtures.json`. It checks saved command rules, session grants, once and decline responses, retries, draft retention, and visible actions at 360, 520, and 900 pixels. The Java tests reject changed command prefixes, changed network hosts, and decisions excluded by the server. All requests are fixtures and no real permissions are granted.
+
+The approval fixtures also cover Computer Use app access, Browser Use scalar persistence metadata, session-only connectors, missing durations, form answers, and cancellation. The Java response tests verify `_meta.persist` and reject a duration the connector did not offer. They also cover standard and OpenAI form modes without treating ordinary questions or device verification as saved grants.

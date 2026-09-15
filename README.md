@@ -159,4 +159,4 @@ Codex loads instructions and skills for the chat's selected checkout. Parent `AG
 
 ### Remembering approvals
 
-Approval cards show **Always allow** when Codex offers a saved command-prefix or network-host rule. The card shows the rule before you select it. **Allow for session** remembers a command or file approval, or keeps the requested permissions for later turns in that session. **Allow once** and **Decline** remain separate choices. Available buttons follow the choices supported by the current Codex request.
+Approval cards show **Always allow** when Codex offers a saved command-prefix or network-host rule. The card shows the rule before you select it. **Allow for session** remembers a command or file approval, or keeps the requested permissions for later turns in that session. **Allow once** and **Decline** remain separate choices. Computer Use, Browser Use, and other MCP connectors also get **Allow for session** and **Always allow** when they offer those durations. The selected duration is sent back to that connector with your form answers. Available buttons follow the choices supported by the current Codex request.

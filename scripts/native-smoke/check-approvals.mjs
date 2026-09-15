@@ -20,8 +20,9 @@ try {
     const snapshot = { connection: 'connected', error: '', project: 'Project', cwd: '/project', distro: '', settings: { model: '', effort: '', permissions: 'ask' }, models: [], account: {}, sessions: [], chat };
     window.__requests = []; window.__failAnswer = false;
     window.__showApproval = (index, override = {}) => {
-      chat.requests = [{ ...fixtures[index], reason: `Approval fixture ${index}`, ...override, key: String(++chat.revision) }];
+      chat.requests = [{ ...fixtures[index], reason: index < 3 ? `Approval fixture ${index}` : undefined, ...override, key: String(++chat.revision) }];
       window.dispatchEvent(new CustomEvent('codex-state', { detail: snapshot }));
+      return chat.requests[0].key;
     };
     window.__codexSend = message => {
       const { id, method, params } = JSON.parse(message); window.__requests.push({ method, params });
@@ -30,19 +31,24 @@ try {
       queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, result, error } })));
     };
   }, fixtures);
+  async function showApproval(index, override = {}) {
+    const key = await page.evaluate(({ index, override }) => window.__showApproval(index, override), { index, override });
+    await page.locator(`[data-request-key="${key}"]`).waitFor();
+  }
   const results = [];
   for (const width of [360, 520, 900]) {
     await page.setViewportSize({ width, height: 850 }); await page.goto(`http://127.0.0.1:${server.address().port}/`);
     await page.getByRole('textbox', { name: 'Message Codex', exact: true }).waitFor();
-    for (const [index, label] of [[0, 'Always allow'], [1, 'Allow for session'], [2, 'Allow for session']]) {
-      await page.evaluate(index => window.__showApproval(index), index);
+    for (const [index, label] of [[0, 'Always allow'], [1, 'Allow for session'], [2, 'Allow for session'], [3, 'Always allow'], [4, 'Always allow'], [5, 'Allow for session']]) {
+      await showApproval(index);
       const card = page.getByRole('region', { name: 'Approval needed' });
-      await card.getByText(`Approval fixture ${index}`, { exact: true }).waitFor();
+      await card.getByText(index < 3 ? `Approval fixture ${index}` : fixtures[index].message, { exact: true }).waitFor();
       await card.getByRole('button', { name: label, exact: true }).waitFor();
       const buttonBounds = await card.getByRole('button', { name: label, exact: true }).boundingBox();
       const cardBounds = await card.boundingBox();
       assert.ok(buttonBounds.y >= cardBounds.y && buttonBounds.y + buttonBounds.height <= cardBounds.y + cardBounds.height, 'Approval actions must be visible without scrolling');
-      if (index !== 0) { assert.equal(await card.getByRole('button', { name: 'Always allow', exact: true }).count(), 0); }
+      assert.equal(await card.getByRole('button', { name: 'Cancel request', exact: true }).count(), 0);
+      if ([1, 2, 5].includes(index)) { assert.equal(await card.getByRole('button', { name: 'Always allow', exact: true }).count(), 0); }
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.screenshot({ path: `${output}/approvals-${index}-${width}.png` });
       await card.getByRole('button', { name: label, exact: true }).click();
@@ -51,25 +57,37 @@ try {
     }
     // Once and decline stay separate from session or persistent approval.
     for (const label of ['Allow once', 'Decline']) {
-      await page.evaluate(() => window.__showApproval(0));
+      await showApproval(0);
       await page.getByRole('button', { name: label, exact: true }).click();
       const answer = await page.evaluate(() => window.__requests.filter(request => request.method === 'answer').at(-1));
       assert.equal(answer.params.decision, label === 'Allow once' ? 'accept' : 'decline');
     }
     // Retry a failed answer without losing the approval or draft.
-    await page.evaluate(() => { window.__failAnswer = true; window.__showApproval(0); });
+    await page.evaluate(() => { window.__failAnswer = true; }); await showApproval(0);
     await page.getByRole('button', { name: 'Always allow', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: 'Test connection interrupted' }).waitFor();
     assert.ok(await page.getByRole('button', { name: 'Always allow', exact: true }).isEnabled());
     await page.evaluate(() => { window.__failAnswer = false; });
     await page.getByRole('button', { name: 'Always allow', exact: true }).click();
     assert.equal(await page.getByRole('textbox', { name: 'Message Codex', exact: true }).inputValue(), 'Keep this draft.');
+    for (const [index, label, decision] of [[3, 'Allow for session', 'acceptForSession'], [3, 'Allow once', 'accept'], [3, 'Decline', 'decline']]) {
+      await showApproval(index, { requestedSchema: { properties: { note: { type: 'string', title: 'Approval note' } } } });
+      const input = page.getByRole('textbox', { name: 'Approval note', exact: true });
+      await input.fill('Keep this answer');
+      await page.getByRole('button', { name: label, exact: true }).click();
+      const answer = await page.evaluate(() => window.__requests.filter(request => request.method === 'answer').at(-1));
+      assert.equal(answer.params.decision, decision);
+      assert.equal(answer.params.content.note, 'Keep this answer');
+    }
+    await showApproval(6);
+    await page.getByRole('button', { name: 'Always allow', exact: true }).waitFor({ state: 'detached' });
+    await page.getByRole('button', { name: 'Allow for session', exact: true }).waitFor({ state: 'detached' });
     // Explicitly restricted choices and MCP forms must never gain an Always allow button.
-    await page.evaluate(() => window.__showApproval(0, { approvalChoices: [{ label: 'Decline', decision: 'decline', description: '' }] }));
+    await showApproval(0, { approvalChoices: [{ label: 'Decline', decision: 'decline', description: '' }] });
     await page.getByRole('button', { name: 'Always allow', exact: true }).waitFor({ state: 'detached' });
-    await page.evaluate(() => window.__showApproval(0, { method: 'mcpServer/elicitation/request', approvalChoices: undefined, requestedSchema: { properties: {} } }));
+    await showApproval(0, { method: 'mcpServer/elicitation/request', approvalChoices: undefined, requestedSchema: { properties: {} } });
     await page.getByRole('button', { name: 'Always allow', exact: true }).waitFor({ state: 'detached' });
-    results.push({ width, persistentCommand: true, fileSession: true, permissionSession: true, onceAndDecline: true, retry: true, draftKept: true, noOverflow: true });
+    results.push({ width, persistentCommand: true, computerUse: true, scalarPersistence: true, sessionOnlyConnector: true, fileSession: true, permissionSession: true, onceAndDecline: true, retry: true, draftKept: true, noOverflow: true });
   }
   writeFileSync(`${output}/approvals-result.json`, JSON.stringify(results, null, 2)); console.log(results);
 } finally { await browser.close(); server.close(); }

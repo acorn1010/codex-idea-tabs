@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.7
+
+- Remove the redundant Cancel request action from connector approval cards. Use Decline to refuse permission.
+
+## 1.0.6
+
+- Honor connector approval durations for Computer Use, Browser Use, and other MCP approvals. Return the selected duration to the connector and retain form answers.
+- Show all supported network decisions, including saved block rules.
+
 ## 1.0.5
 
 - Add Always allow for command and network rules offered by Codex. Show the rule scope and support session approvals for commands, file edits, and requested permissions.

@@ -53,10 +53,65 @@ class ApprovalDecisionsTest {
             assertThrows(IllegalArgumentException.class, () -> ApprovalDecisions.response(pending, persistent("git")));
         }
     }
-    @Test void doesNotOfferSavedApprovalsForElicitationOrQuestions() {
-        for (var method : new String[]{"mcpServer/elicitation/request", "item/tool/requestUserInput"}) {
-            assertTrue(ApprovalDecisions.choices(object("method", method)).isEmpty());
+    private static JsonObject elicitation(Object persist) {
+        return object("method", "mcpServer/elicitation/request", "mode", "form", "serverName", "cua_repl",
+            "message", "Allow Computer Use to use \"IntelliJ IDEA\"?", "requestedSchema", object("type", "object", "properties", object()),
+            "_meta", object("codex_approval_kind", "mcp_tool_call", "connector_id", "computer-use", "connector_name", "Computer Use",
+                "persist", persist, "tool_name", "get_app_state", "tool_params", object("app", "com.jetbrains.intellij")));
+    }
+    @Test void forwardsComputerUsePersistenceAsResponseMetadata() {
+        var pending = elicitation(new String[]{"session", "always"});
+        var original = pending.deepCopy();
+        var content = object("confirmed", true);
+        for (var scope : new String[]{"session", "always"}) {
+            var decision = new JsonPrimitive(scope.equals("always") ? "acceptAlways" : "acceptForSession");
+            assertEquals(object("action", "accept", "content", content, "_meta", object("persist", scope)), ApprovalDecisions.response(pending, decision, content));
         }
+        assertEquals(object("action", "accept", "content", content), ApprovalDecisions.response(pending, new JsonPrimitive("accept"), content));
+        assertEquals(original, pending);
+    }
+    @Test void supportsScalarScopesUsedByBrowserUseAndRejectsUnavailableDurations() {
+        var browser = elicitation("always");
+        assertEquals("always", text(obj(ApprovalDecisions.response(browser, new JsonPrimitive("acceptAlways")), "_meta"), "persist"));
+        assertThrows(IllegalArgumentException.class, () -> ApprovalDecisions.response(browser, new JsonPrimitive("acceptForSession")));
+        for (var persist : new Object[]{null, "session", new String[]{"session"}, false, new String[]{"unknown"}}) {
+            var pending = elicitation(persist);
+            assertThrows(IllegalArgumentException.class, () -> ApprovalDecisions.response(pending, new JsonPrimitive("acceptAlways")));
+        }
+    }
+    @Test void declineDoesNotReturnFormDataOrPersistence() {
+        for (var decision : new String[]{"decline"}) {
+            assertEquals(object("action", decision, "content", JsonNull.INSTANCE),
+                ApprovalDecisions.response(elicitation("always"), new JsonPrimitive(decision), object("secret", "must not return")));
+        }
+    }
+    @Test void connectorCardsHaveOneNegativeAction() {
+        var pending = elicitation(new String[]{"session", "always"});
+        var choices = ApprovalDecisions.choices(pending);
+        assertTrue(choices.toString().contains("Decline"));
+        assertFalse(choices.toString().contains("Cancel request"));
+        assertThrows(IllegalArgumentException.class, () -> ApprovalDecisions.response(pending, new JsonPrimitive("cancel")));
+    }
+    @Test void ordinaryQuestionsAndUnsupportedModesDoNotGainSavedApprovals() {
+        assertTrue(ApprovalDecisions.choices(object("method", "item/tool/requestUserInput")).isEmpty());
+        for (var mode : new String[]{"url", "openai/userVerification"}) {
+            var pending = elicitation("always"); pending.addProperty("mode", mode);
+            assertThrows(IllegalArgumentException.class, () -> ApprovalDecisions.response(pending, new JsonPrimitive("acceptAlways")));
+            if (mode.equals("openai/userVerification")) {
+                assertThrows(IllegalArgumentException.class, () -> ApprovalDecisions.response(pending, new JsonPrimitive("accept")));
+            }
+        }
+        for (var mode : new String[]{"form", "openai/form", "openaiForm"}) {
+            var pending = elicitation("always"); pending.addProperty("mode", mode);
+            assertEquals("always", text(obj(ApprovalDecisions.response(pending, new JsonPrimitive("acceptAlways")), "_meta"), "persist"));
+        }
+    }
+    @Test void honorsOfferedNetworkBlockRules() {
+        var pending = command();
+        var decision = object("applyNetworkPolicyAmendment", object("network_policy_amendment", object("host", "example.com", "action", "deny")));
+        var decisions = new JsonArray(); decisions.add(decision); pending.add("availableDecisions", decisions);
+        assertEquals("Always decline", text(ApprovalDecisions.choices(pending).get(0).getAsJsonObject(), "label"));
+        assertEquals(object("decision", decision), ApprovalDecisions.response(pending, decision));
     }
     @Test void snapshotsAndUpdatesCarryChoicesWithoutChangingRawRequests() throws Exception {
         var fixtures = new JsonArray();
@@ -72,6 +127,16 @@ class ApprovalDecisionsTest {
             assertFalse(chat.request("7").has("approvalChoices"));
             fixtures.add(pending);
         }
+        for (var persist : new Object[]{new String[]{"session", "always"}, "always", "session", null}) {
+            var pending = elicitation(persist);
+            pending.addProperty("key", "mcp-fixture-" + fixtures.size()); pending.addProperty("rpcId", fixtures.size());
+            pending.add("approvalChoices", ApprovalDecisions.choices(pending)); fixtures.add(pending);
+        }
+        var mcp = elicitation(new String[]{"session", "always"});
+        var chat = new Conversation("mcp-test", "/project");
+        chat.event(object("id", 9, "method", "mcpServer/elicitation/request", "params", mcp));
+        assertEquals(4, array(array(chat.snapshot(), "requests").get(0).getAsJsonObject(), "approvalChoices").size());
+        assertEquals(array(chat.snapshot(), "requests"), array(chat.changes(chat.revision()), "requests"));
         Files.createDirectories(Path.of("build"));
         Files.writeString(Path.of("build/approval-fixtures.json"), GSON.toJson(fixtures));
     }

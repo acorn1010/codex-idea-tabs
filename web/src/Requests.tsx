@@ -20,7 +20,7 @@ export function RequestCard({ pending }: { pending: Pending }) {
     } catch (error) { setError((error as Error).message); setBusy(false); }
   };
   const fields = ((pending.requestedSchema as Json | undefined)?.properties || {}) as Record<string, { type?: string; title?: string; description?: string; enum?: string[] }>;
-  return <section className="flex max-h-[38vh] flex-col overflow-hidden rounded-xl bg-attention-surface [--focus-color:var(--attention)]" aria-label={isQuestion ? 'Codex needs your input' : 'Approval needed'}>
+  return <section className="flex max-h-[38vh] flex-col overflow-hidden rounded-xl bg-attention-surface [--focus-color:var(--attention)]" data-request-key={pending.key} aria-label={isQuestion ? 'Codex needs your input' : 'Approval needed'}>
     <button onClick={() => setExpanded(!expanded)} className="flex w-full shrink-0 items-center gap-2.5 px-4 py-3 text-left text-xs font-medium text-attention hover:bg-attention-hover active:bg-attention-pressed" aria-expanded={expanded}>
       <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-attention" />
       <span className="flex-1">{isQuestion ? 'Needs your input' : 'Approval needed'}</span>
@@ -45,8 +45,8 @@ export function RequestCard({ pending }: { pending: Pending }) {
       </>}
       {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
     </div>
-      {!isQuestion && choices.some(choice => choice.label === 'Always allow') && <div className="max-h-24 shrink-0 space-y-2 overflow-y-auto px-4 pb-2 text-[11px] leading-relaxed text-muted">
-        {choices.filter(choice => choice.label === 'Always allow').map((choice, index) => <p key={index} className="break-words"><span className="font-medium">{choice.label}: </span>{choice.description}</p>)}
+      {!isQuestion && choices.some(choice => choice.scope === 'always') && <div className="max-h-24 shrink-0 space-y-2 overflow-y-auto px-4 pb-2 text-[11px] leading-relaxed text-muted">
+        {choices.filter(choice => choice.scope === 'always').map((choice, index) => <p key={index} className="break-words"><span className="font-medium">{choice.label}: </span>{choice.description}</p>)}
       </div>}
       <div className="flex shrink-0 flex-wrap justify-end gap-2 px-4 pb-3 pt-1">
         {isQuestion ? <>
