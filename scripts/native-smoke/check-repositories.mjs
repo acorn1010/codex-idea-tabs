@@ -25,7 +25,7 @@ try {
       if (method === 'ready') { result = snapshot; }
       if (method === 'workspaces') {
         const repo = repositories.find(value => value.path === chat.cwd);
-        result = { repositories, repository: repo?.path || '', projectPath: '/project', entries: repo ? [{ path: repo.path, name: repo.name, branch: 'main', main: true }] : [], current: chat.cwd, branches: repo ? ['main', `${repo.name}-only`] : [], base: 'main', suggestedName: 'new-task', error: '' };
+        result = { repositories, repository: repo?.path || '', projectPath: '/project', sharedGuidanceFolder: '/project/shared guidance with a long folder name', entries: repo ? [{ path: repo.path, name: repo.name, branch: 'main', main: true }] : [], current: chat.cwd, branches: repo ? ['main', `${repo.name}-only`] : [], base: 'main', suggestedName: 'new-task', error: '' };
       }
       if (method === 'changeWorkspace' && params.path) {
         chat.cwd = params.path; chat.revision++; snapshot.cwd = chat.cwd;
@@ -41,7 +41,12 @@ try {
     await page.setViewportSize({ width, height: 850 }); await page.goto(`http://127.0.0.1:${server.address().port}/`);
     const picker = page.getByRole('button', { name: /^Workspace:/ });
     const menu = page.getByRole('dialog', { name: 'Workspace', exact: true });
-    await picker.click(); await menu.getByRole('button', { name: 'Choose repository', exact: true }).click();
+    await picker.click(); await menu.getByRole('button', { name: /^Shared guidance/ }).waitFor();
+    await page.screenshot({ path: `${output}/shared-guidance-${width}.png` });
+    await menu.getByRole('button', { name: /^Shared guidance/ }).click();
+    assert.equal(await page.evaluate(() => window.__requests.at(-1).method), 'settings');
+    await picker.click();
+    await menu.getByRole('button', { name: 'Choose repository', exact: true }).click();
     const search = menu.getByRole('textbox', { name: 'Search repositories' });
     await search.fill('server');
     assert.equal(await menu.getByRole('button', { name: /^Use repository/ }).count(), 1);
@@ -59,13 +64,14 @@ try {
     assert.deepEqual(branches, ['main', 'server-only']);
     await page.screenshot({ path: `${output}/repositories-create-${width}.png` });
     await page.keyboard.press('Escape'); assert.equal(await picker.evaluate(element => element === document.activeElement), true);
-    await picker.click(); await menu.getByRole('button', { name: 'Choose repository', exact: true }).click();
+    await picker.click(); await menu.getByRole('button', { name: /^Shared guidance/ }).waitFor();
+    await menu.getByRole('button', { name: 'Choose repository', exact: true }).click();
     await menu.getByRole('button', { name: /Project folder/ }).click(); await menu.waitFor({ state: 'detached' });
     await picker.click(); await menu.getByText('Choose a repository to create a worktree.', { exact: true }).waitFor();
     assert.equal(await menu.getByRole('button', { name: 'New worktree', exact: true }).count(), 0);
     await menu.getByRole('button', { name: 'Choose repository', exact: true }).click();
     await page.screenshot({ path: `${output}/repositories-list-${width}.png` });
-    results.push({ width, search: true, selectedRepository: true, branchesIsolated: true, draftKept: true, projectFolder: true, noOverflow: true });
+    results.push({ width, sharedGuidance: true, search: true, selectedRepository: true, branchesIsolated: true, draftKept: true, projectFolder: true, noOverflow: true });
   }
   writeFileSync(`${output}/repositories-browser-result.json`, JSON.stringify(results, null, 2)); console.log(results);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

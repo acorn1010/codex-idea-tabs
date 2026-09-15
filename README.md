@@ -62,6 +62,20 @@ If local changes cannot all be copied, the plugin keeps the new checkout and exp
 
 Type `/` in the composer for [chat commands and skills](docs/slash-commands.md), including `/status` for a compact view of context and account limits.
 
+## Shared guidance for multiple repositories
+
+Keep the IDEA project open at a folder that contains your repositories. By default, Codex Tabs detects that folder's `AGENTS.override.md` or `AGENTS.md` and `.agents/skills`. It supplies this shared guidance to chats in child repositories and worktrees, including worktrees outside the project folder.
+
+Use **Settings → Tools → Codex Tabs → Shared guidance folder** to select another source folder. Leave the field empty for automatic detection, or clear **Use shared project guidance** to disable it. The workspace menu shows the active shared folder and opens its settings. Applying settings reconnects chats.
+
+Shared instructions are refreshed before idle turns and when chats start, resume, fork, or continue from an edited message. The selected checkout remains the working directory and writable sandbox. Its own instructions remain active. More specific checkout instructions override shared defaults unless the user specifies another precedence rule. Shared skills are registered with the project's Codex process, without changing global skill settings.
+
+Files stay in their original locations. Relative links in shared instructions resolve from the shared folder, and links inside skills resolve from each skill's original directory. This also supports resources outside `.agents`, such as a sibling repository of shared skills. Nothing is copied into your repositories or worktrees. The **IDEA** workspace action carries the resolved shared folder into a new project's settings, while keeping an existing project's saved preferences.
+
+Shared instructions are added as user context, without replacing built-in or developer instructions.
+
+This requires a Codex version that supports `skills/extraRoots/set` and `thread/inject_items`. If shared skills cannot be registered, the plugin reports the failure instead of silently starting without them. Update Codex or turn off shared guidance to continue.
+
 ## Daily use
 
 | Action | How |
@@ -155,7 +169,7 @@ Selecting another checkout for an established chat opens a new chat tab and carr
 
 Discovery checks the project folder and nested repository folders, skips dependency and generated folders, and does not follow directory symlinks. For a deeply nested repository or one outside the project folder, open a file there and create a chat to add it. Repositories are grouped by their primary checkout, so linked worktrees are not listed as separate repositories.
 
-Codex loads instructions and skills for the chat's selected checkout. Parent `AGENTS.md` files and `.agents/skills` above a nested Git root are not automatically inherited. Share common instructions explicitly from each repository's `AGENTS.md`, or distribute shared skills as a Codex plugin or through the user skill directory. Keep repository-specific guidance in that repository and commit it if new worktrees need it. The extension does not copy or rewrite instruction files.
+Codex loads the selected checkout's own instructions and skills. Codex Tabs also supplies the IDEA project's shared guidance by default. See [Shared guidance for multiple repositories](#shared-guidance-for-multiple-repositories) to choose another source or disable it. Keep repository-specific guidance in that repository and commit it if new worktrees need it. The extension does not copy or rewrite instruction files. The context inspector's Recorded view includes shared guidance, while its separate CLI Startup preview does not include plugin-added context.
 
 ### Remembering approvals
 

@@ -52,10 +52,11 @@ final class WorkspaceActions {
         var settings = opened.getService(CodexSettings.class);
         var current = settings.getState();
         // Seed a new IDEA workspace. Keep any preferences already saved in an existing project.
-        if (current.binary.equals("codex") && current.distro.isBlank() && current.cwd.isBlank() && !current.modelSelectionSaved && current.model.isBlank() && current.effort.isBlank()) {
+        if (current.binary.equals("codex") && current.distro.isBlank() && current.cwd.isBlank() && !current.modelSelectionSaved && current.model.isBlank() && current.effort.isBlank() && current.sharedGuidanceFolder.isBlank() && current.sharedGuidanceEnabled) {
             var json = com.acorn.codextabs.core.Json.GSON;
             var copy = json.fromJson(json.toJson(CodexService.get(source).settings()), CodexSettings.State.class);
             copy.cwd = cwd; copy.distro = distro;
+            copy.sharedGuidanceFolder = CodexService.get(source).sharedGuidance().root();
             settings.loadState(copy);
             CodexService.get(opened).reconnect();
         }

@@ -10,6 +10,8 @@ public final class CodexSettings implements PersistentStateComponent<CodexSettin
         public String binary = "codex";
         public String distro = "";
         public String cwd = "";
+        public boolean sharedGuidanceEnabled = true;
+        public String sharedGuidanceFolder = "";
         public String model = "";
         public String effort = "";
         public boolean modelSelectionSaved;

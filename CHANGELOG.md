@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.8
+
+- Share an IDEA project’s AGENTS.md and .agents/skills with subrepo and worktree chats from their original locations.
+- Add a shared guidance folder setting with automatic project detection and an off switch.
+- Keep shared guidance when opening a worktree as a new IDEA project.
+
 ## 1.0.7
 
 - Remove the redundant Cancel request action from connector approval cards. Use Decline to refuse permission.

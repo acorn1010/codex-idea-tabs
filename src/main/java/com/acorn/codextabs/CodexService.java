@@ -38,6 +38,7 @@ public final class CodexService implements Disposable {
     private volatile String connectionError = "";
     private volatile String connectionStatus = "disconnected";
     private String attachmentRoot;
+    private final ConcurrentMap<String, String> sharedGuidanceVersions = new ConcurrentHashMap<>();
     private final java.util.concurrent.locks.ReentrantReadWriteLock workspaceLock = new java.util.concurrent.locks.ReentrantReadWriteLock();
     private final Object workspaceRefresh = new Object();
     private volatile JsonArray workspaceEntries = new JsonArray();
@@ -94,6 +95,28 @@ public final class CodexService implements Disposable {
         String path = settings().cwd.isBlank() ? Objects.toString(project.getBasePath(), System.getProperty("user.home")) : settings().cwd;
         return distro().isBlank() ? path : com.acorn.codextabs.core.Paths.linux(path);
     }
+    /** The guidance source follows the IDEA project, independently of selected repositories and worktrees. */
+    public SharedGuidance.Source sharedGuidance() {
+        return SharedGuidance.resolve(settings().sharedGuidanceEnabled, settings().sharedGuidanceFolder,
+            Objects.toString(project.getBasePath(), ""), distro(), SystemInfo.isWindows);
+    }
+    /** Refresh user-role context once per changed source and connection, before the next idle turn. Runs on IO. */
+    private void refreshGuidance(RpcClient rpc, Conversation chat) {
+        if (chat.busy() || chat.get("threadId").isBlank()) { return; }
+        var source = sharedGuidance();
+        if (source.root().isBlank() && chat.get("sharedGuidanceRoot").isBlank()) { return; }
+        String version;
+        try {
+            version = HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest((chat.get("cwd") + "\n" + source.context()).getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        } catch (java.security.NoSuchAlgorithmException error) { throw new IllegalStateException(error); }
+        String threadId = chat.get("threadId");
+        if (version.equals(sharedGuidanceVersions.get(threadId))) { return; }
+        try { rpc.request("thread/inject_items", source.injection(threadId)).join(); }
+        catch (Exception error) { throw new IllegalStateException("Could not load shared guidance. Update Codex or disable shared guidance in Settings > Tools > Codex Tabs. " + message(error), error); }
+        sharedGuidanceVersions.put(threadId, version);
+        chat.set("sharedGuidanceRoot", source.root());
+    }
     public Conversation chat(String id) { return chats.computeIfAbsent(id, key -> new Conversation(key, cwd())); }
     public Conversation create() {
         var chat = chat(UUID.randomUUID().toString());
@@ -141,7 +164,7 @@ public final class CodexService implements Disposable {
                 }
                 changed("");
                 return object("entries", entries, "repositories", choices, "repository", repository.map(GitRepositories.Repository::path).orElse(""),
-                    "projectPath", cwd(), "branches", branches, "error", error,
+                    "projectPath", cwd(), "sharedGuidanceFolder", sharedGuidance().root(), "branches", branches, "error", error,
                     "current", source.get("cwd"), "suggestedName", GitWorktrees.slug(source.get("title")) + "-" + UUID.randomUUID().toString().substring(0, 4),
                     "base", workspaceFor(source.get("cwd")).map(value -> text(value, "branch", "HEAD")).filter(value -> !value.isBlank()).orElse("HEAD"));
             }
@@ -240,8 +263,10 @@ public final class CodexService implements Disposable {
                 var target = source;
                 if (!source.get("threadId").isBlank()) {
                     try {
-                        var fork = rpc("thread/fork", object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true)).join();
+                        var rpc = connect().join();
+                        var fork = rpc.request("thread/fork", object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true)).join();
                         target = importThread(obj(fork, "thread"));
+                        target.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
                         target.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
                     } catch (Exception error) {
                         workspaces(id);
@@ -259,7 +284,7 @@ public final class CodexService implements Disposable {
                     String targetId = target.id;
                     sessions.retain(targetId);
                     try {
-                        sessions.load(targetId, () -> CompletableFuture.completedFuture(null)).join();
+                        sessions.load(targetId, () -> { refreshGuidance(connect().join(), chat(targetId)); return CompletableFuture.completedFuture(null); }).join();
                         try { older(targetId, "").join(); }
                         catch (Exception error) { target.loadFailed("The conversation was copied, but history needs a retry. " + message(error)); }
                     } finally { sessions.release(targetId); }
@@ -358,6 +383,12 @@ public final class CodexService implements Disposable {
                 client = rpc;
                 rpc.request("initialize", object("clientInfo", object("name", "codex_idea_tabs", "title", "Codex Tabs for IDEA", "version", "0.1.1"), "capabilities", object("experimentalApi", true))).join();
                 rpc.notify("initialized", new JsonObject());
+                var sharedGuidance = sharedGuidance();
+                sharedGuidanceVersions.clear();
+                if (!sharedGuidance.skillsRoot().isBlank()) {
+                    try { rpc.request("skills/extraRoots/set", object("extraRoots", new String[]{sharedGuidance.skillsRoot()})).join(); }
+                    catch (Exception error) { throw new IllegalStateException("Could not register shared skills. Update Codex or disable shared guidance in Settings > Tools > Codex Tabs. " + message(error), error); }
+                }
                 if (generation != connectionGeneration || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
                 connectionError = "";
                 connectionStatus = "connected";
@@ -441,14 +472,15 @@ public final class CodexService implements Disposable {
         return connect().thenCompose(rpc -> sessions.load(id, () -> {
             long revision = chat.revision();
             if (client != rpc || !rpc.isAlive()) { return CompletableFuture.failedFuture(new CancellationException("Connection was replaced")); }
-            return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "cwd", chat.get("cwd"), "excludeTurns", true, "config", ComposerOptions.threadConfig(""))).thenCompose(result -> {
+            return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "cwd", chat.get("cwd"), "excludeTurns", true, "config", ComposerOptions.threadConfig(""))).thenComposeAsync(result -> {
                 if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
                 chat.resumed(obj(result, "thread"), revision);
+                refreshGuidance(rpc, chat);
                 sessions.working(id, chat.busy());
                 return older(id, "", rpc).thenAccept(ignored -> {
                     if (client == rpc && rpc.isAlive()) { chat.loaded(); changed(id); }
                 });
-            }).whenComplete((result, error) -> {
+            }, io).whenComplete((result, error) -> {
                 if (error != null && client == rpc) { chat.loadFailed(message(error)); changed(id); }
             });
         }));
@@ -510,6 +542,7 @@ public final class CodexService implements Disposable {
                             rpc.request("thread/resume", resume).join();
                         }
                     }
+                    refreshGuidance(rpc, chat);
                     var params = object("threadId", chat.get("threadId"), "input", input);
                     String active = chat.get("turnId");
                     if (goalCommand) {
@@ -585,6 +618,7 @@ public final class CodexService implements Disposable {
             }
             var branch = obj(rpc.request(method, params).join(), "thread");
             var revised = importThread(branch);
+            revised.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
             revised.set("cwd", source.get("cwd")); revised.set("workspaceBase", source.get("workspaceBase"));
             revised.set("title", source.get("title") + " (edited)");
             revised.set("renamed", true);

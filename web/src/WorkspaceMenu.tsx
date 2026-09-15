@@ -6,7 +6,7 @@ import type { Attachment, Chat } from './types';
 
 type Workspace = { path: string; name: string; branch: string; main: boolean; locked: boolean; missing: boolean; chats: number };
 type Repository = { path: string; name: string; project: boolean };
-type Workspaces = { repositories?: Repository[]; repository?: string; projectPath?: string; entries: Workspace[]; branches: string[]; current: string; base: string; suggestedName: string; error: string };
+type Workspaces = { repositories?: Repository[]; repository?: string; projectPath?: string; sharedGuidanceFolder?: string; entries: Workspace[]; branches: string[]; current: string; base: string; suggestedName: string; error: string };
 const rowStyle = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-surface active:bg-line focus-visible:bg-surface focus-visible:outline-none';
 const inputStyle = 'mt-1.5 w-full min-w-0 rounded-lg bg-input px-3 py-2 text-xs shadow-input focus:shadow-input-focus';
 
@@ -84,6 +84,9 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
       </div>
       {error && <p role="alert" className="mb-2 rounded-lg bg-red-400/10 px-2.5 py-2 text-xs text-red-400">{error}</p>}
       {mode === 'list' && <>
+        {!!data?.sharedGuidanceFolder && <button type="button" onClick={() => void action('settings')} className={`${rowStyle} text-muted`} title={data.sharedGuidanceFolder}>
+          <span className="min-w-0"><span className="block text-[11px]">Shared guidance</span><span className="block truncate text-[10px]">{data.sharedGuidanceFolder}</span></span>
+        </button>}
         {hasRepositoryChoice && <button disabled={busy || unavailable} aria-label="Choose repository" onClick={() => setMode('repositories')} className={`${rowStyle} mb-1 min-w-0`}>
           <span className="shrink-0"><Icon name="branch" size={14} /></span>
           <span className="min-w-0 flex-1 text-left"><span className="block text-[10px] text-muted">Repository</span><span className="block truncate font-medium">{selectedRepository?.name || 'Project folder'}</span></span><Icon name="down" size={12} />
