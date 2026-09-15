@@ -113,3 +113,7 @@ Run `check-file-drops.mjs` with `CODEX_SMOKE_CHROME` to check browser file bytes
 For native coverage, prepare a disposable parent Git repository with `outer.txt` on `main`, a `client` repository with `client.txt` on `client-main`, and a `server` repository with `server.txt` on `server-main`. Commit `original\n` as the content of each file. Then set the client file to `local client changes\n`. Ignore `client/`, `server/`, and `*.worktrees/` in the outer repository.
 
 Launch the isolated profile with `-Dcodex.smoke.repositories.check=true`, the fake backend, and the parent directory as `codex.smoke.cwd`. The harness writes `logs/repositories-result.json` after checking file selection, branch isolation, creation, review, removal, drafts, sandbox paths, history, and saved chat state. Run `check-native-repositories.mjs` from that profile directory with `CODEX_SMOKE_CDP` pointing to its JCEF port to check the picker and new native tab.
+
+## New chat focus
+
+Enable `-Dcodex.smoke.focus.check=true` in the disposable profile, then run `check-native-focus.mjs` from that profile directory. Keep the test IDEA window active. When running outside the profile directory, set `CODEX_SMOKE_FOCUS_STATE` to its `logs/focus-state.json` path. It verifies DOM focus and the native keyboard focus owner, types without selecting the input, and checks ordinary and split tabs. State updates must preserve focus in an open workspace menu. No model messages are sent.

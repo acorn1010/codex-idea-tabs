@@ -16,7 +16,7 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.3 adds repository selection for projects with several Git repositories and routes each chat’s worktree actions to the selected repository.</p>
+        <p>1.0.4 focuses the message input when opening a new chat, including split editor tabs. Includes repository selection and worktree routing from 1.0.3.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>

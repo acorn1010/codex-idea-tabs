@@ -34,6 +34,11 @@ public final class ChatFiles extends DeprecatedVirtualFileSystem {
         } else { manager.openFile(file, true); }
         var window = manager.getCurrentWindow();
         if (window != null) { window.setFilePinned(file, true); }
+        if (CodexService.get(project).chat(id).get("threadId").isBlank()) {
+            for (var editor : manager.getEditors(file)) {
+                if (editor instanceof ChatEditor chat) { chat.requestComposerFocus(); }
+            }
+        }
     }
     public static final class ChatFile extends LightVirtualFile {
         public final String id;

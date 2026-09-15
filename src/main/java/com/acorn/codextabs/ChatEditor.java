@@ -35,6 +35,8 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     private JBCefBrowser browser;
     private JBCefJSQuery bridge;
     private volatile boolean ready;
+    private boolean composerReady;
+    private boolean composerFocusRequested;
     private volatile boolean dirty = true;
     private volatile boolean disposed;
     private long renderedRevision = -1;
@@ -177,6 +179,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "ready": return service.restoreReady().thenApply(ignored -> {
                 ready = true; dirty = true; service.load(file.id); return service.snapshot(file.id);
             });
+            case "composerReady": return uiResult(() -> { composerReady = true; focusComposer(); });
             case "send": return service.send(file.id, params);
             case "accountLimits": return service.rpc("account/rateLimits/read", new JsonObject()).orTimeout(15, java.util.concurrent.TimeUnit.SECONDS);
             case "skills": return service.rpc("skills/list", object("cwds", new String[]{chat.get("cwd")}, "forceReload", true));
@@ -348,6 +351,23 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         return result;
     }
     private void ui(Runnable task) { ApplicationManager.getApplication().invokeLater(() -> { if (!disposed && !project.isDisposed()) { task.run(); } }); }
+    /** Wait for the rendered composer, then hand native keyboard focus to this newly opened chat. */
+    void requestComposerFocus() {
+        composerFocusRequested = true;
+        focusComposer();
+    }
+    private void focusComposer() {
+        if (!composerFocusRequested || !composerReady || browser == null) { return; }
+        composerFocusRequested = false;
+        var focus = com.intellij.openapi.wm.IdeFocusManager.getInstance(project);
+        focus.doWhenFocusSettlesDown(() -> {
+            if (disposed || project.isDisposed() || !panel.isShowing() || FileEditorManager.getInstance(project).getSelectedEditor() != this) { return; }
+            var window = SwingUtilities.getWindowAncestor(panel);
+            if (window == null || !window.isActive()) { return; }
+            focus.requestFocus(browser.getComponent(), true);
+            execute("window.dispatchEvent(new Event('codex-focus-composer'));");
+        });
+    }
     @Override public JComponent getComponent() { return panel; }
     @Override public JComponent getPreferredFocusedComponent() { return browser == null ? panel : browser.getComponent(); }
     @Override public String getName() { return "Codex"; }

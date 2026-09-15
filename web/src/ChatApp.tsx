@@ -97,6 +97,18 @@ export function ChatApp() {
     void request<Snapshot>('ready').then(apply).catch((error: Error) => setConnectionError(error.message));
     return () => window.removeEventListener('codex-state', listener);
   }, [apply]);
+  useEffect(() => {
+    if (!state?.chat.id) { return; }
+    const focus = () => {
+      const field = textarea.current;
+      if (!field) { return; }
+      field.focus({ preventScroll: true });
+      field.setSelectionRange(field.value.length, field.value.length);
+    };
+    window.addEventListener('codex-focus-composer', focus);
+    void request('composerReady').catch((error: Error) => setError(error.message));
+    return () => window.removeEventListener('codex-focus-composer', focus);
+  }, [state?.chat.id]);
   useEffect(() => { if (follow) { end.current?.scrollIntoView({ block: 'end' }); } }, [state?.chat.revision, follow]);
   useEffect(() => {
     const field = textarea.current;
