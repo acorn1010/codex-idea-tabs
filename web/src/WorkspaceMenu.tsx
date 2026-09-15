@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { request } from './bridge';
 import { Icon } from './icons';
@@ -9,6 +9,48 @@ type Repository = { path: string; name: string; project: boolean };
 type Workspaces = { repositories?: Repository[]; repository?: string; projectPath?: string; sharedGuidanceFolder?: string; entries: Workspace[]; branches: string[]; current: string; base: string; suggestedName: string; error: string };
 const rowStyle = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-surface active:bg-line focus-visible:bg-surface focus-visible:outline-none';
 const inputStyle = 'mt-1.5 w-full min-w-0 rounded-lg bg-input px-3 py-2 text-xs shadow-input focus:shadow-input-focus';
+
+/** Keep branch suggestions inside JCEF instead of relying on a native datalist popup. */
+function StartingBranch({ value, branches, disabled, onChange }: { value: string; branches: string[]; disabled: boolean; onChange: (value: string) => void }) {
+  const id = useId();
+  const input = useRef<HTMLInputElement>(null);
+  const list = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [active, setActive] = useState(-1);
+  const matches = branches.filter(branch => branch.toLowerCase().includes(search.toLowerCase()));
+  const choose = (branch: string) => { onChange(branch); setOpen(false); input.current?.focus(); };
+  useEffect(() => { list.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' }); }, [active]);
+  return <div onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) { setOpen(false); } }}>
+    <label htmlFor={id} className="block text-[11px] text-muted">Start from</label>
+    <div className="relative mt-1.5">
+      <input ref={input} id={id} role="combobox" aria-label="Starting branch or commit" aria-expanded={open && !disabled} aria-controls={`${id}-branches`} aria-autocomplete="list" aria-activedescendant={open && active >= 0 && matches[active] ? `${id}-branch-${active}` : undefined}
+        disabled={disabled} required value={value} autoComplete="off" className={`${inputStyle} mt-0 pr-8 text-xs text-ink`}
+        onChange={event => { onChange(event.target.value); setSearch(event.target.value); setActive(-1); setOpen(true); }}
+        onKeyDown={event => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault(); event.stopPropagation();
+            if (!open) { setSearch(''); setActive(event.key === 'ArrowDown' ? 0 : branches.length - 1); setOpen(true); }
+            else { setActive(current => matches.length ? (current + (event.key === 'ArrowDown' ? 1 : current < 0 ? 0 : -1) + matches.length) % matches.length : -1); }
+          } else if (event.key === 'Enter' && open) {
+            event.preventDefault(); event.stopPropagation();
+            if (active >= 0 && matches[active]) { choose(matches[active]); } else { setOpen(false); }
+          } else if (event.key === 'Escape' && open) {
+            event.preventDefault(); event.stopPropagation(); setOpen(false);
+          } else if (event.key === 'Tab') { setOpen(false); }
+        }} />
+      <button type="button" disabled={disabled} aria-label="Show starting branches" aria-expanded={open && !disabled} aria-controls={`${id}-branches`}
+        onClick={() => { setOpen(!open); setSearch(''); setActive(-1); input.current?.focus(); }}
+        className="absolute inset-y-0 right-0 flex w-8 items-center justify-center rounded-r-lg text-muted hover:bg-surface hover:text-ink"><Icon name="down" size={12} /></button>
+    </div>
+    {open && !disabled && <div ref={list} id={`${id}-branches`} role="listbox" aria-label="Starting branches" className="mt-1 max-h-40 overflow-y-auto rounded-lg bg-input p-1">
+      {matches.map((branch, index) => <button type="button" role="option" id={`${id}-branch-${index}`} key={branch} tabIndex={-1} aria-selected={branch === value} data-active={index === active}
+        onMouseDown={event => event.preventDefault()} onClick={() => choose(branch)}
+        className={`${rowStyle} break-all ${index === active ? 'bg-surface text-accent' : 'text-ink'}`}>{branch}</button>)}
+      {!matches.length && <p role="status" className="px-2.5 py-2 text-xs text-muted">No matching branches. You can still use a commit or Git reference.</p>}
+    </div>}
+  </div>;
+}
 
 /** One small checkout control handles selection, branching and cleanup without another composer row. */
 export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat; label?: string; draft: string; attachments: Attachment[] }) {
@@ -29,6 +71,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
   const selectedRepository = repositories.find(repository => repository.path === data?.repository);
   const hasRepositoryChoice = repositories.length > 1 || (!!data?.projectPath && repositories[0]?.path !== data.projectPath);
   const visibleRepositories = repositories.filter(repository => `${repository.name} ${repository.path}`.toLowerCase().includes(repositorySearch.trim().toLowerCase()));
+  const compactLabel = label?.replace(/(^| · )codex\//, '$1');
   const established = !!chat.threadId;
   const unavailable = chat.working || chat.requests.length > 0;
   const close = () => { setOpen(false); trigger.current?.focus(); };
@@ -65,8 +108,8 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
     finally { setBusy(false); }
   };
   return <>
-    <button ref={trigger} type="button" aria-label={`Workspace: ${label || chat.cwd}`} title={`${label || 'Workspace'}\n${chat.cwd}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-7 max-w-24 items-center justify-center gap-1 rounded-md px-1 @min-[640px]/composer:max-w-32 text-[11px] text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent">
-      <span className="shrink-0"><Icon name="branch" size={13} /></span><span className="truncate @max-[400px]/composer:hidden">{label || chat.cwd.split('/').pop() || 'Workspace'}</span><span className="shrink-0 @max-[400px]/composer:hidden"><Icon name="down" size={10} /></span>
+    <button ref={trigger} type="button" aria-label={`Workspace: ${label || chat.cwd}`} title={`${label || 'Workspace'}\n${chat.cwd}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-7 max-w-32 items-center justify-center gap-1 rounded-md px-1 @min-[640px]/composer:max-w-56 @min-[900px]/composer:max-w-96 text-[11px] text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent">
+      <span className="shrink-0"><Icon name="branch" size={13} /></span><span className="truncate @max-[400px]/composer:hidden">{compactLabel || chat.cwd.split('/').pop() || 'Workspace'}</span><span className="shrink-0 @max-[400px]/composer:hidden"><Icon name="down" size={10} /></span>
     </button>
     {open && createPortal(<div ref={panel} role="dialog" aria-label="Workspace" tabIndex={-1} style={position} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-2 shadow-2xl outline-none" onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
@@ -133,7 +176,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
       {mode === 'create' && <form className="space-y-3 px-2 pb-2" onSubmit={(event) => { event.preventDefault(); if (!busy) { void change({ create: true, name, base, includeChanges }); } }}>
         {selectedRepository && <p className="truncate text-xs font-medium" title={selectedRepository.path}>{selectedRepository.name}</p>}
         <label className="block text-[11px] text-muted">Name<input disabled={busy} required pattern="[a-z0-9][a-z0-9-]{0,47}" maxLength={48} aria-label="Worktree name" value={name} onChange={(event) => setName(event.target.value)} className={inputStyle} autoComplete="off" /></label>
-        <label className="block text-[11px] text-muted">Start from<input disabled={busy} required aria-label="Starting branch or commit" value={base} list="workspace-branches" onChange={(event) => setBase(event.target.value)} className={inputStyle} autoComplete="off" /><datalist id="workspace-branches">{data?.branches.map((branch) => <option key={branch} value={branch} />)}</datalist></label>
+        <StartingBranch value={base} branches={data?.branches || []} disabled={busy} onChange={setBase} />
         <label className="flex cursor-pointer items-start gap-2 rounded-lg py-1 text-xs text-ink"><input type="checkbox" disabled={busy} checked={includeChanges} onChange={(event) => setIncludeChanges(event.target.checked)} className="mt-0.5 accent-accent" /><span>Include current local changes<span className="mt-1 block text-[11px] leading-relaxed text-muted">Copies edits and untracked files. Ignored files stay here.</span></span></label>
         <p className="break-all text-[10px] leading-relaxed text-muted">Branch: codex/{name || '…'}<br />{data?.entries.find((entry) => entry.main)?.path}.worktrees/{name || '…'}</p>
         <button disabled={busy || unavailable || !name || !base} type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:brightness-90">{busy ? 'Creating…' : established ? 'Create and continue' : 'Create worktree'}{established && <Icon name="newTab" size={13} />}</button>

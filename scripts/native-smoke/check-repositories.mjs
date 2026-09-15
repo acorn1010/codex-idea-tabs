@@ -60,8 +60,11 @@ try {
     await page.getByRole('button', { name: 'Workspace: server · main', exact: true }).waitFor();
     assert.equal(await page.getByRole('textbox', { name: 'Message Codex', exact: true }).inputValue(), 'Keep this draft');
     await picker.click(); await menu.getByRole('button', { name: 'New worktree', exact: true }).click();
-    const branches = await page.locator('#workspace-branches option').evaluateAll(options => options.map(option => option.value));
+    await menu.getByRole('button', { name: 'Show starting branches' }).click();
+    const branches = await menu.getByRole('option').allTextContents();
     assert.deepEqual(branches, ['main', 'server-only']);
+    await menu.getByRole('option', { name: 'server-only', exact: true }).click();
+    assert.equal(await menu.getByRole('combobox', { name: 'Starting branch or commit' }).inputValue(), 'server-only');
     await page.screenshot({ path: `${output}/repositories-create-${width}.png` });
     await page.keyboard.press('Escape'); assert.equal(await picker.evaluate(element => element === document.activeElement), true);
     await picker.click(); await menu.getByRole('button', { name: /^Shared guidance/ }).waitFor();
