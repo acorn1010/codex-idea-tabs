@@ -16,7 +16,7 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.8 shares project instructions and skills with subrepo and worktree chats. Configure the shared guidance folder in Settings, or use automatic project detection.</p>
+        <p>1.0.9 fixes configured text navigation shortcuts, gives workspace labels more room, and replaces the Start from popup with a searchable branch dropdown.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>

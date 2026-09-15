@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.9
+
+- Replace the Start from browser popup with a searchable branch dropdown that also accepts Git references.
+- Give the workspace selector more room and omit the codex/ branch prefix from its compact label.
+- Respect IDEA keymap shortcuts for word and line navigation in chat text fields, including Shift selection.
+
 ## 1.0.8
 
 - Share an IDEA project’s AGENTS.md and .agents/skills with subrepo and worktree chats from their original locations.
