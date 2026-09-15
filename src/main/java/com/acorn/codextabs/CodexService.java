@@ -82,7 +82,11 @@ public final class CodexService implements Disposable {
         options.effort = selection.effort();
         options.modelSelectionSaved = true;
     }
+    public String executable() {
+        return com.acorn.codextabs.core.CodexExecutable.resolve(settings().binary, SystemInfo.isMac);
+    }
     public String distro() {
+        if (!SystemInfo.isWindows) { return ""; }
         var settings = settings();
         return settings.distro.isBlank() ? com.acorn.codextabs.core.Paths.distro(Objects.toString(project.getBasePath(), "")) : settings.distro;
     }
@@ -294,7 +298,7 @@ public final class CodexService implements Disposable {
         long generation = ++connectionGeneration;
         connection = CompletableFuture.supplyAsync(() -> {
             try {
-                var builder = new ProcessBuilder(com.acorn.codextabs.core.Paths.command(settings().binary, distro(), SystemInfo.isWindows));
+                var builder = new ProcessBuilder(com.acorn.codextabs.core.Paths.command(executable(), distro(), SystemInfo.isWindows));
                 if (distro().isBlank() && Files.isDirectory(java.nio.file.Path.of(cwd()))) { builder.directory(java.nio.file.Path.of(cwd()).toFile()); }
                 // A configured WSL executable is passed as one argument, even when its path contains spaces.
                 var rpc = new RpcClient(builder.start(), event -> { if (generation == connectionGeneration) { event(event); } }, message -> {
@@ -318,7 +322,9 @@ public final class CodexService implements Disposable {
             } catch (Exception error) {
                 if (generation != connectionGeneration) { throw new CompletionException(error); }
                 if (client != null) { client.close(); }
-                connectionError = "Could not start Codex. Check the executable and WSL distribution in Settings. " + message(error);
+                connectionError = "Could not start Codex. Check the executable"
+                    + (SystemInfo.isWindows && !distro().isBlank() ? " and WSL distribution" : "")
+                    + " in Settings > Tools > Codex Tabs. " + message(error);
                 connectionStatus = "disconnected";
                 changed("");
                 throw new CompletionException(error);

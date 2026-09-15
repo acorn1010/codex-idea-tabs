@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.2
+
+- Detect the Codex executable from CLI and app installations on macOS when it is missing from the IDE PATH. Keep explicit executable paths unchanged.
+- Show WSL settings and startup guidance only where WSL is supported.
+
 ## 1.0.1
 
 - Fix chat editors failing to open in IntelliJ IDEA 2026.2 with `NoClassDefFoundError: com/intellij/ui/jcef/JBCefBrowserBase` by declaring the required JCEF dependency.

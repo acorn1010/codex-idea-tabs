@@ -16,7 +16,7 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.1 fixes chat editors failing to open in IntelliJ IDEA 2026.2 by declaring the required embedded browser (JCEF) dependency.</p>
+        <p>1.0.2 detects Codex CLI and app installations on macOS and removes WSL settings and startup guidance from platforms that do not support WSL.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>

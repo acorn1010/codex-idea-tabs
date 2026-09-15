@@ -42,7 +42,7 @@ final class ContextInspection {
 
     static CompletableFuture<JsonObject> startup(CodexService service, String id, JsonObject params) {
         String cwd = service.chat(id).get("cwd");
-        String binary = service.settings().binary.isBlank() ? "codex" : service.settings().binary;
+        String binary = service.executable();
         String model = text(params, "model", service.settings().model);
         String effort = text(params, "effort", service.settings().effort);
         String distro = service.distro();
