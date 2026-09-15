@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+- Choose a repository per chat when an IDEA project contains several Git repositories. New chats opened from files use the nearest repository.
+- Route worktree creation, branch choices, review, history, and removal to the correct repository. Show repository names beside branches.
+
 ## 1.0.2
 
 - Detect the Codex executable from CLI and app installations on macOS when it is missing from the IDE PATH. Keep explicit executable paths unchanged.

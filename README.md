@@ -146,3 +146,13 @@ The design takes ideas from [T3 Code](https://github.com/pingdotgg/t3code), the 
 ## License
 
 The original plugin code is [MIT licensed](LICENSE). Bundled dependencies keep their own licenses. The packaged web resources include `THIRD_PARTY_LICENSES.txt`. Codex, IntelliJ IDEA, and their services are separate products with their own terms. This project is not affiliated with OpenAI or JetBrains.
+
+### Projects with several repositories
+
+You can open a parent folder in IDEA and keep independent Git repositories below it. Use **Workspace → Choose repository** to select the repository for a chat. The picker shows each repository's own branches and worktrees. A new chat opened from a source file uses its nearest Git repository. An existing chat keeps its checkout when you browse other files.
+
+Selecting another checkout for an established chat opens a new chat tab and carries the draft with it. The original chat stays in its original checkout. Worktrees use the selected repository's existing layout: `<primary-checkout>.worktrees/<name>`. A worktree of a parent repository does not include independent nested repositories.
+
+Discovery checks the project folder and nested repository folders, skips dependency and generated folders, and does not follow directory symlinks. For a deeply nested repository or one outside the project folder, open a file there and create a chat to add it. Repositories are grouped by their primary checkout, so linked worktrees are not listed as separate repositories.
+
+Codex loads instructions and skills for the chat's selected checkout. Parent `AGENTS.md` files and `.agents/skills` above a nested Git root are not automatically inherited. Share common instructions explicitly from each repository's `AGENTS.md`, or distribute shared skills as a Codex plugin or through the user skill directory. Keep repository-specific guidance in that repository and commit it if new worktrees need it. The extension does not copy or rewrite instruction files.

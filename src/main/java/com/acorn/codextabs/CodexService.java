@@ -41,8 +41,8 @@ public final class CodexService implements Disposable {
     private final java.util.concurrent.locks.ReentrantReadWriteLock workspaceLock = new java.util.concurrent.locks.ReentrantReadWriteLock();
     private final Object workspaceRefresh = new Object();
     private volatile JsonArray workspaceEntries = new JsonArray();
-    private volatile JsonArray workspaceBranches = new JsonArray();
-    private volatile String workspaceError = "";
+    private volatile GitRepositories.Catalog repositories = new GitRepositories.Catalog(List.of(), List.of());
+    private final Set<String> selectedRepositoryPaths = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<String, String> tabPresentations = new ConcurrentHashMap<>();
 
     public CodexService(Project project) {
@@ -118,29 +118,64 @@ public final class CodexService implements Disposable {
         return object("chat", chat(id).changes(revision), "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
             "error", connectionError, "settings", settings(), "distro", distro(), "cwd", chat(id).get("cwd"), "workspaceLabel", workspaceLabel(chat(id).get("cwd")), "project", project.getName());
     }
-    /** Cache Git metadata independently of streamed chat snapshots. Refresh on demand, never per token. */
+    /** Refresh all repository identities together, then return only this chat's Git choices. */
     public CompletableFuture<JsonObject> workspaces(String id) {
         return CompletableFuture.supplyAsync(() -> {
             synchronized (workspaceRefresh) {
-                try {
-                    var git = gitWorktrees();
-                    var entries = new JsonArray();
-                    for (var workspace : git.list(cwd())) {
-                        long count = chats.values().stream().filter(chat -> GitWorktrees.contains(workspace.path(), chat.get("cwd")) && !chat.archived()).count();
-                        entries.add(object("path", workspace.path(), "name", workspace.name(), "branch", workspace.branch(), "head", workspace.head(),
-                            "main", workspace.main(), "locked", workspace.locked(), "missing", workspace.missing(), "chats", count));
+                refreshRepositories();
+                var source = id.isBlank() ? new Conversation("", cwd()) : chat(id);
+                var repository = repositories.containing(source.get("cwd"));
+                var entries = new JsonArray();
+                if (repository.isPresent()) {
+                    for (var entry : workspaceEntries) {
+                        if (text(entry.getAsJsonObject(), "repository").equals(repository.get().path())) { entries.add(entry.deepCopy()); }
                     }
-                    workspaceEntries = entries;
-                    workspaceError = "";
-                    workspaceBranches = new Gson().toJsonTree(git.branches(cwd())).getAsJsonArray();
-                } catch (Exception error) { workspaceEntries = new JsonArray(); workspaceBranches = new JsonArray(); workspaceError = message(error); }
+                }
+                var choices = new JsonArray();
+                for (var repo : repositories.repositories()) { choices.add(object("path", repo.path(), "name", repositoryName(repo), "project", GitWorktrees.same(repo.path(), cwd()))); }
+                var branches = new JsonArray();
+                String error = String.join("\n", repositories.errors());
+                if (repository.isPresent()) {
+                    try { branches = GSON.toJsonTree(gitWorktrees().branches(repository.get().path())).getAsJsonArray(); }
+                    catch (Exception failure) { error = message(failure); }
+                }
+                changed("");
+                return object("entries", entries, "repositories", choices, "repository", repository.map(GitRepositories.Repository::path).orElse(""),
+                    "projectPath", cwd(), "branches", branches, "error", error,
+                    "current", source.get("cwd"), "suggestedName", GitWorktrees.slug(source.get("title")) + "-" + UUID.randomUUID().toString().substring(0, 4),
+                    "base", workspaceFor(source.get("cwd")).map(value -> text(value, "branch", "HEAD")).filter(value -> !value.isBlank()).orElse("HEAD"));
             }
-            changed("");
-            var source = id.isBlank() ? new Conversation("", cwd()) : chat(id);
-            return object("entries", workspaceEntries, "branches", workspaceBranches, "error", workspaceError,
-                "current", source.get("cwd"), "suggestedName", GitWorktrees.slug(source.get("title")) + "-" + UUID.randomUUID().toString().substring(0, 4),
-                "base", workspaceFor(source.get("cwd")).map(value -> text(value, "branch", "HEAD")).filter(value -> !value.isBlank()).orElse("HEAD"));
         }, io);
+    }
+    private String repositoryName(GitRepositories.Repository repo) {
+        return GitWorktrees.contains(cwd(), repo.path()) && !GitWorktrees.same(cwd(), repo.path())
+            ? repo.path().substring(cwd().replaceAll("/+$", "").length() + 1) : repo.name();
+    }
+    private void refreshRepositories() {
+        var known = new LinkedHashSet<>(selectedRepositoryPaths);
+        for (var chat : chats.values()) { known.add(chat.get("cwd")); }
+        // Keep a missing checkout removable through its surviving primary repository.
+        for (var repo : repositories.repositories()) { known.add(repo.path()); }
+        var catalog = new GitRepositories(distro(), SystemInfo.isWindows).discover(cwd(), known);
+        var owners = new HashMap<String, String>();
+        for (var chat : chats.values()) {
+            owners.computeIfAbsent(chat.get("cwd"), path -> catalog.containing(path).map(GitRepositories.Repository::path).orElse(""));
+        }
+        var entries = new JsonArray();
+        for (var repo : catalog.repositories()) {
+            for (var workspace : repo.workspaces()) {
+                long count = chats.values().stream().filter(chat -> !chat.archived() && GitWorktrees.contains(workspace.path(), chat.get("cwd"))
+                    && repo.path().equals(owners.get(chat.get("cwd")))).count();
+                entries.add(object("path", workspace.path(), "name", workspace.name(), "branch", workspace.branch(), "head", workspace.head(),
+                    "main", workspace.main(), "locked", workspace.locked(), "missing", workspace.missing(), "chats", count, "repository", repo.path(), "repositoryName", repositoryName(repo)));
+            }
+        }
+        repositories = catalog;
+        workspaceEntries = entries;
+    }
+    private GitRepositories.Repository registeredRepository(String path) {
+        return repositories.repositories().stream().filter(repo -> repo.workspaces().stream().anyMatch(tree -> GitWorktrees.same(tree.path(), path)))
+            .findFirst().orElseThrow(() -> new IllegalArgumentException("Select a registered repository or worktree."));
     }
     private GitWorktrees gitWorktrees() { return new GitWorktrees(distro(), SystemInfo.isWindows); }
     private Optional<JsonObject> workspaceFor(String path) {
@@ -148,7 +183,8 @@ public final class CodexService implements Disposable {
             .filter(value -> GitWorktrees.contains(text(value, "path"), path)).max(Comparator.comparingInt(value -> text(value, "path").length()));
     }
     public String workspaceLabel(String path) {
-        return workspaceFor(path).map(value -> text(value, "branch").isBlank() ? text(value, "name") : text(value, "branch")).orElseGet(() -> path.replace('\\', '/').replaceAll("/$", "").replaceAll(".*/", ""));
+        return workspaceFor(path).map(value -> (repositories.repositories().size() > 1 ? text(value, "repositoryName") + " · " : "")
+            + (text(value, "branch").isBlank() ? text(value, "name") : text(value, "branch"))).orElseGet(() -> path.replace('\\', '/').replaceAll("/$", "").replaceAll(".*/", ""));
     }
     public JsonArray workspaceEntries() { return workspaceEntries.deepCopy(); }
     public Conversation createInWorkspace(String sourceId) {
@@ -157,15 +193,17 @@ public final class CodexService implements Disposable {
         created.set("cwd", source.get("cwd")); created.set("workspaceBase", source.get("workspaceBase"));
         changed(created.id); return created;
     }
+    public CompletableFuture<Conversation> createForPathAsync(String path) { return CompletableFuture.supplyAsync(() -> createForPath(path), io); }
     public Conversation createForPath(String path) {
         if (!distro().isBlank()) { path = com.acorn.codextabs.core.Paths.linux(path); }
         var created = create();
-        workspaceFor(path).ifPresent(workspace -> {
-            String directory = text(workspace, "path");
-            created.set("cwd", directory);
-            chats.values().stream().filter(chat -> GitWorktrees.same(chat.get("cwd"), directory) && !chat.get("workspaceBase").isBlank())
+        String root = new GitRepositories(distro(), SystemInfo.isWindows).closestRoot(path);
+        if (!root.isBlank()) {
+            selectedRepositoryPaths.add(root);
+            created.set("cwd", root);
+            chats.values().stream().filter(chat -> GitWorktrees.same(chat.get("cwd"), root) && !chat.get("workspaceBase").isBlank())
                 .findFirst().ifPresent(chat -> created.set("workspaceBase", chat.get("workspaceBase")));
-        });
+        }
         changed(created.id); return created;
     }
     /** A saved conversation keeps its checkout. Selecting another checkout forks it into a new native tab. */
@@ -180,18 +218,23 @@ public final class CodexService implements Disposable {
                 if (!source.canArchive()) { throw new IllegalStateException("Let this chat finish before continuing in another worktree."); }
                 if (source.archived()) { throw new IllegalStateException("Restore this chat first."); }
                 var git = gitWorktrees();
-                var available = git.list(cwd());
+                synchronized (workspaceRefresh) { refreshRepositories(); }
                 String path = text(payload, "path"), warning = "", base = "";
                 if (flag(payload, "create")) {
                     String sourceRoot = git.root(source.get("cwd"));
-                    if (available.stream().noneMatch(value -> GitWorktrees.same(value.path(), sourceRoot))) { throw new IllegalStateException("This chat belongs to a different repository."); }
+                    registeredRepository(sourceRoot);
                     var created = git.create(sourceRoot, text(payload, "name"), text(payload, "base", "HEAD"), flag(payload, "includeChanges"));
                     path = created.workspace().path(); base = created.workspace().head(); warning = created.warning();
                 } else {
                     String target = path;
-                    var workspace = available.stream().filter(value -> GitWorktrees.same(value.path(), target)).findFirst().orElseThrow(() -> new IllegalArgumentException("Select a registered worktree."));
-                    if (workspace.missing()) { throw new IllegalStateException("This worktree directory is missing."); }
-                    base = chats.values().stream().filter(value -> GitWorktrees.same(value.get("cwd"), target) && !value.get("workspaceBase").isBlank()).map(value -> value.get("workspaceBase")).findFirst().orElseGet(() -> git.reviewBase(target));
+                    if (GitWorktrees.same(target, cwd())) {
+                        if (repositories.containing(target).isPresent()) { base = git.reviewBase(target); }
+                    } else {
+                        var owner = registeredRepository(target);
+                        var workspace = owner.workspaces().stream().filter(value -> GitWorktrees.same(value.path(), target)).findFirst().orElseThrow();
+                        if (workspace.missing()) { throw new IllegalStateException("This worktree directory is missing."); }
+                        base = chats.values().stream().filter(value -> GitWorktrees.same(value.get("cwd"), target) && !value.get("workspaceBase").isBlank()).map(value -> value.get("workspaceBase")).findFirst().orElseGet(() -> git.reviewBase(target));
+                    }
                 }
                 if (GitWorktrees.same(source.get("cwd"), path)) { result.complete(object("id", id, "warning", warning)); return; }
                 var target = source;
@@ -240,19 +283,22 @@ public final class CodexService implements Disposable {
                 return "A chat is still working or waiting for your answer in this worktree.";
             }
         }
-        return gitWorktrees().removalBlock(cwd(), path);
+        return gitWorktrees().removalBlock(registeredRepository(path).path(), path);
     }
     public CompletableFuture<JsonObject> inspectWorktree(String path) {
-        return CompletableFuture.supplyAsync(() -> object("path", path, "blocked", removalBlock(path), "chats",
-            chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd"))).count()), io);
+        return CompletableFuture.supplyAsync(() -> {
+            synchronized (workspaceRefresh) { refreshRepositories(); }
+            return object("path", path, "blocked", removalBlock(path), "chats", chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd"))).count());
+        }, io);
     }
     public CompletableFuture<JsonObject> removeWorktree(String path) {
         return CompletableFuture.supplyAsync(() -> {
             workspaceLock.writeLock().lock();
             try {
+                synchronized (workspaceRefresh) { refreshRepositories(); }
                 String reason = removalBlock(path);
                 if (!reason.isBlank()) { throw new IllegalStateException(reason); }
-                gitWorktrees().remove(cwd(), path);
+                gitWorktrees().remove(registeredRepository(path).path(), path);
                 changed(""); workspaces("");
                 return object("removed", true);
             } finally { workspaceLock.writeLock().unlock(); }

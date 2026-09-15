@@ -4,11 +4,14 @@ import com.intellij.openapi.actionSystem.*;
 import com.intellij.openapi.project.DumbAwareAction;
 import com.intellij.openapi.options.ShowSettingsUtil;
 import static com.acorn.codextabs.core.Json.*;
+import java.util.concurrent.CompletableFuture;
+import com.acorn.codextabs.core.Conversation;
+import com.intellij.openapi.application.ApplicationManager;
 
 /** Native actions remain available during project indexing. */
 public final class ChatActions {
     private ChatActions() {}
-    private static com.acorn.codextabs.core.Conversation createForContext(AnActionEvent event) {
+    private static CompletableFuture<Conversation> createForContext(AnActionEvent event) {
         var project = java.util.Objects.requireNonNull(event.getProject());
         var service = CodexService.get(project);
         var file = event.getData(CommonDataKeys.VIRTUAL_FILE);
@@ -16,19 +19,19 @@ public final class ChatActions {
             var selected = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project).getSelectedFiles();
             if (selected.length > 0) { file = selected[0]; }
         }
-        return file instanceof ChatFiles.ChatFile chat ? service.createInWorkspace(chat.id)
-            : file == null ? service.create() : service.createForPath(file.getPath());
+        return file instanceof ChatFiles.ChatFile chat ? CompletableFuture.completedFuture(service.createInWorkspace(chat.id))
+            : file == null ? CompletableFuture.completedFuture(service.create()) : service.createForPathAsync(file.getPath());
     }
     public static final class NewChat extends DumbAwareAction {
         @Override public void actionPerformed(AnActionEvent event) {
             var project = event.getProject();
-            if (project != null) { ChatFiles.open(project, createForContext(event).id, false); }
+            if (project != null) { createForContext(event).thenAccept(chat -> ApplicationManager.getApplication().invokeLater(() -> { if (!project.isDisposed()) { ChatFiles.open(project, chat.id, false); } })); }
         }
     }
     public static final class NewChatToSide extends DumbAwareAction {
         @Override public void actionPerformed(AnActionEvent event) {
             var project = event.getProject();
-            if (project != null) { ChatFiles.open(project, createForContext(event).id, true); }
+            if (project != null) { createForContext(event).thenAccept(chat -> ApplicationManager.getApplication().invokeLater(() -> { if (!project.isDisposed()) { ChatFiles.open(project, chat.id, true); } })); }
         }
     }
     public static final class SendSelection extends DumbAwareAction {
@@ -42,9 +45,11 @@ public final class ChatActions {
             String path = file == null ? "Selected code" : file.getPath();
             if (!service.distro().isBlank()) { path = com.acorn.codextabs.core.Paths.linux(path); }
             String selected = editor.getSelectionModel().getSelectedText();
-            chat.set("draft", "Context from " + path + ":\n\n" + java.util.Objects.toString(selected, "") + "\n\n");
-            service.changed(chat.id);
-            ChatFiles.open(project, chat.id, true);
+            String draft = "Context from " + path + ":\n\n" + java.util.Objects.toString(selected, "") + "\n\n";
+            chat.thenAccept(created -> {
+                created.set("draft", draft); service.changed(created.id);
+                ApplicationManager.getApplication().invokeLater(() -> { if (!project.isDisposed()) { ChatFiles.open(project, created.id, true); } });
+            });
         }
         @Override public void update(AnActionEvent event) {
             var editor = event.getData(CommonDataKeys.EDITOR);

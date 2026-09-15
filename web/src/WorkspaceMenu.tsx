@@ -5,7 +5,8 @@ import { Icon } from './icons';
 import type { Attachment, Chat } from './types';
 
 type Workspace = { path: string; name: string; branch: string; main: boolean; locked: boolean; missing: boolean; chats: number };
-type Workspaces = { entries: Workspace[]; branches: string[]; current: string; base: string; suggestedName: string; error: string };
+type Repository = { path: string; name: string; project: boolean };
+type Workspaces = { repositories?: Repository[]; repository?: string; projectPath?: string; entries: Workspace[]; branches: string[]; current: string; base: string; suggestedName: string; error: string };
 const rowStyle = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-surface active:bg-line focus-visible:bg-surface focus-visible:outline-none';
 const inputStyle = 'mt-1.5 w-full min-w-0 rounded-lg bg-input px-3 py-2 text-xs shadow-input focus:shadow-input-focus';
 
@@ -14,15 +15,20 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<'list' | 'create' | 'remove'>('list');
+  const [mode, setMode] = useState<'list' | 'create' | 'remove' | 'repositories'>('list');
   const [data, setData] = useState<Workspaces>();
   const [name, setName] = useState('');
+  const [repositorySearch, setRepositorySearch] = useState('');
   const [base, setBase] = useState('HEAD');
   const [includeChanges, setIncludeChanges] = useState(false);
   const [remove, setRemove] = useState<{ path: string; blocked: string; chats: number }>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [position, setPosition] = useState({ left: 12, bottom: 40, width: 320, maxHeight: 400 });
+  const repositories = data?.repositories || [];
+  const selectedRepository = repositories.find(repository => repository.path === data?.repository);
+  const hasRepositoryChoice = repositories.length > 1 || (!!data?.projectPath && repositories[0]?.path !== data.projectPath);
+  const visibleRepositories = repositories.filter(repository => `${repository.name} ${repository.path}`.toLowerCase().includes(repositorySearch.trim().toLowerCase()));
   const established = !!chat.threadId;
   const unavailable = chat.working || chat.requests.length > 0;
   const close = () => { setOpen(false); trigger.current?.focus(); };
@@ -32,7 +38,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
   };
   useEffect(() => {
     if (!open) { return; }
-    setMode('list'); setError(''); setBusy(true);
+    setMode('list'); setError(''); setRepositorySearch(''); setBusy(true);
     void refresh().catch((error: Error) => setError(error.message)).finally(() => setBusy(false));
     const place = () => {
       const rect = trigger.current!.getBoundingClientRect();
@@ -45,7 +51,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
     const timer = window.setTimeout(() => panel.current?.focus(), 0);
     return () => { window.clearTimeout(timer); document.removeEventListener('mousedown', outside); window.removeEventListener('resize', place); };
   }, [open]);
-  useEffect(() => { if (mode === 'create') { panel.current?.querySelector<HTMLInputElement>('input')?.focus(); } else { panel.current?.focus(); } }, [mode]);
+  useEffect(() => { if (mode === 'create' || mode === 'repositories') { panel.current?.querySelector<HTMLInputElement>('input')?.focus(); } else { panel.current?.focus(); } }, [mode]);
   const change = async (params: object) => {
     setBusy(true); setError('');
     try { await request('changeWorkspace', { ...params, draft, attachments }); close(); }
@@ -73,12 +79,17 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
     }}>
       <div className="flex items-center gap-2 px-2 pb-2 pt-1">
         {mode !== 'list' && <button aria-label="Back to workspaces" onClick={() => { setMode('list'); setError(''); }} className="rounded p-1 text-muted hover:bg-surface hover:text-ink active:bg-line"><span className="block rotate-180"><Icon name="arrow" size={14} /></span></button>}
-        <span className="flex-1 text-xs font-medium">{mode === 'create' ? 'New worktree' : mode === 'remove' ? 'Remove worktree' : 'Workspace'}</span>
+        <span className="flex-1 text-xs font-medium">{mode === 'create' ? 'New worktree' : mode === 'remove' ? 'Remove worktree' : mode === 'repositories' ? 'Choose repository' : 'Workspace'}</span>
         <button aria-label="Close workspace menu" onClick={close} className="rounded p-1 text-muted hover:bg-surface hover:text-ink active:bg-line"><Icon name="close" size={13} /></button>
       </div>
       {error && <p role="alert" className="mb-2 rounded-lg bg-red-400/10 px-2.5 py-2 text-xs text-red-400">{error}</p>}
       {mode === 'list' && <>
+        {hasRepositoryChoice && <button disabled={busy || unavailable} aria-label="Choose repository" onClick={() => setMode('repositories')} className={`${rowStyle} mb-1 min-w-0`}>
+          <span className="shrink-0"><Icon name="branch" size={14} /></span>
+          <span className="min-w-0 flex-1 text-left"><span className="block text-[10px] text-muted">Repository</span><span className="block truncate font-medium">{selectedRepository?.name || 'Project folder'}</span></span><Icon name="down" size={12} />
+        </button>}
         <p className="break-all px-2.5 pb-2 text-[11px] text-muted">{chat.cwd}</p>
+        {data && !data.repository && data.projectPath && <p className="px-2.5 pb-2 text-xs text-muted">Choose a repository to create a worktree.</p>}
         {data?.error && <p className="px-2.5 pb-2 text-xs text-muted">{data.error}</p>}
         {busy && <p role="status" className="px-2.5 py-2 text-xs text-muted">Loading…</p>}
         {!!data?.entries.length && <>
@@ -102,7 +113,22 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
           <button disabled={busy} onClick={() => void action('workspaceProject')} className={`${rowStyle} w-auto flex-1 justify-center whitespace-nowrap`} title="Open this checkout as a separate IDEA project"><Icon name="newTab" size={13} />IDEA</button>
         </div>
       </>}
+      {mode === 'repositories' && <div className="px-1 pb-1">
+        <input aria-label="Search repositories" placeholder="Search repositories…" value={repositorySearch} onChange={event => setRepositorySearch(event.target.value)} className={`${inputStyle} mb-2 w-full`} />
+        <div className="max-h-64 overflow-y-auto" aria-label="Repositories">
+          {data?.projectPath && !repositories.some(repository => repository.project) && !repositorySearch.trim() && <button disabled={busy || unavailable} aria-current={chat.cwd === data.projectPath ? 'true' : undefined} onClick={() => chat.cwd === data.projectPath ? close() : void change({ path: data.projectPath })} className={rowStyle}>
+            <span className="min-w-0 text-left"><span className="block font-medium">Project folder</span><span className="block truncate text-[10px] text-muted">Current IDEA working directory</span></span>
+          </button>}
+          {visibleRepositories.map(repository => <button key={repository.path} disabled={busy || unavailable} aria-label={`Use repository ${repository.name}`} aria-current={data?.repository === repository.path ? 'true' : undefined} title={repository.path} onClick={() => chat.cwd === repository.path ? close() : void change({ path: repository.path })} className={rowStyle}>
+            <span className={`w-4 shrink-0 ${data?.repository === repository.path ? 'text-accent' : 'text-muted'}`}><Icon name={data?.repository === repository.path ? 'check' : 'branch'} size={13} /></span>
+            <span className="min-w-0 flex-1 text-left"><span className="block truncate font-medium">{repository.name}</span><span className="block truncate text-[10px] text-muted">{repository.project ? 'Project root' : repository.path}</span></span>
+          </button>)}
+          {!visibleRepositories.length && !!repositorySearch.trim() && <p role="status" className="px-2.5 py-3 text-xs text-muted">No matching repositories</p>}
+        </div>
+        {established && <p className="px-2.5 pt-2 text-[11px] text-muted">Another checkout opens in a new chat tab. Your draft comes with it.</p>}
+      </div>}
       {mode === 'create' && <form className="space-y-3 px-2 pb-2" onSubmit={(event) => { event.preventDefault(); if (!busy) { void change({ create: true, name, base, includeChanges }); } }}>
+        {selectedRepository && <p className="truncate text-xs font-medium" title={selectedRepository.path}>{selectedRepository.name}</p>}
         <label className="block text-[11px] text-muted">Name<input disabled={busy} required pattern="[a-z0-9][a-z0-9-]{0,47}" maxLength={48} aria-label="Worktree name" value={name} onChange={(event) => setName(event.target.value)} className={inputStyle} autoComplete="off" /></label>
         <label className="block text-[11px] text-muted">Start from<input disabled={busy} required aria-label="Starting branch or commit" value={base} list="workspace-branches" onChange={(event) => setBase(event.target.value)} className={inputStyle} autoComplete="off" /><datalist id="workspace-branches">{data?.branches.map((branch) => <option key={branch} value={branch} />)}</datalist></label>
         <label className="flex cursor-pointer items-start gap-2 rounded-lg py-1 text-xs text-ink"><input type="checkbox" disabled={busy} checked={includeChanges} onChange={(event) => setIncludeChanges(event.target.checked)} className="mt-0.5 accent-accent" /><span>Include current local changes<span className="mt-1 block text-[11px] leading-relaxed text-muted">Copies edits and untracked files. Ignored files stay here.</span></span></label>

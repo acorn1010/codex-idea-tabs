@@ -16,7 +16,7 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.2 detects Codex CLI and app installations on macOS and removes WSL settings and startup guidance from platforms that do not support WSL.</p>
+        <p>1.0.3 adds repository selection for projects with several Git repositories and routes each chat’s worktree actions to the selected repository.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>

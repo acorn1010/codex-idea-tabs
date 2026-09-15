@@ -26,6 +26,9 @@ public final class Smoke implements StartupActivity.DumbAware {
                 settings.distro = System.getProperty("codex.smoke.distro", "");
                 settings.cwd = Boolean.getBoolean("codex.smoke.worktrees.check") && worktreeRun.get() ? com.acorn.codextabs.core.Paths.linux(java.util.Objects.toString(project.getBasePath(), "")) : System.getProperty("codex.smoke.cwd", "/tmp/codex-idea-smoke-project");
                 com.intellij.ide.GeneralSettings.getInstance().setConfirmExit(false);
+                if (Boolean.getBoolean("codex.smoke.repositories.check")) {
+                    service.reconnect(); RepositorySmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
+                }
                 if (Boolean.getBoolean("codex.smoke.live")) {
                     settings.permissions = "read";
                     if (FileEditorManagerEx.getInstanceEx(project).getOpenFiles().length > 0) { return; }

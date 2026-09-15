@@ -85,7 +85,8 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             heading.add(title, BorderLayout.CENTER);
             heading.add(button("New chat", "plus", true, "New chat (Ctrl+Alt+N)", () -> {
                 if (archived || attentionOnly) { showArchive(false); attentionOnly = false; dirty = true; }
-                ChatFiles.open(project, !workspace.isBlank() ? service.createForPath(workspace).id : !activeId.isBlank() ? service.createInWorkspace(activeId).id : service.create().id, false);
+                if (!workspace.isBlank()) { service.createForPathAsync(workspace).thenAccept(chat -> ui(() -> ChatFiles.open(project, chat.id, false))); }
+                else { ChatFiles.open(project, !activeId.isBlank() ? service.createInWorkspace(activeId).id : service.create().id, false); }
             }), BorderLayout.EAST);
             top.add(heading, BorderLayout.NORTH);
             var find = plain(new BorderLayout(JBUI.scale(4), 0));
