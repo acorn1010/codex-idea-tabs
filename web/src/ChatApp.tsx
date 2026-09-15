@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Attachment, Chat, Input, Item, Json, Snapshot } from './types';
 import { request, installNativeCursor } from './bridge';
+import { installTextNavigation } from './TextNavigation';
 import { mergeChat, attachmentInput, itemText, modelEffort } from './format';
 import { Icon } from './icons';
 import { Transcript } from './Transcript';
@@ -25,6 +26,7 @@ function SmallButton({ label, icon, onClick }: { label: string; icon: Parameters
 /** One compact chat view maps to one native editor tab. The native host owns its durable identity. */
 export function ChatApp() {
   useEffect(installNativeCursor, []);
+  useEffect(installTextNavigation, []);
   const [state, setState] = useState<Snapshot>();
   const [draft, setDraft] = useState('');
   const [model, setModel] = useState('');
@@ -70,6 +72,11 @@ export function ChatApp() {
   const end = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number>(0);
   const recall = useRef<RecallSession | undefined>(undefined);
+  useEffect(() => {
+    const stopRecall = () => { recall.current = undefined; };
+    window.addEventListener('codex-text-navigation', stopRecall);
+    return () => window.removeEventListener('codex-text-navigation', stopRecall);
+  }, []);
   const apply = useCallback((snapshot: Snapshot) => {
     if (snapshot.connection === 'connected' && !snapshot.error && !snapshot.chat.error) { setConnectionError(''); }
     if (!initial.current) {

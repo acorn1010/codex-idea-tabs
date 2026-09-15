@@ -38,6 +38,7 @@ public final class NativeUiProbe {
                     var result = object("id", previous);
                     try {
                         var target = new Component[1];
+                        var browserPanel = new javax.swing.JComponent[1];
                         var mouse = new Point[1];
                         ApplicationManager.getApplication().invokeAndWait(() -> {
                             try {
@@ -48,6 +49,7 @@ public final class NativeUiProbe {
                                     field.setAccessible(true);
                                     var browser = (JBCefBrowser) field.get(editor);
                                     target[0] = browser.getCefBrowser().getUIComponent();
+                                    browserPanel[0] = browser.getComponent();
                                     var window = SwingUtilities.getWindowAncestor(target[0]);
                                     window.toFront();
                                     var origin = target[0].getLocationOnScreen();
@@ -59,6 +61,25 @@ public final class NativeUiProbe {
                                 throw new IllegalStateException("Test chat is not open");
                             } catch (Exception error) { throw new RuntimeException(error); }
                         });
+                        if (text(command, "shortcut").equals("text-navigation")) {
+                            ApplicationManager.getApplication().invokeAndWait(() -> {
+                                int key = command.get("keyCode").getAsInt();
+                                int modifiers = command.get("modifiers").getAsInt();
+                                var stroke = javax.swing.KeyStroke.getKeyStroke(key, modifiers);
+                                var matches = com.intellij.openapi.actionSystem.ex.ActionUtil.getActions(browserPanel[0]).stream()
+                                    .filter(action -> java.util.Arrays.stream(action.getShortcutSet().getShortcuts()).anyMatch(shortcut ->
+                                        shortcut instanceof com.intellij.openapi.actionSystem.KeyboardShortcut keyboard
+                                            && keyboard.getFirstKeyStroke().equals(stroke) && keyboard.getSecondKeyStroke() == null))
+                                    .toList();
+                                result.addProperty("matchingActions", matches.size());
+                                for (var action : matches) {
+                                    com.intellij.openapi.actionSystem.ex.ActionUtil.invokeAction(action, browserPanel[0], "CodexNavigationSmoke",
+                                        new KeyEvent(target[0], KeyEvent.KEY_PRESSED, System.currentTimeMillis(), modifiers, key, KeyEvent.CHAR_UNDEFINED), null);
+                                }
+                            });
+                            Files.writeString(directory.resolve("ui-probe-result.json"), GSON.toJson(result));
+                            continue;
+                        }
                         var robot = new Robot();
                         robot.mouseMove(mouse[0].x, mouse[0].y);
                         if (text(command, "shortcut").equals("ctrl-enter") || text(command, "shortcut").equals("up") && flag(command, "focus")) {

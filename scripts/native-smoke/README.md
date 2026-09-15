@@ -125,3 +125,9 @@ Run `./gradlew :core:test buildPlugin`, then `check-approvals.mjs` with `CODEX_S
 The approval fixtures also cover Computer Use app access, Browser Use scalar persistence metadata, session-only connectors, missing durations, form answers, and cancellation. The Java response tests verify `_meta.persist` and reject a duration the connector did not offer. They also cover standard and OpenAI form modes without treating ordinary questions or device verification as saved grants.
 
 Shared guidance checks live in `SharedGuidanceTest` and `SharedGuidanceLiveTest`. The opt-in live test uses `CODEX_TEST_BINARY` and three small read-only turns to verify shared skill discovery, local instruction priority, changed instructions after resume, and a fork into an external Git worktree. Its temporary test chats are archived afterward. `check-repositories.mjs` also checks the shared guidance source and settings action at 360, 520, and 900 pixels.
+
+## Text navigation
+
+Run `check-text-navigation.mjs` with `CODEX_SMOKE_CHROME` after building the UI. It checks word and line movement, Shift selection, selection direction, composition, inline editing, and unchanged drafts at 360 and 900 pixels.
+
+For native action and bridge coverage, use a disposable IDEA profile with `-Dcodex.smoke.ui.probe=true`. Copy the custom test keymap into that profile: Command+Left/Right for previous/next word, Home/End for line start/end, and Shift variants for selection. Run `check-native-text-navigation.mjs` with `CODEX_SMOKE_CDP` and `CODEX_SMOKE_PROBE_ROOT` pointing to the test profile. The check finds actions by their registered shortcuts and invokes them through IDEA into real JCEF. It does not inject physical keys or verify macOS focus and event delivery. Check those manually after installation by typing a draft and using the shortcuts. No model messages are sent.

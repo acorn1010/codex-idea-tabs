@@ -34,6 +34,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     private final javax.swing.Timer updates;
     private JBCefBrowser browser;
     private JBCefJSQuery bridge;
+    private TextNavigation textNavigation;
     private volatile boolean ready;
     private boolean composerReady;
     private boolean composerFocusRequested;
@@ -66,11 +67,16 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         com.intellij.util.net.HttpConfigurable.getInstance();
         browser = new JBCefBrowser();
         Disposer.register(this, browser);
+        textNavigation = new TextNavigation(browser);
         bridge = JBCefJSQuery.create((JBCefBrowserBase) browser);
         Disposer.register(this, bridge);
         bridge.addHandler(raw -> {
             try {
                 var request = JsonParser.parseString(raw).getAsJsonObject();
+                if (text(request, "method").equals("textFocus")) {
+                    textNavigation.focus(flag(obj(request, "params"), "focused"));
+                    return null;
+                }
                 if (text(request, "method").equals("cursor")) {
                     updateCursor(text(obj(request, "params"), "value"));
                     return null;
@@ -83,7 +89,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             return null;
         });
         String nonce = UUID.randomUUID().toString();
-        String boot = "window.__codexSend=function(value){" + bridge.inject("value") + "};";
+        String boot = "window.__codexTextNavigation=true;window.__codexSend=function(value){" + bridge.inject("value") + "};";
         if (org.cef.CefApp.isRemoteEnabled()) { boot += "window.__codexNativeCursor=true;"; }
         String html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             + "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'\">"
