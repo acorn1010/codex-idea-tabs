@@ -194,7 +194,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
           </>}
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={close} className="flex-1 rounded-lg bg-surface px-3 py-2 hover:bg-line">Cancel</button>
-            <button type="button" disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path, discardChanges: remove.files.length > 0 }).then(refresh).then(() => setMode('list')).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="flex-auto rounded-lg bg-red-400/15 px-3 py-2 font-medium text-red-400 hover:bg-red-400/25 active:bg-red-400/35">{busy ? 'Removing…' : remove.files.length ? 'Discard changes and remove' : 'Remove directory'}</button>
+            <button type="button" disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path, discardChanges: remove.files.length > 0 }).then(() => { setData(current => current ? { ...current, entries: current.entries.filter(entry => entry.path !== remove.path) } : current); setMode('list'); }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="flex-auto rounded-lg bg-red-400/15 px-3 py-2 font-medium text-red-400 hover:bg-red-400/25 active:bg-red-400/35">{busy ? 'Removing…' : remove.files.length ? 'Discard changes and remove' : 'Remove directory'}</button>
           </div></>}
       </div>}
     </div>, document.body)}

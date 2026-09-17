@@ -179,7 +179,9 @@ public final class CodexService implements Disposable {
         for (var chat : chats.values()) { known.add(chat.get("cwd")); }
         // Keep a missing checkout removable through its surviving primary repository.
         for (var repo : repositories.repositories()) { known.add(repo.path()); }
-        var catalog = new GitRepositories(distro(), SystemInfo.isWindows).discover(cwd(), known);
+        updateRepositories(new GitRepositories(distro(), SystemInfo.isWindows).discover(cwd(), known));
+    }
+    private void updateRepositories(GitRepositories.Catalog catalog) {
         var owners = new HashMap<String, String>();
         for (var chat : chats.values()) {
             owners.computeIfAbsent(chat.get("cwd"), path -> catalog.containing(path).map(GitRepositories.Repository::path).orElse(""));
@@ -296,7 +298,7 @@ public final class CodexService implements Disposable {
         }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
-    private String removalBlock(String path, boolean discardChanges) {
+    private String activeRemovalBlock(String path) {
         if (GitWorktrees.contains(path, cwd())) { return "This checkout is open as the current IDEA project."; }
         for (var open : com.intellij.openapi.project.ProjectManager.getInstance().getOpenProjects()) {
             String directory = Objects.toString(open.getBasePath(), "");
@@ -308,12 +310,12 @@ public final class CodexService implements Disposable {
                 return "A chat is still working or waiting for your answer in this worktree.";
             }
         }
-        return gitWorktrees().removalBlock(registeredRepository(path).path(), path, discardChanges);
+        return "";
     }
     public CompletableFuture<JsonObject> inspectWorktree(String path) {
         return CompletableFuture.supplyAsync(() -> {
-            synchronized (workspaceRefresh) { refreshRepositories(); }
-            String blocked = removalBlock(path, true);
+            String blocked = activeRemovalBlock(path);
+            if (blocked.isBlank()) { blocked = gitWorktrees().removalBlock(registeredRepository(path).path(), path, true); }
             return object("path", path, "blocked", blocked, "files", blocked.isBlank() ? gitWorktrees().removalFiles(path) : java.util.List.of(),
                 "chats", chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd"))).count());
         }, io);
@@ -323,11 +325,17 @@ public final class CodexService implements Disposable {
         return CompletableFuture.supplyAsync(() -> {
             workspaceLock.writeLock().lock();
             try {
-                synchronized (workspaceRefresh) { refreshRepositories(); }
-                String reason = removalBlock(path, discardChanges);
+                String reason = activeRemovalBlock(path);
                 if (!reason.isBlank()) { throw new IllegalStateException(reason); }
+                // Git rechecks registration, locks and local files in this repository before deleting.
                 gitWorktrees().remove(registeredRepository(path).path(), path, discardChanges);
-                changed(""); workspaces("");
+                synchronized (workspaceRefresh) {
+                    // Keep unrelated repositories intact without rescanning the whole project folder.
+                    updateRepositories(new GitRepositories.Catalog(repositories.repositories().stream()
+                        .map(repo -> new GitRepositories.Repository(repo.path(), repo.name(), repo.workspaces().stream()
+                            .filter(tree -> !GitWorktrees.same(tree.path(), path)).toList())).toList(), repositories.errors()));
+                }
+                changed("");
                 return object("removed", true);
             } finally { workspaceLock.writeLock().unlock(); }
         }, io);

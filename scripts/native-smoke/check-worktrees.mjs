@@ -88,8 +88,10 @@ try {
     const discard = menu.getByRole('button', { name: 'Discard changes and remove', exact: true });
     await discard.click(); await menu.getByRole('alert').filter({ hasText: 'Git removal failed' }).waitFor();
     assert.ok(await discard.isEnabled());
+    const refreshesBeforeRemoval = await page.evaluate(() => window.__requests.filter(call => call.method === 'workspaces').length);
     await discard.click();
     await menu.getByRole('button', { name: 'Remove worktree dirty', exact: true }).waitFor({ state: 'detached' });
+    assert.equal(await page.evaluate(() => window.__requests.filter(call => call.method === 'workspaces').length), refreshesBeforeRemoval, 'Successful removal updates the menu without waiting for another repository scan');
     const discarded = await page.evaluate(() => window.__requests.filter(value => value.method === 'removeWorktree'));
     assert.equal(discarded.length, 2); assert.ok(discarded.every(call => call.params.discardChanges === true));
     await page.keyboard.press('Escape');
