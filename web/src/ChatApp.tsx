@@ -19,8 +19,8 @@ import { uploadAttachment, uploadDroppedFiles, useNativeFileDrop } from './attac
 
 type RecallSession = { messages: string[]; seen: Set<string>; index: number; cursor: string; pending: boolean; error?: string };
 
-function SmallButton({ label, icon, onClick }: { label: string; icon: Parameters<typeof Icon>[0]['name']; onClick: () => void }) {
-  return <button title={label} aria-label={label} onClick={onClick} className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent"><Icon name={icon} /></button>;
+function SmallButton({ label, title = label, icon, disabled, onClick }: { label: string; title?: string; icon: Parameters<typeof Icon>[0]['name']; disabled?: boolean; onClick: () => void }) {
+  return <button title={title} aria-label={label} disabled={disabled} onClick={onClick} className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted enabled:hover:bg-raised enabled:active:bg-line enabled:hover:text-ink enabled:active:text-accent disabled:opacity-40"><Icon name={icon} /></button>;
 }
 
 /** One compact chat view maps to one native editor tab. The native host owns its durable identity. */
@@ -34,6 +34,7 @@ export function ChatApp() {
   const [permissions, setPermissions] = useState('auto');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
+  const [archivePending, setArchivePending] = useState(false);
   const [uploads, setUploads] = useState(0);
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState('');
@@ -242,7 +243,7 @@ export function ChatApp() {
     if (slash.command) { await runCommand(slash.command); return; }
     if (slashQuery(draft) !== undefined) { setError('Choose a command or skill from the menu.'); return; }
     recall.current = undefined;
-    if (state?.chat.archived || sending || uploads || (!draft.trim() && !attachments.length && !draftSkills.length && !state?.chat.draftInput?.length)) { return; }
+    if (state?.chat.archived || archivePending || sending || uploads || (!draft.trim() && !attachments.length && !draftSkills.length && !state?.chat.draftInput?.length)) { return; }
     setSending(true); setError(''); window.clearTimeout(saveTimer.current);
     try {
       const input: Input[] = [...(state?.chat.draftInput || []), ...draftSkills, ...attachmentInput(attachments)];
@@ -263,6 +264,19 @@ export function ChatApp() {
   const working = chat?.working;
   const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
   const attention = chat?.requests.length || 0;
+  const archiveBlocked = !chat || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
+  const setArchived = async (archived: boolean) => {
+    if (archivePending || (archived && archiveBlocked)) { return; }
+    setArchivePending(true); setError('');
+    try {
+      if (archived) {
+        window.clearTimeout(saveTimer.current);
+        await request('draft', { text: draft, attachments, skills: draftSkills });
+      }
+      await request(archived ? 'archive' : 'restore');
+    } catch (error) { setError((error as Error).message); }
+    finally { setArchivePending(false); }
+  };
   const needsLogin = state?.account.requiresOpenaiAuth && !state.account.account;
   const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
@@ -295,7 +309,7 @@ export function ChatApp() {
   ];
   const slashItems: SlashItem[] = [...rows.map(([command, label, icon, description, disabled]): SlashItem => ({ kind: 'command', command, id: command, name: command, label, icon, description, disabled })), ...skills.map((skill): SlashItem => ({ kind: 'skill', skill, id: `skill:${skill.path}`, name: skill.name, label: skill.interface?.displayName || skill.name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' '), description: skill.interface?.shortDescription || skill.shortDescription || skill.description, icon: 'skill', scope: skill.scope === 'repo' ? state?.project || 'Project' : skill.scope === 'user' ? 'Personal' : skill.scope === 'admin' ? 'Admin' : 'Built in' }))];
   const runCommand = async (item: SlashItem) => {
-    if (commandRunning.current || sending || chat?.archived || item.disabled) { return; }
+    if (commandRunning.current || sending || archivePending || chat?.archived || item.disabled) { return; }
     commandRunning.current = true;
     recall.current = undefined;
     const commandDraft = draft;
@@ -342,7 +356,7 @@ export function ChatApp() {
       <SmallButton label="Find chat (Ctrl+K)" icon="search" onClick={() => setPalette(true)} />
       <SmallButton label="New chat to side" icon="split" onClick={() => void run('new', { split: true })} />
       <SmallButton label="Inspect context" icon="layers" onClick={() => { setInspectionSearch(''); setInspecting(true); }} />
-      <SmallButton label="Connection settings" icon="settings" onClick={() => void run('settings')} />
+      {!chat?.archived && <SmallButton label="Archive chat" icon="archive" disabled={archiveBlocked || archivePending} title={archivePending ? 'Archiving chat…' : archiveBlocked ? 'Finish active work, pending requests, and edits before archiving' : 'Archive chat. You can restore it anytime.'} onClick={() => void setArchived(true)} />}
     </header>
 
     {slash.menu}
@@ -370,7 +384,7 @@ export function ChatApp() {
 
     {chat?.archived ? <footer className="flex shrink-0 flex-wrap items-center gap-3 bg-raised px-4 py-3">
       <div className="min-w-0 flex-1"><p className="text-xs font-medium">This chat is archived</p><p className="mt-1 text-[11px] text-muted">Your messages and saved draft are kept here.</p></div>
-      <button onClick={() => void run('restore')} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer hover:brightness-110 active:translate-y-px active:brightness-90">Restore chat</button>
+      <button disabled={archivePending} onClick={() => void setArchived(false)} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:translate-y-px enabled:active:brightness-90 disabled:opacity-40">Restore chat</button>
     </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
       {showStatus && state && <ChatStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />}
       {commandPanel && <CommandPanel key={commandPanel} action={commandPanel} working={!!working} options={{ model, effort, permissions, fast: effectiveFast, planMode }} onClose={() => { setCommandPanel(undefined); textarea.current?.focus(); }} />}
@@ -384,7 +398,7 @@ export function ChatApp() {
           {attachment.mime.startsWith('image/') ? <ImagePreview path={attachment.path} alt={attachment.name} compact /> : <span className="flex min-w-0 items-center gap-1.5 py-1 pl-2"><Icon name="file" size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span></span>}
           <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="close" size={11} /></button>
         </span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
-        <textarea ref={textarea} {...slash.inputProps} aria-label="Message Codex" aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
+        <textarea ref={textarea} disabled={archivePending} {...slash.inputProps} aria-label="Message Codex" aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
           if (slash.keyDown(event)) { recall.current = undefined; return; }
           const plainUp = event.key === 'ArrowUp' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
           if (!plainUp || event.nativeEvent.isComposing) { recall.current = undefined; }
@@ -419,7 +433,7 @@ export function ChatApp() {
           {selectedModel && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex size-7 shrink-0 items-center justify-center gap-1 rounded text-[10px] @min-[640px]/composer:w-auto @min-[640px]/composer:px-1 hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[640px]/composer:hidden">IDE context</span></button>
           {working && <button aria-label="Stop Codex" title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
-          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
+          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>
         </div>
       </div>

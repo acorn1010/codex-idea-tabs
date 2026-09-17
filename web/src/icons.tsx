@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 
 const paths = {
+  archive: 'M3 13v8h18v-8M3 13h5l2 3h4l2-3h5M12 3v8m-4-4 4 4 4-4',
   review: 'M9 3h6l1 3h3v15H5V6h3zM9 11h6M9 15h4',
   bolt: 'm13 2-9 12h7l-1 8 10-13h-7z',
   feedback: 'M4 3h16v14H9l-5 4zM8 7h8M8 11h5',
