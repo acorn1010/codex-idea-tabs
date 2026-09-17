@@ -316,8 +316,11 @@ public final class CodexService implements Disposable {
         return CompletableFuture.supplyAsync(() -> {
             String blocked = activeRemovalBlock(path);
             if (blocked.isBlank()) { blocked = gitWorktrees().removalBlock(registeredRepository(path).path(), path, true); }
+            var affected = chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd")))
+                .sorted(Comparator.comparing(chat -> chat.get("title")))
+                .map(chat -> object("id", chat.id, "title", chat.get("title"), "status", chat.status(), "archived", chat.archived())).toList();
             return object("path", path, "blocked", blocked, "files", blocked.isBlank() ? gitWorktrees().removalFiles(path) : java.util.List.of(),
-                "chats", chats.values().stream().filter(chat -> GitWorktrees.contains(path, chat.get("cwd"))).count());
+                "chats", affected.size(), "affectedChats", affected);
         }, io);
     }
     public CompletableFuture<JsonObject> removeWorktree(String path) { return removeWorktree(path, false); }

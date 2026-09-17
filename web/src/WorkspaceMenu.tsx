@@ -7,7 +7,7 @@ import type { Attachment, Chat } from './types';
 type Workspace = { path: string; name: string; branch: string; main: boolean; locked: boolean; missing: boolean; chats: number };
 type Repository = { path: string; name: string; project: boolean };
 type Workspaces = { repositories?: Repository[]; repository?: string; projectPath?: string; sharedGuidanceFolder?: string; entries: Workspace[]; branches: string[]; current: string; base: string; suggestedName: string; error: string };
-type Removal = { path: string; blocked: string; chats: number; files: { path: string; status: string }[] };
+type Removal = { path: string; blocked: string; chats: number; affectedChats?: { id: string; title: string; archived: boolean; status: string }[]; files: { path: string; status: string }[] };
 const rowStyle = 'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-surface active:bg-line focus-visible:bg-surface focus-visible:outline-none';
 const inputStyle = 'mt-1.5 w-full min-w-0 rounded-lg bg-input px-3 py-2 text-xs shadow-input focus:shadow-input-focus';
 
@@ -54,7 +54,7 @@ function StartingBranch({ value, branches, disabled, onChange }: { value: string
 }
 
 /** One small checkout control handles selection, branching and cleanup without another composer row. */
-export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat; label?: string; draft: string; attachments: Attachment[] }) {
+export function WorkspaceMenu({ chat, label, draft, attachments, onRemoved }: { chat: Chat; label?: string; draft: string; attachments: Attachment[]; onRemoved?: () => void }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -73,6 +73,9 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
   const hasRepositoryChoice = repositories.length > 1 || (!!data?.projectPath && repositories[0]?.path !== data.projectPath);
   const visibleRepositories = repositories.filter(repository => `${repository.name} ${repository.path}`.toLowerCase().includes(repositorySearch.trim().toLowerCase()));
   const compactLabel = label?.replace(/(^| · )codex\//, '$1');
+  const currentWorkspace = data?.entries.filter(entry => chat.cwd === entry.path || chat.cwd.startsWith(`${entry.path}/`)).sort((left, right) => right.path.length - left.path.length)[0];
+  const otherChats = remove?.affectedChats?.filter(value => value.id !== chat.id) || [];
+  const archivedLabel = currentWorkspace ? `${selectedRepository?.name || currentWorkspace.name} · ${currentWorkspace.branch.replace(/^codex\//, '') || currentWorkspace.name}` : compactLabel || chat.cwd;
   const established = !!chat.threadId;
   const unavailable = chat.working || chat.requests.length > 0;
   const close = () => { setOpen(false); trigger.current?.focus(); };
@@ -80,10 +83,27 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
     const result = await request<Workspaces>('workspaces');
     setData(result); setName(result.suggestedName); setBase(result.base); return result;
   };
+  const reload = () => {
+    setBusy(true); setError('');
+    void refresh().catch((error: Error) => setError(error.message)).finally(() => setBusy(false));
+  };
+  const inspectRemoval = async (workspace: Workspace) => {
+    setBusy(true); setError(''); setRemove(undefined);
+    try {
+      const value = await request<Removal>('inspectWorktree', { path: workspace.path });
+      setRemove({ ...value, files: value.files || [], branch: workspace.branch }); setMode('remove');
+    } catch (error) { setError((error as Error).message); }
+    finally { setBusy(false); }
+  };
+  useEffect(() => {
+    if (chat.archived) { reload(); }
+  }, [chat.archived, chat.cwd]);
   useEffect(() => {
     if (!open) { return; }
-    setMode('list'); setError(''); setRepositorySearch(''); setBusy(true);
-    void refresh().catch((error: Error) => setError(error.message)).finally(() => setBusy(false));
+    if (chat.archived && currentWorkspace) { setMode('remove'); void inspectRemoval(currentWorkspace); }
+    else {
+      setMode('list'); setRepositorySearch(''); reload();
+    }
     const place = () => {
       const rect = trigger.current!.getBoundingClientRect();
       const width = Math.min(360, window.innerWidth - 24);
@@ -109,10 +129,14 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
     finally { setBusy(false); }
   };
   return <>
-    <button ref={trigger} type="button" aria-label={`Workspace: ${label || chat.cwd}`} title={`${label || 'Workspace'}\n${chat.cwd}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-7 max-w-32 items-center justify-center gap-1 rounded-md px-1 @min-[640px]/composer:max-w-56 @min-[900px]/composer:max-w-96 text-[11px] text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent">
+    {chat.archived ? <>
+      <span title={chat.cwd} className="min-w-0 flex-1 basis-full break-words text-[11px] text-muted min-[520px]:basis-40">{archivedLabel}</span>
+      {currentWorkspace && !currentWorkspace.main && !currentWorkspace.missing && <button ref={trigger} type="button" disabled={busy && !open} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted enabled:hover:bg-line enabled:hover:text-red-400 enabled:active:bg-red-400/15 disabled:opacity-40"><Icon name="trash" size={13} />Remove worktree…</button>}
+      {!open && error && <p role="alert" className="flex w-full items-center gap-2 text-xs text-red-400"><span className="min-w-0 flex-1 break-words">{error}</span><button type="button" disabled={busy} onClick={reload} className="shrink-0 rounded px-2 py-1 enabled:hover:bg-line enabled:active:bg-red-400/15">Retry</button></p>}
+    </> : <button ref={trigger} type="button" aria-label={`Workspace: ${label || chat.cwd}`} title={`${label || 'Workspace'}\n${chat.cwd}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-7 max-w-32 items-center justify-center gap-1 rounded-md px-1 @min-[640px]/composer:max-w-56 @min-[900px]/composer:max-w-96 text-[11px] text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent">
       <span className="shrink-0"><Icon name="branch" size={13} /></span><span className="truncate @max-[400px]/composer:hidden">{compactLabel || chat.cwd.split('/').pop() || 'Workspace'}</span><span className="shrink-0 @max-[400px]/composer:hidden"><Icon name="down" size={10} /></span>
-    </button>
-    {open && createPortal(<div ref={panel} role="dialog" aria-label="Workspace" tabIndex={-1} style={position} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-2 shadow-2xl outline-none" onKeyDown={(event) => {
+    </button>}
+    {open && createPortal(<div ref={panel} role="dialog" aria-label={chat.archived ? 'Remove worktree' : 'Workspace'} tabIndex={-1} style={position} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-2 shadow-2xl outline-none" onKeyDown={(event) => {
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); }
       if (event.key === 'Tab') {
         const controls = Array.from(panel.current!.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled)'));
@@ -122,7 +146,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
       }
     }}>
       <div className="flex items-center gap-2 px-2 pb-2 pt-1">
-        {mode !== 'list' && <button aria-label="Back to workspaces" onClick={() => { setMode('list'); setError(''); }} className="rounded p-1 text-muted hover:bg-surface hover:text-ink active:bg-line"><span className="block rotate-180"><Icon name="arrow" size={14} /></span></button>}
+        {!chat.archived && mode !== 'list' && <button aria-label="Back to workspaces" onClick={() => { setMode('list'); setError(''); }} className="rounded p-1 text-muted hover:bg-surface hover:text-ink active:bg-line"><span className="block rotate-180"><Icon name="arrow" size={14} /></span></button>}
         <span className="flex-1 text-xs font-medium">{mode === 'create' ? 'New worktree' : mode === 'remove' ? 'Remove worktree' : mode === 'repositories' ? 'Choose repository' : 'Workspace'}</span>
         <button aria-label="Close workspace menu" onClick={close} className="rounded p-1 text-muted hover:bg-surface hover:text-ink active:bg-line"><Icon name="close" size={13} /></button>
       </div>
@@ -150,7 +174,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
                 <span className="min-w-0 flex-1"><span className="block truncate">{workspace.branch || workspace.name}</span><span className="block truncate text-[10px] text-muted">{workspace.main ? 'Primary checkout' : workspace.name}{workspace.missing ? ' · Missing' : workspace.locked ? ' · Locked' : ''}{workspace.chats ? ` · ${workspace.chats} chat${workspace.chats === 1 ? '' : 's'}` : ''}</span></span>
                 {established && !selected && <Icon name="newTab" size={12} />}
               </button>
-              {!workspace.main && <button disabled={busy} aria-label={`Remove worktree ${workspace.name}`} title="Remove worktree" onClick={() => { setBusy(true); setError(''); void request<Removal>('inspectWorktree', { path: workspace.path }).then((value) => { setRemove({ ...value, files: value.files || [], branch: workspace.branch }); setMode('remove'); }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-red-400/10 hover:text-red-400 active:bg-red-400/20"><Icon name="trash" size={13} /></button>}
+              {!workspace.main && <button disabled={busy} aria-label={`Remove worktree ${workspace.name}`} title="Remove worktree" onClick={() => void inspectRemoval(workspace)} className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-red-400/10 hover:text-red-400 active:bg-red-400/20"><Icon name="trash" size={13} /></button>}
             </div>;
           })}</div>
         </>}
@@ -182,9 +206,14 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
         <p className="break-all text-[10px] leading-relaxed text-muted">Branch: codex/{name || '…'}<br />{data?.entries.find((entry) => entry.main)?.path}.worktrees/{name || '…'}</p>
         <button disabled={busy || unavailable || !name || !base} type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:brightness-90">{busy ? 'Creating…' : established ? 'Create and continue' : 'Create worktree'}{established && <Icon name="newTab" size={13} />}</button>
       </form>}
+      {mode === 'remove' && busy && !remove && <p role="status" className="px-2.5 py-2 text-xs text-muted">Checking worktree…</p>}
       {mode === 'remove' && remove && <div className="space-y-3 px-2 pb-2 text-xs">
         <p className="break-all text-muted">{remove.path}</p>
-        {remove.blocked ? <p role="status">{remove.blocked}</p> : <><p>Remove this worktree folder and its files? {remove.branch ? <>The local branch <strong className="break-all font-medium text-ink">{remove.branch}</strong> and all its commits will be kept. </> : ''}{remove.chats || 'Saved'} chat{remove.chats === 1 ? '' : 's'} will also be kept.</p><p className="text-[11px] text-muted">Chats that used it will need another checkout before sending.</p>
+        {otherChats.length > 0 && <details className="rounded-lg bg-input p-2">
+          <summary className="cursor-pointer rounded text-[11px] text-muted hover:text-ink active:text-accent">{otherChats.length} other chat{otherChats.length === 1 ? ' uses' : 's use'} this worktree</summary>
+          <ul className="mt-2 max-h-28 space-y-1.5 overflow-y-auto">{otherChats.map(value => <li key={value.id} className="flex items-start gap-2 text-[11px]"><span className="min-w-0 flex-1 break-words">{value.title}</span><span className="shrink-0 text-muted">{value.archived ? 'Archived' : value.status === 'working' ? 'Working' : value.status === 'attention' ? 'Needs your input' : 'Saved'}</span></li>)}</ul>
+        </details>}
+        {remove.blocked ? <p role="status">{remove.blocked}</p> : <><p>Remove this worktree folder and its files? {remove.branch ? <>The local branch <strong className="break-words font-medium text-ink">{remove.branch}</strong> and all its commits will be kept. </> : ''}{remove.chats || 'Saved'} chat{remove.chats === 1 ? '' : 's'} will also be kept.</p><p className="text-[11px] text-muted">Chats that used it will need another checkout before sending.</p>
           {remove.files.length > 0 && <>
             <p className="text-red-400">These local changes and files will be permanently deleted. They are not saved by keeping the branch.</p>
             <ul aria-label="Local changes and files to discard" className="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-input p-2">
@@ -194,7 +223,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments }: { chat: Chat;
           </>}
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={close} className="flex-1 rounded-lg bg-surface px-3 py-2 hover:bg-line">Cancel</button>
-            <button type="button" disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path, discardChanges: remove.files.length > 0 }).then(() => { setData(current => current ? { ...current, entries: current.entries.filter(entry => entry.path !== remove.path) } : current); setMode('list'); }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="flex-auto rounded-lg bg-red-400/15 px-3 py-2 font-medium text-red-400 hover:bg-red-400/25 active:bg-red-400/35">{busy ? 'Removing…' : remove.files.length ? 'Discard changes and remove' : 'Remove directory'}</button>
+            <button type="button" disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path, discardChanges: remove.files.length > 0 }).then(() => { setData(current => current ? { ...current, entries: current.entries.filter(entry => entry.path !== remove.path) } : current); if (chat.archived) { setOpen(false); window.requestAnimationFrame(() => onRemoved?.()); } else { setMode('list'); } }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="flex-auto rounded-lg bg-red-400/15 px-3 py-2 font-medium text-red-400 hover:bg-red-400/25 active:bg-red-400/35">{busy ? 'Removing…' : remove.files.length ? 'Discard changes and remove' : 'Remove directory'}</button>
           </div></>}
       </div>}
     </div>, document.body)}

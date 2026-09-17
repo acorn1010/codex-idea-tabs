@@ -69,6 +69,7 @@ export function ChatApp() {
   const modelInitialized = useRef(false);
   const preferenceSaves = useRef(Promise.resolve());
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const restoreButton = useRef<HTMLButtonElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
   const saveTimer = useRef<number>(0);
@@ -383,8 +384,9 @@ export function ChatApp() {
     {!follow && !editingItemId && <button onClick={() => { setFollow(true); end.current?.scrollIntoView(); }} className="absolute right-5 bottom-44 z-10 flex items-center gap-1 rounded-full bg-raised px-3 py-1.5 text-xs shadow-lg hover:bg-line active:brightness-90">Latest<Icon name="down" size={12} /></button>}
 
     {chat?.archived ? <footer className="flex shrink-0 flex-wrap items-center gap-3 bg-raised px-4 py-3">
-      <div className="min-w-0 flex-1"><p className="text-xs font-medium">This chat is archived</p><p className="mt-1 text-[11px] text-muted">Your messages and saved draft are kept here.</p></div>
-      <button disabled={archivePending} onClick={() => void setArchived(false)} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:translate-y-px enabled:active:brightness-90 disabled:opacity-40">Restore chat</button>
+      <div className="min-w-0 basis-full"><p className="text-xs font-medium">This chat is archived</p><p className="mt-1 text-[11px] text-muted">Your messages and saved draft are kept here.</p></div>
+      <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} onRemoved={() => restoreButton.current?.focus()} />
+      <button ref={restoreButton} disabled={archivePending} onClick={() => void setArchived(false)} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:translate-y-px enabled:active:brightness-90 disabled:opacity-40">Restore chat</button>
     </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
       {showStatus && state && <ChatStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />}
       {commandPanel && <CommandPanel key={commandPanel} action={commandPanel} working={!!working} options={{ model, effort, permissions, fast: effectiveFast, planMode }} onClose={() => { setCommandPanel(undefined); textarea.current?.focus(); }} />}

@@ -33,6 +33,7 @@ try {
       let result = {};
       let error;
       if (method === 'ready') { result = snapshot; }
+      if (method === 'workspaces') { result = { entries: [], repositories: [], current: snapshot.chat.cwd, branches: [], base: '', suggestedName: '', error: '' }; }
       if (method === 'draft') { Object.assign(snapshot.chat, { draft: params.text, draftAttachments: params.attachments }); }
       if (method === 'attachment') { result = { name: params.name, mime: params.mime, path: `/home/acorn/.codex/attachments/${params.name}`, size: atob(params.data).length }; }
       if (method === 'droppedFiles') {
