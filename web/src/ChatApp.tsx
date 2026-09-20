@@ -4,6 +4,7 @@ import { request, installNativeCursor } from './bridge';
 import { installTextNavigation } from './TextNavigation';
 import { mergeChat, attachmentInput, itemText, modelEffort } from './format';
 import { Icon } from './icons';
+import { chatMarkdown } from './chatMarkdown';
 import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
 import { WorkspaceMenu } from './WorkspaceMenu';
@@ -35,6 +36,9 @@ export function ChatApp() {
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const [archivePending, setArchivePending] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copying' | 'copied'>('idle');
+  const copyTimer = useRef<number>(0);
+  useEffect(() => () => window.clearTimeout(copyTimer.current), []);
   const [uploads, setUploads] = useState(0);
   const [error, setError] = useState('');
   const [connectionError, setConnectionError] = useState('');
@@ -261,6 +265,15 @@ export function ChatApp() {
     } catch (error) { setError((error as Error).message); }
     finally { setSending(false); }
   };
+  const copyChat = async () => {
+    if (copyState === 'copying') { return; }
+    window.clearTimeout(copyTimer.current); setCopyState('copying'); setError('');
+    try {
+      const transcript = await request<Pick<Chat, 'title' | 'items' | 'requests'>>('chatTranscript');
+      await request('copy', { text: chatMarkdown(transcript) });
+      setCopyState('copied'); copyTimer.current = window.setTimeout(() => setCopyState('idle'), 1500);
+    } catch (error) { setCopyState('idle'); setError(`Could not copy chat: ${(error as Error).message}`); }
+  };
   const chat = state?.chat;
   const working = chat?.working;
   const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
@@ -354,8 +367,8 @@ export function ChatApp() {
       <span className={`truncate text-[11px] ${attention ? 'text-attention' : 'text-muted'}`}>{status}</span>
       <span className="min-w-0 flex-1 truncate text-right text-[10px] text-muted/70" title={state?.cwd}>{state?.project}</span>
       {attentionCount > 0 && <button title="See chats that need you" onClick={() => setPalette(true)} className="rounded bg-attention/10 px-1.5 py-0.5 text-[10px] text-attention hover:bg-attention/20 active:bg-attention/30">{attentionCount} waiting</button>}
-      <SmallButton label="Find chat (Ctrl+K)" icon="search" onClick={() => setPalette(true)} />
-      <SmallButton label="New chat to side" icon="split" onClick={() => void run('new', { split: true })} />
+      <SmallButton label="Copy chat as Markdown" icon={copyState === 'copied' ? 'check' : 'copy'} disabled={!chat || copyState === 'copying' || (!chat.threadId && !chat.items.length)} title={copyState === 'copying' ? 'Copying whole chat…' : copyState === 'copied' ? 'Chat copied' : 'Copy whole chat as Markdown'} onClick={() => void copyChat()} />
+      <span role="status" className="sr-only">{copyState === 'copying' ? 'Copying chat' : copyState === 'copied' ? 'Chat copied' : ''}</span>
       <SmallButton label="Inspect context" icon="layers" onClick={() => { setInspectionSearch(''); setInspecting(true); }} />
       {!chat?.archived && <SmallButton label="Archive chat" icon="archive" disabled={archiveBlocked || archivePending} title={archivePending ? 'Archiving chat…' : archiveBlocked ? 'Finish active work, pending requests, and edits before archiving' : 'Archive chat. You can restore it anytime.'} onClick={() => void setArchived(true)} />}
     </header>

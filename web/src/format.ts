@@ -83,3 +83,8 @@ export function toolLabel(item: Item): string {
     default: return item.type.replace(/([a-z])([A-Z])/g, '$1 $2');
   }
 }
+
+/** Match the expanded activity details when rendering or copying a transcript. */
+export function toolContent(item: Item): string {
+  return item.type === 'reasoning' ? itemText(item) : item.aggregatedOutput || itemText(item) || JSON.stringify(item.result || item.arguments || item, null, 2);
+}

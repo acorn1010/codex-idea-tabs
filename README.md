@@ -81,8 +81,9 @@ This requires a Codex version that supports `skills/extraRoots/set` and `thread/
 | Action | How |
 | --- | --- |
 | New chat | `Ctrl+Alt+N` or the Codex sidebar's **New chat** button |
-| New chat beside this one | Chat header's split button or **Tools → Codex Tabs → New Chat to Side** |
+| New chat beside this one | **Tools → Codex Tabs → New Chat to Side** |
 | Find a chat | `Ctrl+K` inside a chat |
+| Copy the whole chat | Chat header’s **Copy chat as Markdown** icon. Includes older messages and tool activity, with image references and original message formatting. Works for archived chats too |
 | Go to a chat that needs input | `Ctrl+Alt+A` or the sidebar's **Needs you** filter |
 | Add selected code | Select code, then **Codex: Discuss Selected Code** in the editor context menu |
 | Send a message | `Enter` |

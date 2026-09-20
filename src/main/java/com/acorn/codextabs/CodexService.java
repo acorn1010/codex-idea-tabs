@@ -499,6 +499,18 @@ public final class CodexService implements Disposable {
             });
         }));
     }
+    /** Read complete history separately so copying does not alter the visible transcript or chat state. */
+    public CompletableFuture<JsonObject> transcript(String id) {
+        var snapshot = chat(id).snapshot();
+        if (text(snapshot, "threadId").isBlank()) { return CompletableFuture.completedFuture(ChatTranscript.read(snapshot, cursor -> new JsonObject())); }
+        return connect().thenApplyAsync(rpc -> ChatTranscript.read(snapshot, cursor -> {
+            var params = object("threadId", text(snapshot, "threadId"), "limit", 100, "sortDirection", "desc");
+            if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
+            var page = rpc.request("thread/items/list", params).join();
+            if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
+            return page;
+        }), io);
+    }
     public CompletableFuture<JsonObject> older(String id, String cursor) {
         return connect().thenCompose(rpc -> older(id, cursor, rpc));
     }

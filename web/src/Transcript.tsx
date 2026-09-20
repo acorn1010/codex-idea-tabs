@@ -1,7 +1,7 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Attachment, Item, Json } from './types';
 import { uploadAttachment, uploadDroppedFiles, useNativeFileDrop } from './attachments';
-import { groupTranscript, itemText, toolFailed, toolImagePaths, toolLabel } from './format';
+import { groupTranscript, itemText, toolContent, toolFailed, toolImagePaths, toolLabel } from './format';
 import { Markdown, ImagePreview } from './Markdown';
 import { Icon } from './icons';
 import { request } from './bridge';
@@ -121,7 +121,7 @@ const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }
   const label = toolLabel(item);
   const failed = toolFailed(item);
   const reasoning = item.type === 'reasoning';
-  const content = reasoning ? itemText(item) : item.aggregatedOutput || itemText(item) || JSON.stringify(item.result || item.arguments || item, null, 2);
+  const content = toolContent(item);
   if (!hasActivityDetails(item)) { return null; }
   return <div className="min-w-0 text-xs">
     {!detailsOnly && <button onClick={() => setOpen(!open)} aria-expanded={open} title={label} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
