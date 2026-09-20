@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.11
+
+- Copy the whole chat as Markdown, including older messages, tool activity, and image references. Works with archived chats and preserves the visible history and draft.
+- Replace the Search and Split Screen header icons with Copy chat. Chat search and native split actions remain available.
+- Replace the chat Settings icon with Archive. Restore archived chats when needed.
+- Remove a linked worktree directly from an archived chat, with the same checks and explicit discard confirmation as the workspace menu.
+- Avoid full repository scans during worktree removal.
+
 ## 1.0.10
 
 - Allow clean worktrees on named branches to be removed after squash merges. Keep their branches and commits, and explain this in the confirmation.
