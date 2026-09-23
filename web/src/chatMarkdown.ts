@@ -1,12 +1,16 @@
 import { itemText, toolContent, toolFailed, toolImagePaths, toolLabel } from './format';
 import type { Chat, Json } from './types';
 
-/** Export all transcript content as Markdown, preserving original message formatting and image references. */
-export function chatMarkdown(chat: Pick<Chat, 'title' | 'items'> & Partial<Pick<Chat, 'requests'>>): string {
+export type ChatCopyMode = 'conversation' | 'full';
+
+/** Export messages by default, with optional activity, preserving Markdown and image references. */
+export function chatMarkdown(chat: Pick<Chat, 'title' | 'items'> & Partial<Pick<Chat, 'requests'>>, mode: ChatCopyMode = 'conversation'): string {
   const sections = [`# ${heading(chat.title || 'Chat')}`];
   for (const item of chat.items) {
+    const message = item.type === 'userMessage' || item.type === 'agentMessage';
+    if (mode === 'conversation' && !message) { continue; }
     const body = itemText(item);
-    if (item.type === 'userMessage' || item.type === 'agentMessage') {
+    if (message) {
       const images = (item.content || []).filter((part): part is Json => typeof part !== 'string' && (part.type === 'image' || part.type === 'localImage'))
         .map(part => imageReference(String(part.path || part.url || ''), 'Attached image')).filter(Boolean);
       sections.push([`## ${item.type === 'userMessage' ? 'User' : 'Codex'}`, body, ...images].filter(Boolean).join('\n\n'));
@@ -21,7 +25,7 @@ export function chatMarkdown(chat: Pick<Chat, 'title' | 'items'> & Partial<Pick<
         ...toolImagePaths(item).map(path => imageReference(path, 'Generated image'))].filter(Boolean).join('\n\n'));
     }
   }
-  for (const pending of chat.requests || []) {
+  for (const pending of mode === 'full' ? chat.requests || [] : []) {
     const questions = (pending.questions || []).map(question => [question.question, ...(question.options || []).map(option => `- ${option.label}`)].join('\n'));
     sections.push(['### Pending request', pending.reason || pending.message || '', pending.command ? fence(pending.command, 'shell') : '', ...questions].filter(Boolean).join('\n\n'));
   }

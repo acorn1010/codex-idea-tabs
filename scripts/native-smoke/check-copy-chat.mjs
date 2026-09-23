@@ -1,4 +1,4 @@
-/** Check whole-chat copying and toolbar layout with fixture history, without changing the system clipboard. */
+/** Check both Markdown copy choices and keyboard defaults without changing the system clipboard. */
 import { chromium } from '../../web/node_modules/playwright-core/index.mjs';
 import { createServer } from 'node:http';
 import { readFileSync, mkdirSync } from 'node:fs';
@@ -39,6 +39,12 @@ try {
   });
   const url = `http://127.0.0.1:${server.address().port}/`;
   const copy = page.getByRole('button', { name: 'Copy chat as Markdown', exact: true });
+  const menu = page.getByRole('menu', { name: 'Copy chat', exact: true });
+  const chooseConversation = async () => {
+    await copy.click();
+    await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Copy conversation');
+    await page.keyboard.press('Enter');
+  };
   for (const width of [360, 900]) {
     await page.setViewportSize({ width, height: 720 });
     for (const mode of ['active', 'archived']) {
@@ -51,9 +57,33 @@ try {
       assert.equal(await page.getByText('Oldest message from history.', { exact: true }).count(), 0);
       const before = await page.getByRole('button', { name: 'Load earlier history', exact: true }).locator('..').innerText();
       await copy.click();
+      await menu.waitFor();
+      assert.deepEqual(await menu.getByRole('menuitem').evaluateAll(items => items.map(item => item.getAttribute('aria-label'))), ['Copy conversation', 'Copy full chat']);
+      await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Copy conversation');
+      const bounds = await menu.boundingBox();
+      assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width && bounds.y >= 0 && bounds.y + bounds.height <= 720);
+      await page.screenshot({ path: `${output}/copy-chat-menu-${mode}-${width}.png` });
+      await page.keyboard.press('ArrowDown');
+      assert.equal(await menu.getByRole('menuitem', { name: 'Copy full chat', exact: true }).evaluate(element => element === document.activeElement), true);
+      await page.keyboard.press('Home');
+      assert.equal(await menu.getByRole('menuitem', { name: 'Copy conversation', exact: true }).evaluate(element => element === document.activeElement), true);
+      await page.keyboard.press('End');
+      await page.keyboard.press('ArrowUp');
+      assert.equal(await menu.getByRole('menuitem', { name: 'Copy conversation', exact: true }).evaluate(element => element === document.activeElement), true);
+      await page.keyboard.press('Escape');
+      await menu.waitFor({ state: 'detached' });
+      assert.equal(await copy.evaluate(element => element === document.activeElement), true);
+      await copy.press('ArrowDown'); await menu.waitFor();
+      await page.keyboard.press('Tab'); await menu.waitFor({ state: 'detached' });
+      assert.equal(await page.getByRole('button', { name: 'Inspect context', exact: true }).evaluate(element => element === document.activeElement), true);
+      await copy.click(); await menu.waitFor();
+      await page.getByText('Project', { exact: true }).click();
+      await menu.waitFor({ state: 'detached' });
+      assert.equal(await page.evaluate(() => window.__requests.filter(call => call.method === 'chatTranscript').length), 0, 'Opening or dismissing the menu does not copy');
+      await chooseConversation();
       await page.waitForFunction(() => window.__finishCopy !== undefined);
       assert.ok(await copy.isDisabled());
-      assert.equal(await copy.getAttribute('title'), 'Copying whole chat…');
+      assert.equal(await copy.getAttribute('title'), 'Copying chat…');
       await page.evaluate(() => window.__finishCopy());
       await page.waitForFunction(() => window.__copies.length === 1);
       await page.getByTitle('Chat copied', { exact: true }).waitFor();
@@ -61,8 +91,8 @@ try {
       const text = await page.evaluate(() => window.__copies[0]);
       assert.ok(text.includes('# Whole chat'));
       assert.ok(text.includes('## User\n\nOldest message from history.'));
-      assert.ok(text.includes('```shell\ngit status\n```'));
-      assert.ok(text.includes('working tree clean'));
+      assert.ok(!text.includes('git status'));
+      assert.ok(!text.includes('working tree clean'));
       assert.ok(text.includes('## Codex\n\n**Latest reply** with Markdown.'));
       assert.ok(text.indexOf('Oldest message') < text.indexOf('Latest reply'));
       assert.ok(!text.includes('Unsent draft'));
@@ -71,25 +101,35 @@ try {
       else { assert.ok(await page.getByRole('button', { name: 'Restore chat', exact: true }).isVisible()); }
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.screenshot({ path: `${output}/copy-chat-${mode}-${width}.png` });
-      // A history failure must leave the clipboard untouched and allow a retry.
-      await copy.click(); await page.evaluate(() => window.__finishCopy('History is unavailable.'));
-      await page.getByRole('alert').filter({ hasText: 'Could not copy chat: History is unavailable.' }).waitFor();
-      assert.ok(await copy.isEnabled());
-      assert.equal(await page.evaluate(() => window.__copies.length), 1);
-      await copy.click(); await page.evaluate(() => { window.__clipboardFails = true; window.__finishCopy(); });
-      await page.getByRole('alert').filter({ hasText: 'Could not copy chat: Clipboard is busy.' }).waitFor();
-      assert.ok(await copy.isEnabled());
-      assert.equal(await page.evaluate(() => window.__copies.length), 1);
-      await copy.click(); await page.evaluate(() => { window.__clipboardFails = false; window.__finishCopy(); });
+      await copy.click(); await menu.getByRole('menuitem', { name: 'Copy full chat', exact: true }).click();
+      await page.evaluate(() => window.__finishCopy());
       await page.waitForFunction(() => window.__copies.length === 2);
       await page.getByTitle('Chat copied', { exact: true }).waitFor();
+      const full = await page.evaluate(() => window.__copies[1]);
+      assert.ok(full.includes('```shell\ngit status\n```'));
+      assert.ok(full.includes('working tree clean'));
+      assert.ok(full.includes('Oldest message from history.'));
+      assert.ok(full.includes('Latest reply'));
+      // A history failure must leave the clipboard untouched and allow a retry.
+      await chooseConversation(); await page.evaluate(() => window.__finishCopy('History is unavailable.'));
+      await page.getByRole('alert').filter({ hasText: 'Could not copy chat: History is unavailable.' }).waitFor();
+      assert.ok(await copy.isEnabled());
+      assert.equal(await page.evaluate(() => window.__copies.length), 2);
+      await chooseConversation(); await page.evaluate(() => { window.__clipboardFails = true; window.__finishCopy(); });
+      await page.getByRole('alert').filter({ hasText: 'Could not copy chat: Clipboard is busy.' }).waitFor();
+      assert.ok(await copy.isEnabled());
+      assert.equal(await page.evaluate(() => window.__copies.length), 2);
+      await chooseConversation(); await page.evaluate(() => { window.__clipboardFails = false; window.__finishCopy(); });
+      await page.waitForFunction(() => window.__copies.length === 3);
+      await page.getByTitle('Chat copied', { exact: true }).waitFor();
+      assert.ok(!await page.evaluate(() => window.__copies[2].includes('working tree clean')), 'Conversation remains the default after copying full activity');
       assert.equal(await page.getByRole('alert').count(), 0);
       const methods = await page.evaluate(() => window.__requests.map(call => call.method));
       assert.equal(methods.filter(method => ['restore', 'archive', 'older', 'send'].includes(method)).length, 0);
     }
     await page.goto(`${url}?mode=empty`); await copy.waitFor();
     assert.ok(await copy.isDisabled(), 'There is nothing to copy from a new empty chat');
-    console.log({ width, simplifiedToolbar: true, completeMarkdown: true, archived: true, unchangedHistoryAndDraft: true, failureAndRetry: true });
+    console.log({ width, conversationDefault: true, fullMarkdown: true, keyboardAndDismissal: true, archived: true, unchangedHistoryAndDraft: true, failureAndRetry: true });
   }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }
