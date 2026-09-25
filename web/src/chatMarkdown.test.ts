@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { chatMarkdown } from './chatMarkdown';
 
 describe('chat Markdown', () => {
+  it('labels Claude replies in both export modes', () => {
+    const chat = { provider: 'claude' as const, title: 'Claude chat', items: [{ id: 'reply', type: 'agentMessage', text: 'Hello' }] };
+    expect(chatMarkdown(chat)).toContain('## Claude\n\nHello');
+    expect(chatMarkdown(chat, 'full')).toContain('## Claude\n\nHello');
+  });
   it('defaults to only user and agent messages while preserving their Markdown and images', () => {
     const result = chatMarkdown({ title: 'Conversation', items: [
       { id: 'user', type: 'userMessage', content: [{ type: 'text', text: '**Question**' }, { type: 'localImage', path: '/tmp/image.png' }] },

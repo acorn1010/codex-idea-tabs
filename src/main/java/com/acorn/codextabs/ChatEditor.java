@@ -144,7 +144,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             if (paths.isEmpty()) { errors.add("Could not read the dropped files. Try the Attach files button."); }
             for (var path : paths) {
                 if (disposed) { break; }
-                try { files.add(service.attachment(AttachmentFiles.read(path, flag(params, "imagesOnly"))).join()); }
+                try { files.add(service.attachment(file.id, AttachmentFiles.read(path, flag(params, "imagesOnly"))).join()); }
                 catch (Exception error) {
                     var cause = error instanceof CompletionException && error.getCause() != null ? error.getCause() : error;
                     errors.add(Objects.toString(cause.getMessage(), "Could not attach " + path.getFileName()));
@@ -181,26 +181,31 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     private CompletableFuture<JsonObject> handle(String method, JsonObject params) {
         if (disposed) { return CompletableFuture.failedFuture(new IllegalStateException("Chat was closed")); }
         var chat = service.chat(file.id);
+        if (service.isClaude(file.id) && java.util.Set.of("getGoal", "clearGoal", "setGoal", "feedback", "login", "inspectContext", "inspectStartup").contains(method)) {
+            return CompletableFuture.failedFuture(new IllegalStateException("This command is available only in Codex chats."));
+        }
         switch (method) {
+            case "provider": service.selectProvider(file.id, text(params, "provider")); return completed(service.snapshot(file.id));
             case "ready": return service.restoreReady().thenApply(ignored -> {
                 ready = true; dirty = true; service.load(file.id); return service.snapshot(file.id);
             });
             case "composerReady": return uiResult(() -> { composerReady = true; focusComposer(); });
             case "send": return service.send(file.id, params);
-            case "accountLimits": return service.rpc("account/rateLimits/read", new JsonObject()).orTimeout(15, java.util.concurrent.TimeUnit.SECONDS);
-            case "skills": return service.rpc("skills/list", object("cwds", new String[]{chat.get("cwd")}, "forceReload", true));
-            case "composerPreferences": service.settings().fast = flag(params, "fast"); service.settings().planMode = flag(params, "planMode"); service.changed(""); return completed(new JsonObject());
+            case "cancelQueued": case "resumeQueued": return service.claudeCommand(file.id, method, params);
+            case "accountLimits": if (service.isClaude(file.id)) { return service.claudeCommand(file.id, "status", params); } return service.rpc("account/rateLimits/read", new JsonObject()).orTimeout(15, java.util.concurrent.TimeUnit.SECONDS);
+            case "skills": if (service.isClaude(file.id)) { return service.claudeCommand(file.id, "skills", params); } return service.rpc("skills/list", object("cwds", new String[]{chat.get("cwd")}, "forceReload", true));
+            case "composerPreferences": if (service.isClaude(file.id)) { service.settings().claudeFast = flag(params, "fast"); service.changed(""); return completed(new JsonObject()); } service.settings().fast = flag(params, "fast"); service.settings().planMode = flag(params, "planMode"); service.changed(""); return completed(new JsonObject());
             case "getGoal": return chat.get("threadId").isBlank() ? completed(object("goal", JsonNull.INSTANCE)) : service.rpc("thread/goal/get", object("threadId", chat.get("threadId")));
             case "clearGoal": return chat.get("threadId").isBlank() ? completed(object("cleared", false)) : service.rpc("thread/goal/clear", object("threadId", chat.get("threadId")));
             case "setGoal": { var payload = params.deepCopy(); payload.addProperty("goalObjective", text(params, "objective")); return service.send(file.id, payload); }
             case "review": { var payload = params.deepCopy(); payload.add("reviewTarget", obj(params, "target")); return service.send(file.id, payload); }
-            case "mcpStatus": return service.mcpStatus();
+            case "mcpStatus": return service.isClaude(file.id) ? service.claudeCommand(file.id, "mcp", params) : service.mcpStatus();
             case "feedback": {
                 String reason = text(params, "reason").strip();
                 if (reason.isBlank() || reason.length() > 4000) { return CompletableFuture.failedFuture(new IllegalArgumentException("Write feedback of up to 4,000 characters.")); }
                 return service.rpc("feedback/upload", object("classification", "other", "reason", reason, "includeLogs", false, "threadId", chat.get("threadId").isBlank() ? null : chat.get("threadId")));
             }
-            case "modelPreferences": service.rememberModel(params); return completed(new JsonObject());
+            case "modelPreferences": service.rememberModel(file.id, params); return completed(new JsonObject());
             case "editMessage": return service.editMessage(file.id, params).thenApply(result -> {
                 ui(() -> ChatFiles.open(project, text(result, "id"), false));
                 return result;
@@ -215,8 +220,11 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "seen": chat.set("unread", false); service.changed(file.id); return completed(new JsonObject());
             case "pin": chat.set("pinned", flag(params, "pinned")); service.changed(file.id); return completed(new JsonObject());
             case "rename": chat.set("title", text(params, "title")); chat.set("renamed", true); service.changed(file.id); return completed(new JsonObject());
-            case "history": return service.history(text(params, "search"), text(params, "cursor"));
+            case "history": if (service.isClaude(file.id)) { return service.claudeCommand(file.id, "history", params); } return service.history(text(params, "search"), text(params, "cursor"));
             case "openThread": {
+                if (params.has("thread") && text(obj(params, "thread"), "provider").equals("claude")) {
+                    return service.importClaude(obj(params, "thread")).thenApply(imported -> { ui(() -> ChatFiles.open(project, imported.id, false)); return new JsonObject(); });
+                }
                 String id = params.has("thread") ? service.importThread(obj(params, "thread")).id : text(params, "id");
                 ui(() -> ChatFiles.open(project, id, false)); return completed(new JsonObject());
             }
@@ -233,9 +241,9 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "workspaceProject": return CompletableFuture.supplyAsync(() -> { WorkspaceActions.openProject(project, chat.get("cwd"), service.distro()); return new JsonObject(); });
             case "dismissWorkspaceNotice": chat.set("workspaceNotice", ""); service.changed(file.id); return completed(new JsonObject());
             case "settings": ui(() -> ShowSettingsUtil.getInstance().showSettingsDialog(project, CodexConfigurable.class)); return completed(new JsonObject());
-            case "reconnect": service.reconnect(); return service.load(file.id).thenApply(ignored -> new JsonObject());
+            case "reconnect": service.reconnect(file.id); return service.load(file.id).thenApply(ignored -> new JsonObject());
             case "login": return service.rpc("account/login/start", object("type", "chatgptDeviceCode"));
-            case "attachment": return service.attachment(params);
+            case "attachment": return service.attachment(file.id, params);
             case "droppedFiles": return attachDroppedFiles(params);
             case "chooseFiles": return chooseFiles(false);
             case "chooseImages": return chooseFiles(true);
@@ -255,7 +263,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "readImage": {
                 String path = com.acorn.codextabs.core.Paths.link(text(params, "path"), chat.get("cwd"));
                 if (!service.distro().isBlank()) { path = com.acorn.codextabs.core.Paths.linux(path); }
-                return service.rpc("fs/readFile", object("path", path)).thenApply(result -> {
+                return service.readImage(file.id, path).thenApply(result -> {
                     String data = text(result, "dataBase64");
                     byte[] bytes = Base64.getDecoder().decode(data);
                     if (bytes.length > 25 * 1024 * 1024) { throw new IllegalArgumentException("Image is too large to preview. Open it in the editor."); }
@@ -282,7 +290,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
                 try {
                     var files = new JsonArray();
                     for (var value : selected) {
-                        var attachment = service.attachment(AttachmentFiles.read(value.toNioPath(), imagesOnly)).join();
+                        var attachment = service.attachment(file.id, AttachmentFiles.read(value.toNioPath(), imagesOnly)).join();
                         files.add(attachment);
                     }
                     future.complete(object("files", files));

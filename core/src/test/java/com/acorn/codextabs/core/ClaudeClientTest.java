@@ -1,0 +1,57 @@
+package com.acorn.codextabs.core;
+
+import com.google.gson.*;
+import org.junit.jupiter.api.Test;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.*;
+import static org.junit.jupiter.api.Assertions.*;
+import static com.acorn.codextabs.core.Json.*;
+
+class ClaudeClientTest {
+    @Test void routesControlResponsesApprovalsAndDisconnectsWithoutHanging() throws Exception {
+        var process = new FixtureProcess(); var events = new LinkedBlockingQueue<JsonObject>();
+        try (var client = new ClaudeClient(process, events::offer, ignored -> {})) {
+            var init = client.control(object("subtype", "initialize"));
+            var sent = process.written.poll(2, TimeUnit.SECONDS); assertNotNull(sent);
+            process.emit(object("type", "control_response", "response", object("request_id", text(sent, "request_id"), "subtype", "success", "response", object("models", new JsonArray()))));
+            assertTrue(init.get(2, TimeUnit.SECONDS).has("models"));
+            process.emit(object("type", "control_request", "request_id", "approval", "request", object("subtype", "can_use_tool", "tool_name", "Bash", "input", object("command", "pwd"))));
+            assertEquals("approval", text(events.poll(2, TimeUnit.SECONDS), "request_id"));
+            client.respond("approval", object("behavior", "deny", "message", "Declined"));
+            var reply = process.written.poll(2, TimeUnit.SECONDS);
+            assertEquals("deny", text(obj(obj(reply, "response"), "response"), "behavior"));
+            var failed = client.control(object("subtype", "set_model", "model", "bad"));
+            sent = process.written.poll(2, TimeUnit.SECONDS);
+            process.emit(object("type", "control_response", "response", object("request_id", text(sent, "request_id"), "subtype", "error", "error", "Unknown model")));
+            assertEquals("Unknown model", assertThrows(ExecutionException.class, () -> failed.get(2, TimeUnit.SECONDS)).getCause().getMessage());
+            var pending = client.control(object("subtype", "interrupt"));
+            process.finish();
+            assertThrows(ExecutionException.class, () -> pending.get(2, TimeUnit.SECONDS));
+            assertFalse(client.isAlive());
+            assertThrows(IllegalStateException.class, () -> client.write(object("type", "user")));
+        }
+    }
+    private static final class FixtureProcess extends Process {
+        final LinkedBlockingQueue<JsonObject> written = new LinkedBlockingQueue<>();
+        final PipedInputStream output = new PipedInputStream();
+        final PipedOutputStream server = new PipedOutputStream(output);
+        volatile boolean alive = true;
+        final OutputStream input = new ByteArrayOutputStream() {
+            @Override public synchronized void flush() {
+                String data = toString(StandardCharsets.UTF_8); reset();
+                for (String line : data.lines().toList()) { written.offer(JsonParser.parseString(line).getAsJsonObject()); }
+            }
+        };
+        FixtureProcess() throws IOException {}
+        void emit(JsonObject event) throws IOException { server.write((GSON.toJson(event) + "\n").getBytes(StandardCharsets.UTF_8)); server.flush(); }
+        void finish() throws IOException { alive = false; server.close(); }
+        @Override public OutputStream getOutputStream() { return input; }
+        @Override public InputStream getInputStream() { return output; }
+        @Override public InputStream getErrorStream() { return InputStream.nullInputStream(); }
+        @Override public int waitFor() { return 0; }
+        @Override public int exitValue() { if (alive) { throw new IllegalThreadStateException(); } return 0; }
+        @Override public boolean isAlive() { return alive; }
+        @Override public void destroy() { try { finish(); } catch (IOException ignored) {} }
+    }
+}

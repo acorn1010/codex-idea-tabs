@@ -8,7 +8,7 @@ import { request } from './bridge';
 
 type EditMessage = (itemId: string, text: string, images: Json[]) => Promise<void>;
 
-const Message = memo(function Message({ item, editing, onEdit, onEditing }: { item: Item; editing: boolean; onEdit: EditMessage; onEditing: (id?: string) => void }) {
+const Message = memo(function Message({ item, editing, onEdit, onEditing, editable }: { item: Item; editing: boolean; editable: boolean; onEdit: EditMessage; onEditing: (id?: string) => void }) {
   const [copied, setCopied] = useState(false);
   const editButton = useRef<HTMLButtonElement>(null);
   const text = itemText(item);
@@ -23,7 +23,7 @@ const Message = memo(function Message({ item, editing, onEdit, onEditing }: { it
       </>}
     </div>
     {user && !editing && <div className="pointer-events-none absolute right-1 bottom-1 flex items-center gap-1 rounded-md bg-composer p-0.5 text-muted opacity-0 shadow-sm group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
-      <button ref={editButton} title="Edit message and continue in a new tab" aria-label="Edit message" onClick={() => onEditing(item.id)} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="edit" size={14} /></button>
+      {editable && <button ref={editButton} title="Edit message and continue in a new tab" aria-label="Edit message" onClick={() => onEditing(item.id)} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="edit" size={14} /></button>}
       {text && <button title="Copy message" aria-label="Copy message" onClick={copy} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name={copied ? 'check' : 'copy'} size={14} /></button>}
     </div>}
     {!user && text && <div className="group-has-[[data-code-block]:hover]:hidden group-has-[[data-code-block]:focus-within]:hidden pointer-events-none absolute right-1 bottom-1 rounded-md bg-surface p-0.5 text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"><button title="Copy response" aria-label="Copy response" onClick={copy} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name={copied ? 'check' : 'copy'} size={14} /></button></div>}
@@ -184,7 +184,7 @@ const ActivityGroup = memo(function ActivityGroup({ items }: { items: Item[] }) 
 });
 
 /** Bound the rendered transcript by groups so large command batches stay intact and collapsed. */
-export function Transcript({ items, editingItemId, onEdit, onEditing }: { items: Item[]; editingItemId?: string; onEdit: EditMessage; onEditing: (id?: string) => void }) {
+export function Transcript({ items, editingItemId, onEdit, onEditing, editable = true }: { items: Item[]; editable?: boolean; editingItemId?: string; onEdit: EditMessage; onEditing: (id?: string) => void }) {
   const [limit, setLimit] = useState(80);
   const groups = useMemo(() => groupTranscript(items), [items]);
   const visible = groups.slice(-limit);
@@ -193,7 +193,7 @@ export function Transcript({ items, editingItemId, onEdit, onEditing }: { items:
     {visible.map((group) => {
       if (group.kind === 'activity') { return <ActivityGroup key={group.items[0].id} items={group.items} />; }
       const item = group.item;
-      return item.type === 'userMessage' || item.type === 'agentMessage' ? <Message key={item.id} item={item} editing={editingItemId === item.id} onEdit={onEdit} onEditing={onEditing} /> : <Tool key={item.id} item={item} />;
+      return item.type === 'userMessage' || item.type === 'agentMessage' ? <Message key={item.id} item={item} editable={editable} editing={editingItemId === item.id} onEdit={onEdit} onEditing={onEditing} /> : <Tool key={item.id} item={item} />;
     })}
   </div>;
 }

@@ -37,7 +37,7 @@ export function CopyChatMenu({ disabled, onError }: { disabled: boolean; onError
     if (copyState === 'copying') { return; }
     close(); window.clearTimeout(copyTimer.current); setCopyState('copying'); onError('');
     try {
-      const transcript = await request<Pick<Chat, 'title' | 'items' | 'requests'>>('chatTranscript');
+      const transcript = await request<Pick<Chat, 'title' | 'items' | 'requests' | 'provider'>>('chatTranscript');
       await request('copy', { text: chatMarkdown(transcript, mode) });
       setCopyState('copied'); copyTimer.current = window.setTimeout(() => setCopyState('idle'), 1500);
     } catch (error) { setCopyState('idle'); onError(`Could not copy chat: ${(error as Error).message}`); }
@@ -60,7 +60,7 @@ export function CopyChatMenu({ disabled, onError }: { disabled: boolean; onError
     }}>
       <button role="menuitem" tabIndex={-1} aria-label="Copy conversation" onClick={() => void copy('conversation')} className="block w-full rounded-lg px-2.5 py-2 text-left hover:bg-surface active:bg-line focus:bg-surface focus:outline-none">
         <span className="flex items-center justify-between gap-3 text-xs text-ink">Copy conversation<span className="text-[10px] text-muted">Default</span></span>
-        <span className="mt-1 block text-[11px] text-muted">User messages and Codex replies</span>
+        <span className="mt-1 block text-[11px] text-muted">User messages and assistant replies</span>
       </button>
       <button role="menuitem" tabIndex={-1} aria-label="Copy full chat" onClick={() => void copy('full')} className="block w-full rounded-lg px-2.5 py-2 text-left hover:bg-surface active:bg-line focus:bg-surface focus:outline-none">
         <span className="block text-xs text-ink">Copy full chat</span>

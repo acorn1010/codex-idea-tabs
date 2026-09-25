@@ -53,3 +53,12 @@ intellijPlatform {
     }
     buildSearchableOptions = false
 }
+
+// Run provider lifecycle checks without opening an IDE or connecting to a model.
+tasks.register<JavaExec>("claudeSessionsSmoke") {
+    dependsOn(nativeSmoke.classesTaskName)
+    classpath = nativeSmoke.output + sourceSets.main.get().output + configurations.compileClasspath.get()
+    mainClass = "com.acorn.codextabs.ClaudeSessionsSmoke"
+    args(layout.projectDirectory.file("scripts/native-smoke/fake-claude.py").asFile.absolutePath)
+    environment("CLAUDE_CONFIG_DIR", layout.buildDirectory.dir("claude-smoke-config").get().asFile.absolutePath)
+}

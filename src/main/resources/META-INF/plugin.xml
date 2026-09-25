@@ -3,7 +3,7 @@
     <name>Codex Tabs</name>
     <vendor url="https://github.com/acorn1010/codex-idea-tabs">Acorn</vendor>
     <description><![CDATA[
-        <p>Keep independent Codex conversations in native editor tabs. Split chats beside your code and see which tasks need your attention.</p>
+        <p>Keep independent Codex and Claude Code conversations in native editor tabs. Split chats beside your code and see which tasks need your attention.</p>
         <ul>
             <li>Stream replies, commands, file changes, and generated images.</li>
             <li>Create shared Git worktrees with native diffs and terminals.</li>
@@ -11,9 +11,9 @@
             <li>Edit earlier messages, preview attachments, and restore chats and drafts.</li>
             <li>Work with local projects or Windows projects backed by WSL.</li>
         </ul>
-        <p>Requires IntelliJ IDEA 2026.1 or newer with JCEF and a current Codex CLI. Uses the CLI's ChatGPT sign-in. The plugin has no separate cloud service and does not ask for an API key.</p>
+        <p>Requires IntelliJ IDEA 2026.1 or newer with JCEF and a current Codex CLI or Claude Code CLI. Each provider uses its own CLI sign-in. The plugin has no separate cloud service and does not ask for an API key.</p>
         <p><a href="https://github.com/acorn1010/codex-idea-tabs#install">Setup and usage</a> · <a href="https://github.com/acorn1010/codex-idea-tabs/issues">Report an issue</a></p>
-        <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI or JetBrains.</p>
+        <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI, Anthropic, or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
         <p>1.0.11 adds whole-chat Markdown copying and simpler chat controls.</p>

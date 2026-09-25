@@ -4,7 +4,7 @@ import type { Chat, Json } from './types';
 export type ChatCopyMode = 'conversation' | 'full';
 
 /** Export messages by default, with optional activity, preserving Markdown and image references. */
-export function chatMarkdown(chat: Pick<Chat, 'title' | 'items'> & Partial<Pick<Chat, 'requests'>>, mode: ChatCopyMode = 'conversation'): string {
+export function chatMarkdown(chat: Pick<Chat, 'title' | 'items'> & Partial<Pick<Chat, 'requests' | 'provider'>>, mode: ChatCopyMode = 'conversation'): string {
   const sections = [`# ${heading(chat.title || 'Chat')}`];
   for (const item of chat.items) {
     const message = item.type === 'userMessage' || item.type === 'agentMessage';
@@ -13,7 +13,7 @@ export function chatMarkdown(chat: Pick<Chat, 'title' | 'items'> & Partial<Pick<
     if (message) {
       const images = (item.content || []).filter((part): part is Json => typeof part !== 'string' && (part.type === 'image' || part.type === 'localImage'))
         .map(part => imageReference(String(part.path || part.url || ''), 'Attached image')).filter(Boolean);
-      sections.push([`## ${item.type === 'userMessage' ? 'User' : 'Codex'}`, body, ...images].filter(Boolean).join('\n\n'));
+      sections.push([`## ${item.type === 'userMessage' ? 'User' : chat.provider === 'claude' ? 'Claude' : 'Codex'}`, body, ...images].filter(Boolean).join('\n\n'));
     } else if (item.type === 'reasoning') {
       if (body.trim()) { sections.push(`### Thinking\n\n${body}`); }
     } else if (item.type === 'commandExecution') {

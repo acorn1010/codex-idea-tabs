@@ -12,6 +12,7 @@ import { ChoiceMenu } from './ChoiceMenu';
 import { ImagePreview } from './Markdown';
 import { ContextInspector } from './ContextInspector';
 import { ChatStatus } from './ChatStatus';
+import { ClaudeStatus } from './ClaudeStatus';
 import { useSlashCommands, slashQuery } from './SlashCommands';
 import type { SlashItem, Skill, CommandName } from './SlashCommands';
 import { CommandPanel } from './CommandPanel';
@@ -29,6 +30,10 @@ export function ChatApp() {
   useEffect(installNativeCursor, []);
   useEffect(installTextNavigation, []);
   const [state, setState] = useState<Snapshot>();
+  const isClaude = state?.chat.provider === 'claude';
+  const providerName = isClaude ? 'Claude' : 'Codex';
+  const appliedProvider = useRef<string | undefined>(undefined);
+  const [changingProvider, setChangingProvider] = useState(false);
   const [draft, setDraft] = useState('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
@@ -81,6 +86,14 @@ export function ChatApp() {
     return () => window.removeEventListener('codex-text-navigation', stopRecall);
   }, []);
   const apply = useCallback((snapshot: Snapshot) => {
+    const provider = snapshot.chat.provider || 'codex';
+    if (appliedProvider.current !== provider) {
+      appliedProvider.current = provider; modelInitialized.current = false;
+      setModel(snapshot.settings.model || ''); setEffort(snapshot.settings.effort || '');
+      setPermissions(snapshot.settings.permissions || (provider === 'claude' ? 'ask' : 'auto'));
+      setFast(!!snapshot.settings.fast); setPlanMode(!!snapshot.settings.planMode);
+      setError(''); setConnectionError(''); setSkills([]); setSkillsError('');
+    }
     if (snapshot.connection === 'connected' && !snapshot.error && !snapshot.chat.error) { setConnectionError(''); }
     if (!initial.current) {
       initial.current = true; setDraft(snapshot.chat.draft || '');
@@ -163,7 +176,7 @@ export function ChatApp() {
       if (result.data.some((entry) => entry.errors?.length)) { setSkillsError('Some skills could not be loaded.'); }
     }).catch((error: Error) => { if (!canceled) { setSkillsError(`Skills unavailable: ${error.message}`); } }).finally(() => { if (!canceled) { setSkillsLoading(false); } });
     return () => { canceled = true; };
-  }, [wantsSkills, state?.connection, state?.chat.cwd, state?.cwd, skillReload]);
+  }, [isClaude, wantsSkills, state?.connection, state?.chat.cwd, state?.cwd, skillReload]);
 
   const changeDraft = (text: string) => {
     recall.current = undefined;
@@ -245,7 +258,7 @@ export function ChatApp() {
     if (slash.command) { await runCommand(slash.command); return; }
     if (slashQuery(draft) !== undefined) { setError('Choose a command or skill from the menu.'); return; }
     recall.current = undefined;
-    if (state?.chat.archived || archivePending || sending || uploads || (!draft.trim() && !attachments.length && !draftSkills.length && !state?.chat.draftInput?.length)) { return; }
+    if (changingProvider || state?.chat.archived || archivePending || sending || uploads || (!draft.trim() && !attachments.length && !draftSkills.length && !state?.chat.draftInput?.length)) { return; }
     setSending(true); setError(''); window.clearTimeout(saveTimer.current);
     try {
       const input: Input[] = [...(state?.chat.draftInput || []), ...draftSkills, ...attachmentInput(attachments)];
@@ -265,6 +278,9 @@ export function ChatApp() {
   const chat = state?.chat;
   const working = chat?.working;
   const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
+  useEffect(() => {
+    if (isClaude && selectedModel && permissions === 'auto' && !selectedModel.supportsAutoMode) { setPermissions('ask'); }
+  }, [isClaude, selectedModel, permissions]);
   const attention = chat?.requests.length || 0;
   const archiveBlocked = !chat || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
   const setArchived = async (archived: boolean) => {
@@ -283,7 +299,7 @@ export function ChatApp() {
   const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
   const fastTier = selectedModel?.serviceTiers?.find((tier) => tier.name.toLowerCase() === 'fast' || ['fast', 'priority'].includes(tier.id));
-  const supportsFast = !!fastTier || !!selectedModel?.additionalSpeedTiers?.some((tier) => ['fast', 'priority'].includes(tier));
+  const supportsFast = (!isClaude || !!chat?.claudeSettingsSupported) && (!!fastTier || !!selectedModel?.additionalSpeedTiers?.some((tier) => ['fast', 'priority'].includes(tier)));
   const effectiveFast = fast && supportsFast;
   const saveMode = async (nextFast: boolean, nextPlan: boolean) => {
     await request('composerPreferences', { fast: nextFast, planMode: nextPlan });
@@ -295,12 +311,12 @@ export function ChatApp() {
     ['feedback', 'Feedback', 'feedback', 'Send feedback about this chat'],
     ['goal', 'Goal', 'target', 'Set a goal to keep pursuing'],
     ['ide-context', 'IDE context', 'code', `Turn IDE context ${context ? 'off' : 'on'}`],
-    ['init', 'Init', 'file', 'Create an AGENTS.md file with instructions for Codex'],
+    ['init', 'Init', 'file', `Create ${isClaude ? 'CLAUDE.md' : 'AGENTS.md'} with project instructions`],
     ['mcp', 'MCP', 'attach', 'Show MCP server status'],
     ['memories', 'Memories', 'layers', 'Inspect memory instructions in context'],
-    ['model', 'Model', 'code', selectedModel?.displayName || model || 'Codex default'],
-    ['plan', 'Plan mode', 'plan', `Turn plan mode ${planMode ? 'off' : 'on'}`],
-    ['reasoning', 'Reasoning', 'reasoning', ({ low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', ultra: 'Ultra' })[effort] || effort || 'Default', !selectedModel],
+    ['model', 'Model', 'code', selectedModel?.displayName || model || `${providerName} default`],
+    ['plan', 'Plan mode', 'plan', `Turn plan mode ${(isClaude ? permissions === 'read' : planMode) ? 'off' : 'on'}`],
+    ['reasoning', 'Reasoning', 'reasoning', ({ low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', ultra: 'Ultra' })[effort] || effort || 'Default', !selectedModel || (isClaude && !chat?.claudeSettingsSupported)],
     ['status', 'Status', 'status', 'Show chat ID, context usage, and rate limits'],
     ['context', 'Context inspector', 'layers', 'Inspect recorded rules, skills, and messages'],
     ['permissions', 'Permissions', 'shield', permissions === 'auto' ? 'Approve for me' : permissions === 'ask' ? 'Ask me' : 'Read only'],
@@ -309,7 +325,7 @@ export function ChatApp() {
     ['settings', 'Settings', 'settings', 'Open connection settings'],
     ...(working ? [['stop', 'Stop', 'stop', 'Stop the current turn'] as [CommandName, string, SlashItem['icon'], string]] : []),
   ];
-  const slashItems: SlashItem[] = [...rows.map(([command, label, icon, description, disabled]): SlashItem => ({ kind: 'command', command, id: command, name: command, label, icon, description, disabled })), ...skills.map((skill): SlashItem => ({ kind: 'skill', skill, id: `skill:${skill.path}`, name: skill.name, label: skill.interface?.displayName || skill.name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' '), description: skill.interface?.shortDescription || skill.shortDescription || skill.description, icon: 'skill', scope: skill.scope === 'repo' ? state?.project || 'Project' : skill.scope === 'user' ? 'Personal' : skill.scope === 'admin' ? 'Admin' : 'Built in' }))];
+  const slashItems: SlashItem[] = [...rows.filter(([command]) => !isClaude || !['feedback', 'goal', 'memories'].includes(command)).map(([command, label, icon, description, disabled]): SlashItem => ({ kind: 'command', command, id: command, name: command, label, icon, description, disabled })), ...skills.filter((skill) => !skill.nativeCommand || !rows.some(([command]) => command === skill.name)).map((skill): SlashItem => ({ kind: 'skill', skill, id: `skill:${skill.path}`, name: skill.name, label: skill.interface?.displayName || skill.name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' '), description: skill.interface?.shortDescription || skill.shortDescription || skill.description, icon: 'skill', scope: skill.scope === 'repo' ? state?.project || 'Project' : skill.scope === 'user' ? 'Personal' : skill.scope === 'admin' ? 'Admin' : 'Built in' }))];
   const runCommand = async (item: SlashItem) => {
     if (commandRunning.current || sending || archivePending || chat?.archived || item.disabled) { return; }
     commandRunning.current = true;
@@ -319,6 +335,10 @@ export function ChatApp() {
     setError(''); setDraft('');
     try {
       if (item.kind === 'skill') {
+        if (item.skill.nativeCommand) {
+          await request('send', { text: `/${item.skill.name}`, model, effort, permissions, fast: effectiveFast });
+          setFollow(true); textarea.current?.focus(); return;
+        }
         const selected = [...draftSkills.filter((skill) => skill.path !== item.skill.path), { type: 'skill' as const, name: item.skill.name, path: item.skill.path }];
         await request('draft', { text: '', attachments, skills: selected });
         setDraftSkills(selected); textarea.current?.focus(); return;
@@ -328,11 +348,11 @@ export function ChatApp() {
         case 'status': setCommandPanel(undefined); setShowStatus((value) => !value); textarea.current?.focus(); break;
         case 'review': case 'goal': case 'feedback': case 'mcp': setShowStatus(false); setCommandPanel(item.command); break;
         case 'fast': await saveMode(!effectiveFast, planMode); break;
-        case 'plan': await saveMode(fast, !planMode); break;
+        case 'plan': if (isClaude) { setPermissions((current) => current === 'read' ? 'ask' : 'read'); } else { await saveMode(fast, !planMode); } break;
         case 'ide-context': setContext((value) => !value); break;
-        case 'init': setDraft('Inspect this project and create an AGENTS.md file with clear setup, test, and coding instructions. Preserve useful existing instructions if the file already exists.'); break;
+        case 'init': setDraft(`Inspect this project and create ${isClaude ? 'CLAUDE.md' : 'AGENTS.md'} with clear setup, test, and coding instructions. Preserve useful existing instructions if the file already exists.`); break;
         case 'memories': setInspectionSearch('memory'); setInspecting(true); break;
-        case 'context': setInspectionSearch(''); setInspecting(true); break;
+        case 'context': if (isClaude) { setCommandPanel(undefined); setShowStatus(true); } else { setInspectionSearch(''); setInspecting(true); } break;
         case 'model': setModelMenuRequest((value) => value + 1); break;
         case 'reasoning': setReasoningMenuRequest((value) => value + 1); break;
         case 'permissions': setPermissionMenuRequest((value) => value + 1); break;
@@ -352,11 +372,16 @@ export function ChatApp() {
   return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = state?.chat.archived ? 'none' : 'copy'; setDragging(!state?.chat.archived && !editingItemId); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); } }}>
     <header className="flex h-10 shrink-0 items-center gap-2 px-3">
       <span className={`size-1.5 shrink-0 rounded-full ${chat?.archived ? 'bg-muted' : attention ? 'bg-attention' : working ? 'bg-accent' : 'bg-success/70'}`} />
+      {!chat?.threadId && !chat?.items.length && !chat?.archived ? <ChoiceMenu label="Provider" value={isClaude ? 'claude' : 'codex'} placement="below" compact disabled={changingProvider || sending} options={[{ value: 'codex', label: 'Codex' }, { value: 'claude', label: 'Claude' }]} onChange={(provider) => {
+        if (changingProvider) { return; }
+        setChangingProvider(true);
+        void preferenceSaves.current.then(() => request<Snapshot>('provider', { provider })).then(apply).catch((error: Error) => setError(error.message)).finally(() => { setChangingProvider(false); textarea.current?.focus(); });
+      }} /> : <span className="text-[11px] text-muted">{providerName}</span>}
       <span className={`truncate text-[11px] ${attention ? 'text-attention' : 'text-muted'}`}>{status}</span>
       <span className="min-w-0 flex-1 truncate text-right text-[10px] text-muted/70" title={state?.cwd}>{state?.project}</span>
       {attentionCount > 0 && <button title="See chats that need you" onClick={() => setPalette(true)} className="rounded bg-attention/10 px-1.5 py-0.5 text-[10px] text-attention hover:bg-attention/20 active:bg-attention/30">{attentionCount} waiting</button>}
       <CopyChatMenu disabled={!chat || (!chat.threadId && !chat.items.length)} onError={setError} />
-      <SmallButton label="Inspect context" icon="layers" onClick={() => { setInspectionSearch(''); setInspecting(true); }} />
+      {<SmallButton label="Inspect context" icon="layers" onClick={() => { if (isClaude) { setShowStatus(true); } else { setInspectionSearch(''); setInspecting(true); } }} />}
       {!chat?.archived && <SmallButton label="Archive chat" icon="archive" disabled={archiveBlocked || archivePending} title={archivePending ? 'Archiving chat…' : archiveBlocked ? 'Finish active work, pending requests, and edits before archiving' : 'Archive chat. You can restore it anytime.'} onClick={() => void setArchived(true)} />}
     </header>
 
@@ -375,9 +400,10 @@ export function ChatApp() {
         <div className="mt-6 flex flex-wrap gap-2">
           {['Explain the current changes', 'Review this project', 'Plan an improvement'].map((prompt) => <button key={prompt} onClick={() => { changeDraft(prompt); textarea.current?.focus(); }} className="rounded-lg bg-raised px-3 py-2 text-xs text-muted hover:bg-line hover:text-ink active:text-accent">{prompt}</button>)}
         </div>
+        {isClaude && <p className="mt-4 text-xs text-muted">Uses your Claude Code login. Run <code>claude</code> in a terminal to sign in.</p>}
         <p className="mt-5 text-[11px] text-muted/70">Ctrl+Alt+N · New chat <span className="px-2">/</span> Ctrl+K · Find chat</p>
-      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript items={chat.items} editingItemId={editingItemId} onEdit={editMessage} onEditing={onEditing} /></>}
-      {working && <div className="mt-4 flex items-center gap-2 text-xs text-muted"><span className="size-1.5 rounded-full bg-accent" />Codex is working{attention ? ' · Your answer can help guide it' : ''}</div>}
+      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript editable={!isClaude || (!!chat.claudeSettingsSupported && !working)} items={chat.items} editingItemId={editingItemId} onEdit={editMessage} onEditing={onEditing} /></>}
+      {working && <div className="mt-4 flex items-center gap-2 text-xs text-muted"><span className="size-1.5 rounded-full bg-accent" />{providerName} is working{attention ? ' · Your answer can help guide it' : ''}</div>}
       <div ref={end} />
     </div>
 
@@ -388,19 +414,24 @@ export function ChatApp() {
       <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} onRemoved={() => restoreButton.current?.focus()} />
       <button ref={restoreButton} disabled={archivePending} onClick={() => void setArchived(false)} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:translate-y-px enabled:active:brightness-90 disabled:opacity-40">Restore chat</button>
     </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
-      {showStatus && state && <ChatStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />}
+      {showStatus && state && (isClaude ? <ClaudeStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} /> : <ChatStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />)}
       {commandPanel && <CommandPanel key={commandPanel} action={commandPanel} working={!!working} options={{ model, effort, permissions, fast: effectiveFast, planMode }} onClose={() => { setCommandPanel(undefined); textarea.current?.focus(); }} />}
       {chat?.workspaceNotice && <div role="status" className="flex items-start gap-2 rounded-lg bg-attention/10 px-3 py-2 text-xs text-attention"><p className="flex-1">{chat.workspaceNotice}</p><SmallButton label="Dismiss workspace notice" icon="close" onClick={() => void run('dismissWorkspaceNotice')} /></div>}
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
       <div className="@container/composer cursor-text overflow-hidden rounded-xl bg-input shadow-input focus-within:shadow-input-focus">
+        {isClaude && chat?.claudeNotice && <p role="status" className="px-3 py-2 text-xs text-muted">{chat.claudeNotice}</p>}
+        {isClaude && !!chat?.claudeQueue?.length && <section aria-label="Queued messages" className="max-h-36 space-y-1 overflow-y-auto border-b border-line px-3 py-2 text-xs">
+          <div className="flex items-center gap-2 text-muted"><span className="flex-1">{chat.claudeQueue.length} queued</span>{!working && <button className="rounded px-2 py-1 hover:bg-line" onClick={() => void run('resumeQueued')}>Send queued</button>}</div>
+          {chat.claudeQueue.map((entry) => <div key={entry.id} className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate">{entry.payload.text || 'Attached content'}</span><button aria-label="Remove queued message" className="rounded px-2 py-1 text-muted hover:bg-line" onClick={() => void run('cancelQueued', { id: entry.id })}>Remove</button></div>)}
+        </section>}
         {(draftSkills.length > 0 || effectiveFast || planMode) && <div className="flex flex-wrap gap-1.5 px-3 pt-2">{draftSkills.map((skill) => <span key={skill.path} className="flex items-center gap-1 rounded-md bg-surface px-1.5 py-1 text-[11px]"><Icon name="skill" size={12} />{skill.name}<button type="button" aria-label={`Remove skill ${skill.name}`} className="rounded p-0.5 text-muted hover:bg-line active:bg-input" onClick={() => setDraftSkills((current) => current.filter((value) => value.path !== skill.path))}><Icon name="close" size={10} /></button></span>)}{effectiveFast && <button className="rounded-md bg-surface px-2 py-1 text-[10px] hover:bg-line active:bg-input" onClick={() => void saveMode(false, planMode)}>Fast ×</button>}{planMode && <button className="rounded-md bg-surface px-2 py-1 text-[10px] hover:bg-line active:bg-input" onClick={() => void saveMode(fast, false)}>Plan ×</button>}</div>}
         {!!chat?.draftInput?.length && <p className="px-3 pt-2 text-[11px] text-muted">{chat.draftInput.length} attached item{chat.draftInput.length === 1 ? '' : 's'} kept from your edited message</p>}
         {(attachments.length > 0 || uploads > 0) && <div className="flex flex-wrap gap-1.5 px-3 pt-2.5">{attachments.map((attachment) => <span key={attachment.path} className="flex max-w-full items-center gap-1 rounded-md bg-surface pr-1 text-[11px]">
           {attachment.mime.startsWith('image/') ? <ImagePreview path={attachment.path} alt={attachment.name} compact /> : <span className="flex min-w-0 items-center gap-1.5 py-1 pl-2"><Icon name="file" size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span></span>}
           <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="close" size={11} /></button>
         </span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
-        <textarea ref={textarea} disabled={archivePending} {...slash.inputProps} aria-label="Message Codex" aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
+        <textarea ref={textarea} disabled={archivePending || changingProvider} {...slash.inputProps} aria-label={`Message ${providerName}`} aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
           if (slash.keyDown(event)) { recall.current = undefined; return; }
           const plainUp = event.key === 'ArrowUp' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
           if (!plainUp || event.nativeEvent.isComposing) { recall.current = undefined; }
@@ -419,23 +450,28 @@ export function ChatApp() {
           if (files.length) { event.preventDefault(); void uploadFiles(files); return; }
           const text = event.clipboardData.getData('text/plain');
           if (text.length > 20_000) { event.preventDefault(); void uploadFiles([new File([text], 'pasted-text.txt', { type: 'text/plain;charset=utf-8' })]); }
-        }} placeholder={working ? 'Guide the work, or add a follow-up…' : 'Ask Codex to build, fix, or explore…'} className="block max-h-50 min-h-16 w-full cursor-text resize-none bg-transparent px-3 pt-3 pb-2 text-[13px] leading-relaxed placeholder:text-muted/70" />
+        }} placeholder={working ? isClaude ? 'Queue a follow-up for Claude…' : 'Guide the work, or add a follow-up…' : `Ask ${providerName} to build, fix, or explore…`} className="block max-h-50 min-h-16 w-full cursor-text resize-none bg-transparent px-3 pt-3 pb-2 text-[13px] leading-relaxed placeholder:text-muted/70" />
         <div className="flex items-center gap-1 px-2 pb-2">
           <div className="flex shrink-0 items-center gap-1">
           <SmallButton label="Attach files" icon="plus" onClick={() => { setUploads((count) => count + 1); void request<{ files: Attachment[] }>('chooseFiles').then((value) => setAttachments((current) => [...current, ...value.files])).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1)); }} />
           {chat && <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} />}
-          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" value={permissions} onChange={setPermissions} hint={working ? 'Changes apply to the next turn. The current turn keeps its existing permissions.' : undefined} options={[
+          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" value={permissions} onChange={setPermissions} hint={working ? 'Changes apply to the next turn. The current turn keeps its existing permissions.' : undefined} options={isClaude ? [
+            ...(selectedModel?.supportsAutoMode ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'Claude checks tool requests before approving them automatically.' }] : []),
+            { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'Use Claude’s configured permissions and ask for any additional approval.' },
+            { value: 'edit', label: 'Accept edits', shortLabel: 'Edit', description: 'Allow file edits. Claude still asks before other actions that need approval.' },
+            { value: 'read', label: 'Plan mode', shortLabel: 'Plan', description: 'Use Claude’s plan mode to explore and plan before making changes.' },
+          ] : [
             { value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'Codex reviews approval requests. Work stays within the selected sandbox.' },
             { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'Review permission requests yourself before Codex proceeds.' },
             { value: 'read', label: 'Read only', shortLabel: 'Read', description: 'Explore and explain the project without changing files.' },
           ]} />
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-          <ChoiceMenu openRequest={modelMenuRequest} label="Model" value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: 'Codex default' }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
-          {selectedModel && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
+          <ChoiceMenu openRequest={modelMenuRequest} label="Model" value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: `${providerName} default` }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).filter((value) => value.model !== '').map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
+          {selectedModel && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex size-7 shrink-0 items-center justify-center gap-1 rounded text-[10px] @min-[640px]/composer:w-auto @min-[640px]/composer:px-1 hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[640px]/composer:hidden">IDE context</span></button>
-          {working && <button aria-label="Stop Codex" title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
-          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
+          {working && <button aria-label={`Stop ${providerName}`} title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
+          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? isClaude ? 'Queue for the next turn'  : 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={changingProvider || archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>
         </div>
       </div>

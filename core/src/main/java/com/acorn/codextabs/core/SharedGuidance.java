@@ -39,6 +39,16 @@ public final class SharedGuidance {
             return context + "</codex_tabs_shared_guidance>";
         }
 
+        /** Supply the same selected guidance as user context without claiming native Claude skill registration. */
+        public String claudeContext() {
+            String context = context().replace("Codex’s automatically discovered checkout AGENTS.md chain", "Claude’s automatically discovered checkout CLAUDE.md chain")
+                .replace("Shared skills are registered from:", "Shared skill files are available at:");
+            if (!skillsRoot.isBlank()) {
+                context += "\nDiscover shared skills by listing this folder. Read a relevant skill's SKILL.md and follow its links at their original paths before applying it.\n";
+            }
+            return context;
+        }
+
         /** Append context without adding it to the user's editable message or changing the thread's settings. */
         public com.google.gson.JsonObject injection(String threadId) {
             return Json.object("threadId", threadId, "items", new Object[]{Json.object("type", "message", "role", "user",

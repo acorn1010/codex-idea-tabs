@@ -3,7 +3,7 @@ import type { KeyboardEvent, RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from './icons';
 
-export type Skill = { name: string; path: string; description: string; shortDescription?: string; enabled: boolean; scope: string; interface?: { displayName?: string; shortDescription?: string } };
+export type Skill = { nativeCommand?: boolean; name: string; path: string; description: string; shortDescription?: string; enabled: boolean; scope: string; interface?: { displayName?: string; shortDescription?: string } };
 export type CommandName = 'review' | 'fast' | 'feedback' | 'goal' | 'ide-context' | 'init' | 'mcp' | 'memories' | 'model' | 'plan' | 'reasoning' | 'status' | 'context' | 'permissions' | 'new' | 'resume' | 'settings' | 'stop';
 export type SlashItem = { id: string; name: string; label: string; description: string; icon: Parameters<typeof Icon>[0]['name']; scope?: string; disabled?: boolean } & ({ kind: 'command'; command: CommandName } | { kind: 'skill'; skill: Skill });
 

@@ -17,6 +17,7 @@ import static com.acorn.codextabs.core.Json.*;
 @Service(Service.Level.PROJECT)
 public final class CodexService implements Disposable {
     private final Project project;
+    private final ClaudeSessions claude = new ClaudeSessions(this::settings, this::distro, this::sharedGuidance, this::claudeChanged);
     private final ConcurrentMap<String, Conversation> chats = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CompletableFuture<Void>> sends = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Integer> editors = new ConcurrentHashMap<>();
@@ -67,6 +68,21 @@ public final class CodexService implements Disposable {
     }
     public static CodexService get(Project project) { return project.getService(CodexService.class); }
     public CodexSettings.State settings() { return project.getService(CodexSettings.class).getState(); }
+    private void claudeChanged(Conversation chat) { sessions.working(chat.id, chat.busy()); changed(chat.id); }
+    public boolean isClaude(String id) { return chat(id).get("provider").equals("claude"); }
+    /** A provider is fixed after the first message so history cannot be resumed by the wrong CLI. */
+    public synchronized void selectProvider(String id, String provider) {
+        if (!Set.of("codex", "claude").contains(provider)) { throw new IllegalArgumentException("Unknown provider."); }
+        var chat = chat(id);
+        if (chat.busy() || !chat.get("threadId").isBlank() || !chat.items().isEmpty() || chat.archived()) { throw new IllegalStateException("Choose the provider in a new chat."); }
+        claude.release(id); sessions.forget(id);
+        chat.set("provider", provider); chat.set("error", ""); settings().provider = provider;
+        changed(id); load(id);
+    }
+    public void rememberModel(String id, JsonObject payload) {
+        if (isClaude(id)) { settings().claudeModel = text(payload, "model"); settings().claudeEffort = text(payload, "effort"); changed(""); }
+        else { rememberModel(payload); }
+    }
     /** Save a deliberate selection before a message is sent, independently of active turns. */
     public synchronized void rememberModel(JsonObject payload) {
         var options = settings();
@@ -120,6 +136,7 @@ public final class CodexService implements Disposable {
     public Conversation chat(String id) { return chats.computeIfAbsent(id, key -> new Conversation(key, cwd())); }
     public Conversation create() {
         var chat = chat(UUID.randomUUID().toString());
+        chat.set("provider", settings().provider.equals("claude") ? "claude" : "codex");
         changed(chat.id);
         return chat;
     }
@@ -137,9 +154,22 @@ public final class CodexService implements Disposable {
     public JsonObject snapshot(String id) {
         return snapshot(id, -1);
     }
+    private JsonObject composerSettings(boolean claudeProvider) {
+        var settings = settings();
+        return object("model", claudeProvider ? settings.claudeModel : settings.model, "effort", claudeProvider ? settings.claudeEffort : settings.effort,
+            "modelSelectionSaved", claudeProvider || settings.modelSelectionSaved, "permissions", claudeProvider ? settings.claudePermissions : settings.permissions,
+            "fast", claudeProvider ? settings.claudeFast : settings.fast, "planMode", !claudeProvider && settings.planMode);
+    }
     public JsonObject snapshot(String id, long revision) {
-        return object("chat", chat(id).changes(revision), "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
-            "error", connectionError, "settings", settings(), "distro", distro(), "cwd", chat(id).get("cwd"), "workspaceLabel", workspaceLabel(chat(id).get("cwd")), "project", project.getName());
+        var chat = chat(id);
+        if (isClaude(id)) {
+            var update = chat.changes(revision);
+            return object("chat", update, "sessions", summaries(), "models", array(update, "claudeModels"), "account", obj(update, "claudeAccount"),
+                "connection", chat.get("claudeConnection").isBlank() ? "disconnected" : chat.get("claudeConnection"), "error", "", "settings", composerSettings(true),
+                "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
+        }
+        return object("chat", chat.changes(revision), "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
+            "error", connectionError, "settings", composerSettings(false), "distro", distro(), "cwd", chat(id).get("cwd"), "workspaceLabel", workspaceLabel(chat(id).get("cwd")), "project", project.getName());
     }
     /** Refresh all repository identities together, then return only this chat's Git choices. */
     public CompletableFuture<JsonObject> workspaces(String id) {
@@ -215,7 +245,7 @@ public final class CodexService implements Disposable {
     public Conversation createInWorkspace(String sourceId) {
         var source = chat(sourceId);
         var created = create();
-        created.set("cwd", source.get("cwd")); created.set("workspaceBase", source.get("workspaceBase"));
+        created.set("provider", source.get("provider")); created.set("cwd", source.get("cwd")); created.set("workspaceBase", source.get("workspaceBase"));
         changed(created.id); return created;
     }
     public CompletableFuture<Conversation> createForPathAsync(String path) { return CompletableFuture.supplyAsync(() -> createForPath(path), io); }
@@ -265,11 +295,17 @@ public final class CodexService implements Disposable {
                 var target = source;
                 if (!source.get("threadId").isBlank()) {
                     try {
-                        var rpc = connect().join();
-                        var fork = rpc.request("thread/fork", object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true)).join();
-                        target = importThread(obj(fork, "thread"));
-                        target.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
-                        target.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
+                        if (isClaude(id)) {
+                            var saved = source.snapshot(); saved.addProperty("id", UUID.randomUUID().toString()); saved.add("claudeQueue", new JsonArray());
+                            saved.addProperty("claudeResumeId", source.get("threadId")); saved.addProperty("claudeResumeAt", ""); saved.addProperty("threadId", "");
+                            target = Conversation.restore(saved); chats.put(target.id, target);
+                        } else {
+                            var rpc = connect().join();
+                            var fork = rpc.request("thread/fork", object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true)).join();
+                            target = importThread(obj(fork, "thread"));
+                            target.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
+                            target.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
+                        }
                     } catch (Exception error) {
                         workspaces(id);
                         throw new IllegalStateException("Could not copy the conversation. The checkout at " + path + " is kept. Select it in the workspace menu to retry. " + message(error));
@@ -279,6 +315,7 @@ public final class CodexService implements Disposable {
                     target.set("draftAttachments", payload.has("attachments") ? array(payload, "attachments") : array(source.snapshot(), "draftAttachments"));
                     target.set("draftInput", array(source.snapshot(), "draftInput"));
                 }
+                if (isClaude(target.id)) { claude.release(target.id); sessions.forget(target.id); }
                 target.set("cwd", path); target.set("workspaceBase", base); target.set("workspaceNotice", warning);
                 changed(target.id);
                 // thread/fork starts a subscription even before the editor is shown. Register its lifetime.
@@ -358,6 +395,7 @@ public final class CodexService implements Disposable {
         if (!disposed) { sessions.release(id); }
     }
     private CompletableFuture<Void> unsubscribe(String id) {
+        if (isClaude(id)) { claude.release(id); return CompletableFuture.completedFuture(null); }
         var rpc = client;
         String threadId = chat(id).get("threadId");
         if (rpc == null || !rpc.isAlive() || threadId.isBlank()) { return CompletableFuture.completedFuture(null); }
@@ -366,7 +404,7 @@ public final class CodexService implements Disposable {
     public void rename(String id, String title) {
         var chat = chat(id);
         chat.set("title", title); chat.set("renamed", true); changed(id);
-        if (!chat.get("threadId").isBlank()) {
+        if (!isClaude(id) && !chat.get("threadId").isBlank()) {
             rpc("thread/name/set", object("threadId", chat.get("threadId"), "name", title)).exceptionally(error -> { chat.set("error", message(error)); changed(id); return null; });
         }
     }
@@ -390,8 +428,8 @@ public final class CodexService implements Disposable {
                     if (generation != connectionGeneration) { return; }
                     connectionStatus = "disconnected";
                     connectionError = disposed ? "" : message;
-                    chats.values().forEach(Conversation::disconnected);
-                    sessions.disconnected(); changed("");
+                    chats.values().stream().filter(chat -> !chat.get("provider").equals("claude")).forEach(chat -> { chat.disconnected(); sessions.forget(chat.id); });
+                    changed("");
                 });
                 if (disposed || generation != connectionGeneration) { rpc.close(); throw new IllegalStateException("Connection was replaced"); }
                 client = rpc;
@@ -439,9 +477,19 @@ public final class CodexService implements Disposable {
             return object("data", entries);
         }, io);
     }
+    public void reconnect(String id) {
+        if (isClaude(id)) { claude.release(id); sessions.forget(id); load(id); }
+        else { reconnectCodex(); editors.keySet().stream().filter(key -> !isClaude(key)).forEach(this::load); }
+    }
+    private synchronized void reconnectCodex() {
+        connectionGeneration++;
+        if (client != null) { client.close(); }
+        client = null; connection = null;
+        chats.values().stream().filter(chat -> !chat.get("provider").equals("claude")).forEach(chat -> { chat.disconnected(); sessions.forget(chat.id); });
+    }
     public void reconnect() {
-        synchronized (this) { connectionGeneration++; if (client != null) { client.close(); } client = null; connection = null; sessions.disconnected(); attachmentRoot = null; chats.values().forEach(Conversation::disconnected); }
-        connect().thenRun(() -> editors.keySet().forEach(this::load));
+        claude.close(); sessions.disconnected(); attachmentRoot = null; reconnectCodex();
+        editors.keySet().forEach(this::load);
     }
     public CompletableFuture<JsonObject> history(String search, String cursor) {
         return history(search, cursor, false);
@@ -450,6 +498,10 @@ public final class CodexService implements Disposable {
         return history(search, cursor, archived, "");
     }
     public CompletableFuture<JsonObject> history(String search, String cursor, boolean archived, String workspace) {
+        // Claude history created here is already in the local cache. Do not require Codex for Claude-only projects.
+        if (settings().provider.equals("claude") && chats.values().stream().noneMatch(chat -> !chat.get("provider").equals("claude") && !chat.get("threadId").isBlank())) {
+            return CompletableFuture.completedFuture(object("data", new JsonArray()));
+        }
         var directories = new LinkedHashSet<String>();
         if (!workspace.isBlank()) { directories.add(workspace); }
         else {
@@ -462,9 +514,75 @@ public final class CodexService implements Disposable {
         if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
         return rpc("thread/list", params);
     }
+    public CompletableFuture<JsonObject> claudeCommand(String id, String method, JsonObject payload) {
+        if (!isClaude(id)) { return CompletableFuture.failedFuture(new IllegalArgumentException("This action requires a Claude chat.")); }
+        return CompletableFuture.supplyAsync(() -> {
+            var chat = chat(id);
+            return switch (method) {
+                case "status" -> claude.status(chat);
+                case "skills" -> claude.skills(chat);
+                case "mcp" -> claude.mcp(chat);
+                case "cancelQueued" -> { claude.cancelQueued(chat, text(payload, "id")); yield new JsonObject(); }
+                case "resumeQueued" -> { claude.resumeQueued(chat); yield new JsonObject(); }
+                case "history" -> {
+                    var directories = new HashSet<String>(); directories.add(cwd()); directories.add(chat.get("cwd"));
+                    repositories.repositories().forEach(repo -> { directories.add(repo.path()); repo.workspaces().forEach(tree -> directories.add(tree.path())); });
+                    chats.values().forEach(value -> directories.add(value.get("cwd")));
+                    yield claude.list(directories, text(payload, "search"));
+                }
+                default -> throw new IllegalArgumentException("Unknown Claude action.");
+            };
+        }, io);
+    }
+    public CompletableFuture<Conversation> importClaude(JsonObject selected) {
+        return CompletableFuture.supplyAsync(() -> {
+            String id = text(selected, "id"); UUID.fromString(id);
+            var current = chats.values().stream().filter(value -> value.get("provider").equals("claude") && value.get("threadId").equals(id)).findFirst();
+            if (current.isPresent()) { return current.get(); }
+            var chat = chat(UUID.randomUUID().toString()); chat.set("provider", "claude"); chat.set("threadId", id);
+            chat.set("cwd", text(selected, "cwd", cwd())); chat.set("title", text(selected, "name", "Claude chat"));
+            claude.refreshHistory(chat); changed(chat.id); return chat;
+        }, io);
+    }
+    private CompletableFuture<JsonObject> editClaude(String id, JsonObject payload) {
+        return CompletableFuture.supplyAsync(() -> {
+            var source = chat(id);
+            if (source.busy()) { throw new IllegalStateException("Wait for Claude to finish before editing an earlier message."); }
+            var frames = claude.frames(source);
+            if (!flag(source.snapshot(), "claudeSettingsSupported")) { throw new IllegalStateException("Update Claude Code and reconnect before editing earlier messages."); }
+            var point = ClaudeHistory.editPoint(frames, text(payload, "itemId"));
+            var item = object("id", text(payload, "itemId"), "type", "userMessage", "content", array(point, "input"));
+            var turns = new JsonArray(); turns.add(object("id", "", "items", List.of(item)));
+            var edit = MessageEdit.prepare(turns, text(payload, "itemId"), text(payload, "text"), payload.has("images") ? array(payload, "images") : null);
+            var revised = chat(UUID.randomUUID().toString()); revised.set("provider", "claude"); revised.set("cwd", source.get("cwd"));
+            revised.set("workspaceBase", source.get("workspaceBase")); revised.set("title", source.get("title") + " (edited)"); revised.set("renamed", true);
+            if (!text(point, "anchor").isBlank()) {
+                revised.set("claudeResumeId", source.get("threadId")); revised.set("claudeResumeAt", text(point, "anchor"));
+                var restored = new Conversation(revised.id, source.get("cwd")); var protocol = new ClaudeProtocol(restored);
+                for (var value : frames) {
+                    var frame = value.getAsJsonObject();
+                    if (text(frame, "uuid").equals(text(payload, "itemId"))) { break; }
+                    protocol.accept(frame);
+                }
+                revised.replaceClaudeHistory(restored.items());
+            }
+            var retained = new JsonArray(); var prompt = new ArrayList<String>();
+            for (var value : edit.input()) {
+                var part = value.getAsJsonObject();
+                if (text(part, "type").equals("text")) { prompt.add(text(part, "text")); } else { retained.add(part); }
+            }
+            revised.set("draft", String.join("\n", prompt)); revised.set("draftInput", retained); changed(revised.id); return revised;
+        }, io).thenCompose(revised -> {
+            var next = payload.deepCopy(); next.addProperty("text", revised.get("draft")); next.add("input", array(revised.snapshot(), "draftInput"));
+            return send(revised.id, next).handle((ignored, error) -> {
+                if (error != null) { revised.set("error", message(error)); }
+                changed(revised.id); return object("id", revised.id);
+            });
+        });
+    }
     public Conversation importThread(JsonObject thread) {
         String threadId = text(thread, "id");
-        var chat = chats.values().stream().filter(value -> value.get("threadId").equals(threadId)).findFirst().orElseGet(() -> chat(threadId));
+        var chat = chats.values().stream().filter(value -> !value.get("provider").equals("claude") && value.get("threadId").equals(threadId)).findFirst().orElseGet(() -> chat(threadId));
         chat.hydrate(thread, chat.revision());
         if (!text(thread, "cwd").isBlank()) { chat.set("cwd", text(thread, "cwd")); }
         changed(chat.id);
@@ -477,6 +595,11 @@ public final class CodexService implements Disposable {
     }
     private CompletableFuture<Void> loadRestored(String id) {
         var chat = chat(id);
+        if (isClaude(id)) {
+            if (chat.archived()) { return CompletableFuture.completedFuture(null); }
+            if (!gitWorktrees().exists(chat.get("cwd"))) { chat.loadFailed("This checkout is missing. Use the workspace menu to continue in another worktree."); changed(id); return CompletableFuture.completedFuture(null); }
+            return sessions.load(id, () -> CompletableFuture.runAsync(() -> { if (isClaude(id)) { claude.load(chat); } }, io));
+        }
         if (chat.get("threadId").isBlank()) { return connect().thenApply(ignored -> null); }
         // Reading an archived chat must not resume or restore its backend session.
         if (chat.archived()) { return older(id, "").thenApply(ignored -> null); }
@@ -502,6 +625,7 @@ public final class CodexService implements Disposable {
     /** Read complete history separately so copying does not alter the visible transcript or chat state. */
     public CompletableFuture<JsonObject> transcript(String id) {
         var snapshot = chat(id).snapshot();
+        if (isClaude(id)) { return CompletableFuture.completedFuture(snapshot); }
         if (text(snapshot, "threadId").isBlank()) { return CompletableFuture.completedFuture(ChatTranscript.read(snapshot, cursor -> new JsonObject())); }
         return connect().thenApplyAsync(rpc -> ChatTranscript.read(snapshot, cursor -> {
             var params = object("threadId", text(snapshot, "threadId"), "limit", 100, "sortDirection", "desc");
@@ -512,6 +636,7 @@ public final class CodexService implements Disposable {
         }), io);
     }
     public CompletableFuture<JsonObject> older(String id, String cursor) {
+        if (isClaude(id)) { return CompletableFuture.completedFuture(object("data", new JsonArray(), "nextCursor", "")); }
         return connect().thenCompose(rpc -> older(id, cursor, rpc));
     }
     private CompletableFuture<JsonObject> older(String id, String cursor, RpcClient rpc) {
@@ -544,7 +669,20 @@ public final class CodexService implements Disposable {
                     }
                     var input = array(payload, "input").deepCopy();
                     if (!prompt.isBlank()) { input.add(object("type", "text", "text", prompt)); }
+                    if (isClaude(id) && reviewCommand) {
+                        var target = ComposerOptions.review(obj(payload, "reviewTarget"));
+                        String scope = text(target, "type").equals("baseBranch") ? "changes compared with Git branch " + GSON.toJson(text(target, "branch")) : "uncommitted changes";
+                        input.add(object("type", "text", "text", "Review the " + scope + ". Report actionable bugs with file and line references. Keep the review read-only and do not modify files."));
+                    }
                     if (input.isEmpty() && !goalCommand && !reviewCommand) { throw new IllegalArgumentException("Write a message or attach a file first."); }
+                    if (isClaude(id)) {
+                        load(id).join();
+                        var response = claude.send(chat, payload, input);
+                        if (chat.get("title").equals("New chat")) { chat.set("title", prompt.lines().findFirst().orElse("Claude chat").substring(0, Math.min(prompt.lines().findFirst().orElse("Claude chat").length(), 80))); }
+                        if (chat.get("draft").equals(prompt)) { chat.set("draft", ""); }
+                        chat.set("draftInput", new JsonArray());
+                        sessions.working(id, chat.busy()); changed(id); result.complete(response); return;
+                    }
                     var rpc = connect().join();
                     var options = settings();
                     String model = text(payload, "model", options.model);
@@ -606,6 +744,7 @@ public final class CodexService implements Disposable {
     }
     /** Continue an edited turn in a new chat, leaving the source conversation and its active work intact. */
     public CompletableFuture<JsonObject> editMessage(String id, JsonObject payload) {
+        if (isClaude(id)) { return editClaude(id, payload); }
         return CompletableFuture.supplyAsync(() -> {
             workspaceLock.readLock().lock();
             try {
@@ -683,19 +822,25 @@ public final class CodexService implements Disposable {
                     if (archived && !chat.canArchive()) { throw new IllegalStateException("Finish the active work and answer pending requests before archiving."); }
                     if (chat.archived() == archived) { result.complete(new JsonObject()); return; }
                     String threadId = chat.get("threadId");
-                    if (!threadId.isBlank() && (archived || chat.get("archived").equals("true") && !chat.get("hidden").equals("true"))) {
+                    if (!isClaude(id) && !threadId.isBlank() && (archived || chat.get("archived").equals("true") && !chat.get("hidden").equals("true"))) {
                         rpc(archived ? "thread/archive" : "thread/unarchive", object("threadId", threadId)).join();
                     }
                     chat.archive(archived);
+                    if (isClaude(id)) { claude.release(id); }
                     sessions.forget(id);
                     changed(id);
+                    if (isClaude(id) && !archived) { load(id); }
                     result.complete(new JsonObject());
                 } catch (Exception error) { result.completeExceptionally(error); }
             }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
-    public String connectionStatus() { return connectionStatus; }
+    public String connectionStatus() {
+        if (connectionStatus.equals("connected") || chats.values().stream().anyMatch(chat -> chat.get("provider").equals("claude") && chat.get("claudeConnection").equals("connected"))) { return "connected"; }
+        return connectionStatus;
+    }
     public CompletableFuture<JsonObject> answer(String id, JsonObject payload) {
+        if (isClaude(id)) { return CompletableFuture.supplyAsync(() -> claude.answer(chat(id), payload), io); }
         var chat = chat(id);
         String key = text(payload, "key");
         var pending = chat.request(key);
@@ -722,8 +867,34 @@ public final class CodexService implements Disposable {
         });
     }
     public CompletableFuture<JsonObject> stop(String id) {
+        if (isClaude(id)) { return claude.stop(chat(id)); }
         var chat = chat(id);
         return rpc("turn/interrupt", object("threadId", chat.get("threadId"), "turnId", chat.get("turnId")));
+    }
+    public CompletableFuture<JsonObject> attachment(String id, JsonObject input) {
+        if (!isClaude(id)) { return attachment(input); }
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                byte[] bytes = Base64.getDecoder().decode(text(input, "data"));
+                if (bytes.length > 50 * 1024 * 1024) { throw new IllegalArgumentException("Files must be smaller than 50 MB."); }
+                String name = text(input, "name", "attachment.txt").replaceAll("[^\\p{L}\\p{N}._ -]", "_");
+                if (name.isBlank() || name.equals(".") || name.equals("..")) { name = "attachment"; }
+                String path = attachmentRoot() + "/" + UUID.randomUUID() + "/" + name;
+                var local = java.nio.file.Path.of(com.acorn.codextabs.core.Paths.host(path, distro(), SystemInfo.isWindows));
+                Files.createDirectories(local.getParent()); Files.write(local, bytes);
+                return object("name", name, "path", path, "mime", text(input, "mime"), "size", bytes.length);
+            } catch (Exception error) { throw new CompletionException(error); }
+        }, io);
+    }
+    public CompletableFuture<JsonObject> readImage(String id, String path) {
+        if (!isClaude(id)) { return rpc("fs/readFile", object("path", path)); }
+        return CompletableFuture.supplyAsync(() -> {
+            try (var input = Files.newInputStream(java.nio.file.Path.of(com.acorn.codextabs.core.Paths.host(path, distro(), SystemInfo.isWindows)))) {
+                byte[] bytes = input.readNBytes(25 * 1024 * 1024 + 1);
+                if (bytes.length > 25 * 1024 * 1024) { throw new IllegalArgumentException("Image is too large to preview."); }
+                return object("dataBase64", Base64.getEncoder().encodeToString(bytes));
+            } catch (java.io.IOException error) { throw new CompletionException(error); }
+        }, io);
     }
     public CompletableFuture<JsonObject> attachment(JsonObject input) {
         return CompletableFuture.supplyAsync(() -> {
@@ -806,6 +977,7 @@ public final class CodexService implements Disposable {
         persistence.shutdownNow();
         save();
         if (client != null) { client.close(); }
+        claude.close();
         io.shutdownNow();
         listeners.clear();
     }

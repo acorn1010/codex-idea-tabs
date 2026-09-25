@@ -1,8 +1,8 @@
 # Codex Tabs for IntelliJ IDEA
 
-Independent Codex chats in native editor tabs. Keep several tasks beside your code, split them into groups, and see which conversations need your attention.
+Independent Codex and Claude Code chats in native editor tabs. Keep several tasks beside your code, split them into groups, and see which conversations need your attention.
 
-This is an independent client for the [Codex app server](https://developers.openai.com/codex/app-server/). It uses the Codex CLI's existing ChatGPT sign-in. The plugin does not ask for an API key, copy credentials, or run its own cloud service.
+This is an independent client for the [Codex app server](https://developers.openai.com/codex/app-server/). It also supports [Claude Code CLI](https://code.claude.com/docs/en/cli-reference) through its streaming protocol. Each provider uses its own CLI sign-in. The plugin does not ask for an API key, copy credentials, or run its own cloud service.
 
 ## What it does
 
@@ -21,11 +21,11 @@ This is an independent client for the [Codex app server](https://developers.open
 - Edits any user message and continues the revised conversation in a new editor tab, keeping the original chat.
 - Groups commands, searches, reasoning, and file edits between messages into compact rows. Expand a row to browse details in a scrollable area. Running and failed work stays visible in the summary, and generated images stay visible in the chat.
 
-There is one app-server process per project. Restored hidden tabs do not start browser renderers. History loads in pages, the transcript initially renders its latest 80 messages or activity groups, and streaming updates contain only changed items. Collapsed groups do not render their tool details.
+Codex uses one app-server process per project. Claude uses one process per open or active chat, with saved sessions for resume. Restored hidden tabs do not start browser renderers. History loads in pages, the transcript initially renders its latest 80 messages or activity groups, and streaming updates contain only changed items. Collapsed groups do not render their tool details.
 
 ## Install
 
-Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI. Native integration has been tested with IDEA 2026.1.3 and Codex 0.153.0.
+Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI or Claude Code CLI. Native Codex integration has been tested with IDEA 2026.1.3 and Codex 0.153.0.
 
 1. Download the plugin ZIP from [Releases](https://github.com/acorn1010/codex-idea-tabs/releases).
 2. In IDEA, open **Settings → Plugins → gear menu → Install Plugin from Disk** and select the ZIP.
@@ -35,6 +35,24 @@ Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF,
 If Codex is not on the IDE's PATH, set its full executable path under **Settings → Tools → Codex Tabs**. The field accepts an executable path, not a command with arguments.
 
 The plugin reads the available models from Codex. New workspaces start with **GPT-6-Astra / xhigh** when available. Model and reasoning choices are saved as soon as you select them, before sending a message, and return in new tabs and after an IDEA restart. These preferences are kept per workspace. Choosing **Codex default** is also remembered. Switching models keeps a supported reasoning level or uses the new model's default. Sign in through the plugin's ChatGPT sign-in button if the CLI has no account yet.
+
+### Claude Code
+
+Install Claude Code and sign in by running `claude` in a terminal. Set **Claude executable** in **Settings → Tools → Codex Tabs** if needed. Native and npm installations are detected on macOS. An npm installation also uses the Node binary beside its CLI entry point.
+
+In an empty chat, use the **Codex / Claude** menu in the header. The last selection is the default for new chats. Once a message has been sent, the provider stays fixed for that conversation. Existing chats remain Codex chats. Models come from the selected CLI, and each provider keeps its own model preference.
+
+Claude chats support streamed replies and tool activity, attachments, questions with multiple selections, stop, archive and restore, both Markdown copy modes, session history, and continuation in another worktree. Shared project guidance is supplied as additional system instructions when the CLI starts, with links to the original `.agents/skills` files. Native `CLAUDE.md` instructions remain active. The command picker includes commands reported by Claude and shared project skills.
+
+Send a follow-up while Claude works to queue it for the next turn. Queued messages keep their selected model, effort, and permissions. Stop, a failed turn, or reconnect pauses the queue. Use **Send queued** to continue, or remove individual prompts. Editing an earlier message opens a new chat from the point before that message and leaves the source chat intact. This does not undo file changes.
+
+Use **Resume** to browse Claude terminal sessions in the project and its known repositories and worktrees. The plugin reads Claude's saved main conversation branch, including attached images, and resumes it through the CLI. Session files and credentials stay in Claude's own store.
+
+Claude's permission menu offers **Ask me**, **Accept edits**, **Plan mode**, and **Approve for me** when the selected model supports it. Existing Claude CLI permission rules still apply. Codex sandbox settings do not apply to Claude chats. Approval cards offer **Decline**, **Allow once**, **Allow for session**, and **Always allow**. When Claude suggests an allow rule, the card shows its scope. Session approval applies that rule to the running session. Always approval saves it through Claude to local project settings, where terminal Claude can also use it. If Claude supplies no suitable rule, approval falls back to the exact tool input in this checkout, saved by the plugin.
+
+The status panel shows Claude's context breakdown, loaded instruction files, token usage, reported session cost, and rate-limit events. MCP status lists the CLI's configured servers. Effort, Fast mode, and automatic approval follow the model capabilities reported by Claude. Fast mode can incur additional usage charges. New controls were verified against Claude Code **2.1.281**. Older CLIs retain basic chats and show update guidance for unsupported controls. Codex goals and its startup prompt inspector remain Codex-specific.
+
+If Claude cannot reply, check that `claude -p "Reply only READY"` works in a terminal. A revoked or expired Claude login needs a new sign-in. The plugin does not renew or copy credentials itself.
 
 ### Windows with WSL
 

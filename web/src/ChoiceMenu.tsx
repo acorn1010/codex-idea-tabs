@@ -5,10 +5,10 @@ import { Icon } from './icons';
 type Choice = { value: string; label: string; shortLabel?: string; description?: string };
 
 /** A keyboard-accessible composer menu keeps full labels in its popup while its trigger adapts to the composer width. */
-export function ChoiceMenu({ label, value, options, onChange, compact = false, hint, icon, openRequest = 0 }: { label: string; value: string; options: Choice[]; onChange: (value: string) => void; compact?: boolean; hint?: string; openRequest?: number; icon?: Parameters<typeof Icon>[0]['name'] }) {
+export function ChoiceMenu({ label, value, options, onChange, compact = false, hint, icon, openRequest = 0, placement = 'above', disabled = false }: { label: string; value: string; options: Choice[]; onChange: (value: string) => void; compact?: boolean; hint?: string; openRequest?: number; placement?: 'above' | 'below'; disabled?: boolean; icon?: Parameters<typeof Icon>[0]['name'] }) {
   const [open, setOpen] = useState(false);
   useEffect(() => { if (openRequest) { setOpen(true); } }, [openRequest]);
-  const [position, setPosition] = useState({ left: 0, bottom: 0, width: 260, height: 300 });
+  const [position, setPosition] = useState({ left: 0, top: 0, bottom: 0, width: 260, height: 300 });
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const id = useId();
@@ -19,7 +19,7 @@ export function ChoiceMenu({ label, value, options, onChange, compact = false, h
     const place = () => {
       const rect = trigger.current!.getBoundingClientRect();
       const width = Math.min(280, window.innerWidth - 24);
-      setPosition({ left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)), bottom: window.innerHeight - rect.top + 6, width, height: Math.max(80, Math.min(340, rect.top - 18)) });
+      setPosition({ left: Math.max(12, Math.min(rect.left, window.innerWidth - width - 12)), top: rect.bottom + 6, bottom: window.innerHeight - rect.top + 6, width, height: Math.max(80, Math.min(340, placement === 'above' ? rect.top - 18 : window.innerHeight - rect.bottom - 18)) });
     };
     place();
     const timer = window.setTimeout(() => menu.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus(), 0);
@@ -27,15 +27,15 @@ export function ChoiceMenu({ label, value, options, onChange, compact = false, h
     document.addEventListener('mousedown', outside);
     window.addEventListener('resize', place);
     return () => { window.clearTimeout(timer); document.removeEventListener('mousedown', outside); window.removeEventListener('resize', place); };
-  }, [open]);
+  }, [open, placement]);
   return <>
-    <button ref={trigger} aria-label={`${label}: ${selected?.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined} title={`${label}: ${selected?.label}`} onClick={() => setOpen(!open)} className={`flex h-7 min-w-7 items-center justify-center gap-1 rounded-md px-1 text-[11px] text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent ${compact ? 'max-w-40' : 'shrink-0 whitespace-nowrap'}`}>
+    <button ref={trigger} disabled={disabled} aria-label={`${label}: ${selected?.label}`} aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? id : undefined} title={`${label}: ${selected?.label}`} onClick={() => setOpen(!open)} className={`flex h-7 min-w-7 items-center justify-center gap-1 rounded-md px-1 text-[11px] text-muted hover:bg-raised active:bg-line hover:text-ink active:text-accent ${compact ? 'max-w-40' : 'shrink-0 whitespace-nowrap'}`}>
       {icon && <span className="hidden @max-[380px]/composer:block"><Icon name={icon} size={14} /></span>}
       <span className={`${compact ? 'truncate' : ''} ${selected?.shortLabel ? '@max-[640px]/composer:hidden' : ''}`}>{selected?.label}</span>
       {selected?.shortLabel && <span className={`hidden @max-[640px]/composer:block ${icon ? '@max-[380px]/composer:hidden' : ''}`}>{selected.shortLabel}</span>}
       <span className={`shrink-0 ${icon ? '@max-[380px]/composer:hidden' : ''}`}><Icon name="down" size={11} /></span>
     </button>
-    {open && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} style={{ left: position.left, bottom: position.bottom, width: position.width, maxHeight: position.height }} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-1 shadow-2xl" onKeyDown={(event) => {
+    {open && createPortal(<div ref={menu} id={id} role="listbox" aria-label={label} style={{ left: position.left, ...(placement === 'above' ? { bottom: position.bottom } : { top: position.top }), width: position.width, maxHeight: position.height }} className="fixed z-60 overflow-y-auto rounded-xl bg-raised p-1 shadow-2xl" onKeyDown={(event) => {
       const entries = Array.from(menu.current!.querySelectorAll<HTMLButtonElement>('[role="option"]'));
       const current = entries.indexOf(document.activeElement as HTMLButtonElement);
       if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); trigger.current?.focus(); }

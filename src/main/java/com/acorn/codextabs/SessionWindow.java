@@ -238,7 +238,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                 case "error" -> "Needs a retry";
                 default -> flag(chat, "hasDraft") ? "Draft saved" : text(chat, "preview").isBlank() ? text(chat, "threadId").isBlank() ? "No messages yet" : "Open conversation" : text(chat, "preview");
             };
-            detail = text(chat, "workspaceLabel") + " · " + detail;
+            detail = (text(chat, "provider").equals("claude") ? "Claude · " : "") + text(chat, "workspaceLabel") + " · " + detail;
             var preview = label(detail, text(chat, "status").equals("attention") ? SessionTheme.ATTENTION : SessionTheme.MUTED);
             preview.setFont(preview.getFont().deriveFont(preview.getFont().getSize2D() - 1)); copy.add(preview, BorderLayout.SOUTH);
             body.add(copy, BorderLayout.CENTER);
@@ -411,7 +411,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             archives.setText(archived ? "Back to chats" : "Archived" + (archiveCount == 0 ? "" : "  " + archiveCount));
             archives.setSelected(archived); moreHistory.setVisible(!cursor.isBlank());
             connection.setText(refreshing ? "Refreshing…" : switch (service.connectionStatus()) { case "connected" -> "Connected"; case "connecting" -> "Connecting…"; default -> "Offline"; });
-            connection.setToolTipText(service.distro().isBlank() ? "Local Codex" : "Codex in " + service.distro());
+            connection.setToolTipText(service.distro().isBlank() ? "Local chat backends" : "Chat backends in " + service.distro());
             String selected = list.getSelectedValue() == null ? "" : text(list.getSelectedValue().chat(), "id");
             var groups = new LinkedHashMap<String, List<JsonObject>>();
             for (String group : archived ? new String[]{"Archived"} : new String[]{"Needs you", "Working", "Pinned", "Recent"}) { groups.put(group, new ArrayList<>()); }

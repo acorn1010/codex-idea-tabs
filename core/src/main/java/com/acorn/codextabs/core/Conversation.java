@@ -17,7 +17,7 @@ public final class Conversation {
 
     public Conversation(String id, String cwd) {
         this.id = id;
-        state = object("id", id, "cwd", cwd, "title", "New chat", "threadId", "", "turnId", "", "draft", "", "working", false, "unread", false, "pinned", false, "updatedAt", System.currentTimeMillis());
+        state = object("id", id, "provider", "codex", "cwd", cwd, "title", "New chat", "threadId", "", "turnId", "", "draft", "", "working", false, "unread", false, "pinned", false, "updatedAt", System.currentTimeMillis());
     }
     public static Conversation restore(JsonObject saved) {
         var chat = new Conversation(text(saved, "id"), text(saved, "cwd"));
@@ -30,6 +30,7 @@ public final class Conversation {
             var value = request.getAsJsonObject();
             if (!value.has("rpcId")) { chat.requests.put(text(value, "key"), value.deepCopy()); }
         }
+        chat.state.addProperty("claudeConnection", "disconnected");
         chat.state.addProperty("working", false);
         chat.state.addProperty("turnId", "");
         return chat;
@@ -50,6 +51,12 @@ public final class Conversation {
         if (Set.of("connection", "retry").contains(get("errorKind"))) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
     }
     public synchronized long revision() { return revision; }
+    /** Replace an idle Claude cache with the CLI's current main conversation branch. */
+    public synchronized void replaceClaudeHistory(JsonArray history) {
+        if (busy()) { throw new IllegalStateException("Wait for the current turn before refreshing history."); }
+        items.clear(); itemRevisions.clear(); history.forEach(value -> put(value.getAsJsonObject()));
+        revision++; historyRevision = revision;
+    }
     public synchronized JsonArray items() {
         var result = new JsonArray();
         items.values().forEach(item -> result.add(item.deepCopy()));
@@ -94,7 +101,7 @@ public final class Conversation {
         return result;
     }
     public synchronized JsonObject summary() {
-        var result = object("id", id, "title", get("title"), "threadId", get("threadId"), "cwd", get("cwd"),
+        var result = object("id", id, "provider", get("provider"), "title", get("title"), "threadId", get("threadId"), "cwd", get("cwd"),
             "pinned", flag(state, "pinned"), "updatedAt", state.get("updatedAt"), "archived", archived(),
             "hasDraft", !get("draft").isBlank() || !array(state, "draftAttachments").isEmpty(), "preview", get("preview"));
         result.addProperty("status", status());
@@ -233,7 +240,7 @@ public final class Conversation {
                 item.addProperty(field, content);
                 itemRevisions.put(id, revision + 1);
             }
-            case "item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request" -> {
+            case "claude/toolApproval", "item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request" -> {
                 var request = params.deepCopy();
                 String key = event.has("id") ? event.get("id").toString() : text(params, "itemId");
                 request.addProperty("key", key);

@@ -8,6 +8,13 @@ import com.intellij.openapi.components.*;
 public final class CodexSettings implements PersistentStateComponent<CodexSettings.State> {
     public static final class State {
         public String binary = "codex";
+        public String claudeBinary = "claude";
+        public String provider = "codex";
+        public String claudeModel = "";
+        public String claudeEffort = "";
+        public boolean claudeFast;
+        public String claudePermissions = "ask";
+        public java.util.List<String> claudeApprovals = new java.util.ArrayList<>();
         public String distro = "";
         public String cwd = "";
         public boolean sharedGuidanceEnabled = true;
