@@ -16,12 +16,15 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI, Anthropic, or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.11 adds whole-chat Markdown copying and simpler chat controls.</p>
+        <p>1.0.12 adds Claude Code, provider switching, and Mermaid diagrams.</p>
         <ul>
-            <li>Copy older messages, tool activity, and image references from active or archived chats.</li>
-            <li>Use Copy and Archive in the chat header. Search and split actions remain available through shortcuts and native menus.</li>
-            <li>Remove linked worktrees directly from archived chats, with faster checks and explicit confirmation before discarding local files.</li>
-            <li>Remove clean named-branch worktrees after squash merges while keeping branches, commits, and chats.</li>
+            <li>Use Claude Code with streamed replies, tools, approvals, models, effort controls, session history, and shared project guidance.</li>
+            <li>Switch idle chats between Codex and Claude while keeping conversation text, drafts, and the selected checkout.</li>
+            <li>Remember the last selected provider for every new chat in the project, including split tabs and chats started from files.</li>
+            <li>Render Mermaid diagrams in chat with zoom and source views.</li>
+            <li>Copy just the conversation as Markdown by default, or include tool activity from the Copy menu.</li>
+            <li>Improve provider menus with icons, clearer spacing, and richer status and error colors.</li>
+            <li>Fix Claude startup on macOS when multiple Node installations are present, and explain unsupported CLI startup failures.</li>
         </ul>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
