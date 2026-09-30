@@ -9,6 +9,7 @@ import { Transcript } from './Transcript';
 import { RequestCard } from './Requests';
 import { WorkspaceMenu } from './WorkspaceMenu';
 import { ChoiceMenu } from './ChoiceMenu';
+import { ProviderIcon } from './ProviderIcon';
 import { ImagePreview } from './Markdown';
 import { ContextInspector } from './ContextInspector';
 import { ChatStatus } from './ChatStatus';
@@ -298,6 +299,7 @@ export function ChatApp() {
   };
   const needsLogin = state?.account.requiresOpenaiAuth && !state.account.account;
   const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
+  const statusColor = status === 'Archived' ? 'text-muted' : status === 'Needs your input' || status === 'Connecting' ? 'text-attention' : status === 'Working' ? 'text-accent' : status === 'Ready' ? 'text-success' : 'text-danger';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
   const fastTier = selectedModel?.serviceTiers?.find((tier) => tier.name.toLowerCase() === 'fast' || ['fast', 'priority'].includes(tier.id));
   const supportsFast = (!isClaude || !!chat?.claudeSettingsSupported) && (!!fastTier || !!selectedModel?.additionalSpeedTiers?.some((tier) => ['fast', 'priority'].includes(tier)));
@@ -372,13 +374,13 @@ export function ChatApp() {
 
   return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = state?.chat.archived ? 'none' : 'copy'; setDragging(!state?.chat.archived && !editingItemId); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); } }}>
     <header className="flex h-10 shrink-0 items-center gap-2 px-3">
-      <span className={`size-1.5 shrink-0 rounded-full ${chat?.archived ? 'bg-muted' : attention ? 'bg-attention' : working ? 'bg-accent' : 'bg-success/70'}`} />
-      {!chat?.archived ? <ChoiceMenu label="Provider" value={isClaude ? 'claude' : 'codex'} placement="below" compact disabled={changingProvider || !!chat?.providerSwitching || sending || !!working || attention > 0 || !!chat?.claudeQueue?.length || !!editingItemId || uploads > 0 || archivePending} hint="Switch providers in this tab. Conversation text and the worktree are kept. The new provider starts a fresh session." options={[{ value: 'codex', label: 'Codex' }, { value: 'claude', label: 'Claude' }]} onChange={(provider) => {
+      <span aria-hidden className={`size-1.5 shrink-0 rounded-full bg-current ${statusColor}`} />
+      {!chat?.archived ? <ChoiceMenu label="Provider" value={isClaude ? 'claude' : 'codex'} placement="below" compact disabled={changingProvider || !!chat?.providerSwitching || sending || !!working || attention > 0 || !!chat?.claudeQueue?.length || !!editingItemId || uploads > 0 || archivePending} menuWidth={200} options={[{ value: 'codex', label: 'Codex', icon: <ProviderIcon provider="codex" /> }, { value: 'claude', label: 'Claude', icon: <ProviderIcon provider="claude" /> }]} onChange={(provider) => {
         if (changingProvider || chat?.providerSwitching) { return; }
         setChangingProvider(true); setError('');
         void preferenceSaves.current.then(() => request<Snapshot>('provider', { provider })).then(apply).catch((error: Error) => setError(error.message)).finally(() => { setChangingProvider(false); textarea.current?.focus(); });
       }} /> : <span className="text-[11px] text-muted">{providerName}</span>}
-      <span className={`truncate text-[11px] ${attention ? 'text-attention' : 'text-muted'}`}>{status}</span>
+      <span className={`truncate text-[11px] ${statusColor}`}>{status}</span>
       <span className="min-w-0 flex-1 truncate text-right text-[10px] text-muted/70" title={state?.cwd}>{state?.project}</span>
       {attentionCount > 0 && <button title="See chats that need you" onClick={() => setPalette(true)} className="rounded bg-attention/10 px-1.5 py-0.5 text-[10px] text-attention hover:bg-attention/20 active:bg-attention/30">{attentionCount} waiting</button>}
       <CopyChatMenu disabled={!chat || (!chat.threadId && !chat.items.length)} onError={setError} />
@@ -389,7 +391,7 @@ export function ChatApp() {
     {slash.menu}
     {inspecting && <ContextInspector initialSearch={inspectionSearch} model={model} effort={effort} status={chat?.status} onClose={() => setInspecting(false)} />}
 
-    {(state?.error || error || connectionError || chat?.error) && <div role="alert" className="flex items-start gap-2 border-b border-red-400/20 bg-red-400/5 px-3 py-2 text-xs text-red-300"><span className="min-w-0 flex-1 break-words">{error || chat?.error || state?.error || connectionError}</span><button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded px-1 underline hover:bg-red-400/15 active:bg-red-400/25">Reconnect</button></div>}
+    {(state?.error || error || connectionError || chat?.error) && <div role="alert" className="flex items-start gap-2 border-b border-danger-border bg-danger-surface px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1 break-words">{error || chat?.error || state?.error || connectionError}</span><button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded bg-danger px-2 py-0.5 font-medium text-surface hover:brightness-110 active:brightness-90">Reconnect</button></div>}
     {needsLogin && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs"><span className="flex-1">Use your Codex subscription</span><button className="rounded bg-accent px-2.5 py-1 text-composer hover:brightness-110 active:brightness-90" onClick={() => { void run('login').then((value) => { if (value) { setLogin(value); } }); }}>Sign in with ChatGPT</button></div>}
     {login && needsLogin && <div className="border-b border-line p-3 text-xs"><p>Open the sign-in page and enter <strong className="select-all text-accent">{String(login.userCode || '')}</strong>.</p><button className="mt-2 rounded text-accent underline hover:bg-accent/10 active:bg-accent/20" onClick={() => void run('openLink', { path: login.verificationUrl })}>Open sign-in page ↗</button></div>}
 

@@ -82,7 +82,7 @@ export function ContextInspector({ model, effort, status, onClose, initialSearch
         <button type="button" aria-pressed={view === 'startup'} className={`rounded-md px-3 py-1.5 text-xs ${view === 'startup' ? 'bg-raised text-ink' : 'text-muted hover:bg-raised/60 active:bg-line'}`} onClick={() => switchView('startup')}>Startup</button>
         {report && <span className="ml-auto text-right text-[10px] text-muted">{report.kind === 'transcript' ? 'Loaded transcript only' : view === 'startup' ? 'Fresh CLI input' : report.compactions ? `After ${report.compactions} compaction${report.compactions === 1 ? '' : 's'}` : 'Saved session'}</span>}
       </div>
-      {(errors[view] || actionError) && <div role="alert" className="mx-4 mb-2 rounded-md bg-red-400/10 px-3 py-2 text-xs text-red-300">{errors[view] || actionError}<button className="ml-2 rounded px-1 underline hover:bg-red-400/15 active:bg-red-400/25" onClick={() => { setActionError(''); void load(view); }}>Retry</button></div>}
+      {(errors[view] || actionError) && <div role="alert" className="mx-4 mb-2 rounded-md bg-danger/10 px-3 py-2 text-xs text-danger">{errors[view] || actionError}<button className="ml-2 rounded px-1 underline hover:bg-danger/15 active:bg-danger/25" onClick={() => { setActionError(''); void load(view); }}>Retry</button></div>}
       {!report ? <div className="flex min-h-0 flex-1 flex-col items-start justify-center gap-3 px-6 pb-8">
         <Icon name="layers" size={26} />
         <h2 className="text-base font-medium">{pending[view] ? view === 'startup' ? 'Building startup input…' : 'Reading saved context…' : view === 'startup' ? 'Inspect the starting instructions' : 'No snapshot yet'}</h2>

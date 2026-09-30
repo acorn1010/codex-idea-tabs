@@ -43,7 +43,7 @@ export function RequestCard({ pending }: { pending: Pending }) {
           {field.type === 'boolean' ? <input type="checkbox" checked={Boolean(form[key])} onChange={(event) => setForm({ ...form, [key]: event.target.checked })} className="ml-2 accent-[var(--attention)]" /> : field.enum ? <select value={String(form[key] || '')} onChange={(event) => setForm({ ...form, [key]: event.target.value })} className="block w-full rounded-lg bg-attention-input p-2 hover:bg-attention-hover"><option value="">Choose…</option>{field.enum.map((value) => <option key={value}>{value}</option>)}</select> : <input className="block w-full cursor-text rounded-lg bg-attention-input p-2 hover:bg-attention-hover" value={String(form[key] || '')} onChange={(event) => setForm({ ...form, [key]: field.type === 'number' || field.type === 'integer' ? Number(event.target.value) : event.target.value })} />}
         </label>)}
       </>}
-      {error && <p role="alert" className="text-xs text-red-400">{error}</p>}
+      {error && <p role="alert" className="text-xs text-danger">{error}</p>}
     </div>
       {!isQuestion && choices.some(choice => choice.scope === 'always') && <div className="max-h-24 shrink-0 space-y-2 overflow-y-auto px-4 pb-2 text-[11px] leading-relaxed text-muted">
         {choices.filter(choice => choice.scope === 'always').map((choice, index) => <p key={index} className="break-words"><span className="font-medium">{choice.label}: </span>{choice.description}</p>)}

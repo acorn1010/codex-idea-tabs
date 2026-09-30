@@ -104,7 +104,7 @@ function MessageEditor({ item, onEdit, onClose }: { item: Item; onEdit: EditMess
       })}
       {uploads > 0 && <span role="status" className="self-center text-[11px] text-muted">Attaching…</span>}
     </div>}
-    {error && <p role="alert" className="break-words text-xs text-red-400">{error}</p>}
+    {error && <p role="alert" className="break-words text-xs text-danger">{error}</p>}
     <div className="flex flex-wrap items-center justify-end gap-2">
       <button type="button" disabled={saving} aria-label="Attach images" title="Attach images, or paste or drop them into this editor" onClick={() => void attach(async () => { const result = await request<{ files: Attachment[] }>('chooseImages'); result.files.forEach(add); })} className="mr-auto flex size-7 items-center justify-center rounded-md text-muted enabled:hover:bg-line enabled:hover:text-ink enabled:active:bg-surface"><Icon name="plus" size={16} /></button>
       <button type="button" disabled={saving} onClick={onClose} className="rounded-md px-2.5 py-1.5 text-xs text-muted enabled:hover:bg-line enabled:hover:text-ink enabled:active:bg-surface">Cancel</button>
@@ -125,7 +125,7 @@ const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }
   const content = toolContent(item);
   if (!hasActivityDetails(item)) { return null; }
   return <div className="min-w-0 text-xs">
-    {!detailsOnly && <button onClick={() => setOpen(!open)} aria-expanded={open} title={label} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-red-400' : 'text-muted hover:text-ink active:text-accent'}`}>
+    {!detailsOnly && <button onClick={() => setOpen(!open)} aria-expanded={open} title={label} className={`flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left hover:bg-raised active:bg-line ${failed ? 'text-danger' : 'text-muted hover:text-ink active:text-accent'}`}>
       <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(90deg)' : undefined }} />
       <Icon name={item.type === 'fileChange' ? 'file' : item.type === 'webSearch' ? 'search' : 'code'} size={13} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -174,7 +174,7 @@ const ActivityGroup = memo(function ActivityGroup({ items }: { items: Item[] }) 
       <Icon name={items.some((item) => item.type === 'fileChange') ? 'edit' : 'code'} size={13} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
       {running > 0 && <span className="flex shrink-0 items-center gap-1.5 text-accent"><span aria-hidden className="size-1.5 rounded-full bg-current" />{running} running</span>}
-      {failed > 0 && <span className="shrink-0 text-red-400">{failed} failed</span>}
+      {failed > 0 && <span className="shrink-0 text-danger">{failed} failed</span>}
     </button> : <div title="Codex did not include a reasoning summary." className="flex items-center gap-1.5 px-1.5 py-1.5 text-xs text-muted">
       <span aria-hidden className="size-3" /><Icon name="reasoning" size={13} /><span>Thinking</span>
     </div>}

@@ -131,8 +131,8 @@ export function WorkspaceMenu({ chat, label, draft, attachments, onRemoved }: { 
   return <>
     {chat.archived ? <>
       <span title={chat.cwd} className="min-w-0 flex-1 basis-full break-words text-[11px] text-muted min-[520px]:basis-40">{archivedLabel}</span>
-      {currentWorkspace && !currentWorkspace.main && !currentWorkspace.missing && <button ref={trigger} type="button" disabled={busy && !open} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted enabled:hover:bg-line enabled:hover:text-red-400 enabled:active:bg-red-400/15 disabled:opacity-40"><Icon name="trash" size={13} />Remove worktree…</button>}
-      {!open && error && <p role="alert" className="flex w-full items-center gap-2 text-xs text-red-400"><span className="min-w-0 flex-1 break-words">{error}</span><button type="button" disabled={busy} onClick={reload} className="shrink-0 rounded px-2 py-1 enabled:hover:bg-line enabled:active:bg-red-400/15">Retry</button></p>}
+      {currentWorkspace && !currentWorkspace.main && !currentWorkspace.missing && <button ref={trigger} type="button" disabled={busy && !open} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex shrink-0 items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-muted enabled:hover:bg-line enabled:hover:text-danger enabled:active:bg-danger/15 disabled:opacity-40"><Icon name="trash" size={13} />Remove worktree…</button>}
+      {!open && error && <p role="alert" className="flex w-full items-center gap-2 text-xs text-danger"><span className="min-w-0 flex-1 break-words">{error}</span><button type="button" disabled={busy} onClick={reload} className="shrink-0 rounded px-2 py-1 enabled:hover:bg-line enabled:active:bg-danger/15">Retry</button></p>}
     </> : <button ref={trigger} type="button" aria-label={`Workspace: ${label || chat.cwd}`} title={`${label || 'Workspace'}\n${chat.cwd}`} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)} className="flex h-7 min-w-7 max-w-32 items-center justify-center gap-1 rounded-md px-1 @min-[640px]/composer:max-w-56 @min-[900px]/composer:max-w-96 text-[11px] text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent">
       <span className="shrink-0"><Icon name="branch" size={13} /></span><span className="truncate @max-[400px]/composer:hidden">{compactLabel || chat.cwd.split('/').pop() || 'Workspace'}</span><span className="shrink-0 @max-[400px]/composer:hidden"><Icon name="down" size={10} /></span>
     </button>}
@@ -150,7 +150,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments, onRemoved }: { 
         <span className="flex-1 text-xs font-medium">{mode === 'create' ? 'New worktree' : mode === 'remove' ? 'Remove worktree' : mode === 'repositories' ? 'Choose repository' : 'Workspace'}</span>
         <button aria-label="Close workspace menu" onClick={close} className="rounded p-1 text-muted hover:bg-surface hover:text-ink active:bg-line"><Icon name="close" size={13} /></button>
       </div>
-      {error && <p role="alert" className="mb-2 rounded-lg bg-red-400/10 px-2.5 py-2 text-xs text-red-400">{error}</p>}
+      {error && <p role="alert" className="mb-2 rounded-lg bg-danger/10 px-2.5 py-2 text-xs text-danger">{error}</p>}
       {mode === 'list' && <>
         {!!data?.sharedGuidanceFolder && <button type="button" onClick={() => void action('settings')} className={`${rowStyle} text-muted`} title={data.sharedGuidanceFolder}>
           <span className="min-w-0"><span className="block text-[11px]">Shared guidance</span><span className="block truncate text-[10px]">{data.sharedGuidanceFolder}</span></span>
@@ -174,7 +174,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments, onRemoved }: { 
                 <span className="min-w-0 flex-1"><span className="block truncate">{workspace.branch || workspace.name}</span><span className="block truncate text-[10px] text-muted">{workspace.main ? 'Primary checkout' : workspace.name}{workspace.missing ? ' · Missing' : workspace.locked ? ' · Locked' : ''}{workspace.chats ? ` · ${workspace.chats} chat${workspace.chats === 1 ? '' : 's'}` : ''}</span></span>
                 {established && !selected && <Icon name="newTab" size={12} />}
               </button>
-              {!workspace.main && <button disabled={busy} aria-label={`Remove worktree ${workspace.name}`} title="Remove worktree" onClick={() => void inspectRemoval(workspace)} className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-red-400/10 hover:text-red-400 active:bg-red-400/20"><Icon name="trash" size={13} /></button>}
+              {!workspace.main && <button disabled={busy} aria-label={`Remove worktree ${workspace.name}`} title="Remove worktree" onClick={() => void inspectRemoval(workspace)} className="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-muted hover:bg-danger/10 hover:text-danger active:bg-danger/20"><Icon name="trash" size={13} /></button>}
             </div>;
           })}</div>
         </>}
@@ -215,7 +215,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments, onRemoved }: { 
         </details>}
         {remove.blocked ? <p role="status">{remove.blocked}</p> : <><p>Remove this worktree folder and its files? {remove.branch ? <>The local branch <strong className="break-words font-medium text-ink">{remove.branch}</strong> and all its commits will be kept. </> : ''}{remove.chats || 'Saved'} chat{remove.chats === 1 ? '' : 's'} will also be kept.</p><p className="text-[11px] text-muted">Chats that used it will need another checkout before sending.</p>
           {remove.files.length > 0 && <>
-            <p className="text-red-400">These local changes and files will be permanently deleted. They are not saved by keeping the branch.</p>
+            <p className="text-danger">These local changes and files will be permanently deleted. They are not saved by keeping the branch.</p>
             <ul aria-label="Local changes and files to discard" className="max-h-40 space-y-1 overflow-y-auto rounded-lg bg-input p-2">
               {remove.files.slice(0, 100).map((file, index) => <li key={index} className="flex items-start gap-2"><span className="w-16 shrink-0 text-[10px] text-muted">{file.status}</span><span className="min-w-0 whitespace-pre-wrap break-all text-[11px]">{file.path}</span></li>)}
             </ul>
@@ -223,7 +223,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments, onRemoved }: { 
           </>}
           <div className="flex flex-wrap gap-2">
             <button type="button" disabled={busy} onClick={close} className="flex-1 rounded-lg bg-surface px-3 py-2 hover:bg-line">Cancel</button>
-            <button type="button" disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path, discardChanges: remove.files.length > 0 }).then(() => { setData(current => current ? { ...current, entries: current.entries.filter(entry => entry.path !== remove.path) } : current); if (chat.archived) { setOpen(false); window.requestAnimationFrame(() => onRemoved?.()); } else { setMode('list'); } }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="flex-auto rounded-lg bg-red-400/15 px-3 py-2 font-medium text-red-400 hover:bg-red-400/25 active:bg-red-400/35">{busy ? 'Removing…' : remove.files.length ? 'Discard changes and remove' : 'Remove directory'}</button>
+            <button type="button" disabled={busy} onClick={() => { setBusy(true); setError(''); void request('removeWorktree', { path: remove.path, discardChanges: remove.files.length > 0 }).then(() => { setData(current => current ? { ...current, entries: current.entries.filter(entry => entry.path !== remove.path) } : current); if (chat.archived) { setOpen(false); window.requestAnimationFrame(() => onRemoved?.()); } else { setMode('list'); } }).catch((error: Error) => setError(error.message)).finally(() => setBusy(false)); }} className="flex-auto rounded-lg bg-danger/15 px-3 py-2 font-medium text-danger hover:bg-danger/25 active:bg-danger/35">{busy ? 'Removing…' : remove.files.length ? 'Discard changes and remove' : 'Remove directory'}</button>
           </div></>}
       </div>}
     </div>, document.body)}

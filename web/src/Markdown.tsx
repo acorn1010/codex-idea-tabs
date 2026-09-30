@@ -38,7 +38,7 @@ export const ImagePreview = memo(function ImagePreview({ path, alt = 'Image', co
       <span className="truncate">{alt}</span>
     </button> : url ? <button ref={trigger} onContextMenu={imageMenu} className="max-w-full overflow-hidden rounded-lg bg-composer hover:brightness-110 active:brightness-90" onClick={() => setExpanded(true)} aria-label={`Preview ${alt}`}><img src={url} alt={alt} loading="lazy" onError={failed} className="max-h-72 max-w-full object-contain" /></button> : <span className="rounded-lg bg-raised px-4 py-3 text-muted">{error || 'Loading image…'}</span>}
     {!compact && !path.startsWith('data:') && <button className="self-start text-xs text-accent hover:underline active:text-ink" onClick={openInEditor}>Open in editor ↗</button>}
-    {!compact && url && error && <span role="alert" className="text-xs text-red-400">{error}</span>}
+    {!compact && url && error && <span role="alert" className="text-xs text-danger">{error}</span>}
     {contextMenu && <ImageMenu key={`${contextMenu.x}-${contextMenu.y}`} {...contextMenu} close={() => setContextMenu(undefined)} />}
     {expanded && <ImageDialog imageMenu={imageMenu} returnFocus={trigger.current} url={url} alt={alt} error={error} close={() => setExpanded(false)} failed={failed} openInEditor={path.startsWith('data:') ? undefined : openInEditor} />}
   </span>;
@@ -55,7 +55,7 @@ function ImageDialog({ imageMenu, returnFocus, url, alt, error, close, failed, o
     <div className="flex h-full flex-col gap-3">
       <div className="flex items-center gap-3"><span className="min-w-0 flex-1 truncate text-sm" title={alt}>{alt}</span><button type="button" className="flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-raised active:bg-line" autoFocus aria-label="Close image preview" onClick={close}><Icon name="close" /></button></div>
       {url ? <img onContextMenu={imageMenu} src={url} alt={alt} onError={failed} className="min-h-0 flex-1 object-contain" /> : <div role={error ? 'alert' : 'status'} className="flex flex-1 items-center justify-center text-sm text-muted">{error || 'Loading image…'}</div>}
-      {url && error && <p role="alert" className="text-xs text-red-400">{error}</p>}
+      {url && error && <p role="alert" className="text-xs text-danger">{error}</p>}
       {openInEditor && <button type="button" onClick={openInEditor} className="self-start rounded px-2 py-1 text-xs text-accent hover:bg-raised active:bg-line">Open in editor ↗</button>}
     </div>
   </dialog>, document.body);
@@ -89,7 +89,7 @@ function CopyCodeBlock({ text, children }: { text: string; children: ReactNode }
   const label = error ? 'Copy failed. Try again' : copied ? 'Block copied' : 'Copy block';
   return <div data-code-block className="my-3 flex min-w-0 items-start rounded-lg bg-composer">
     <pre className="m-0 min-w-0 flex-1 overflow-x-auto p-3 text-xs leading-relaxed">{children}</pre>
-    <button type="button" aria-label={label} title={error || label} aria-disabled={copying} aria-busy={copying} onClick={() => void copy()} className={`m-1.5 ml-0 flex size-7 shrink-0 items-center justify-center rounded-md aria-disabled:cursor-wait aria-disabled:opacity-50 enabled:hover:bg-raised enabled:hover:text-ink enabled:active:bg-line enabled:active:text-accent ${error ? 'text-red-400' : copied ? 'text-success' : 'text-muted'}`}>
+    <button type="button" aria-label={label} title={error || label} aria-disabled={copying} aria-busy={copying} onClick={() => void copy()} className={`m-1.5 ml-0 flex size-7 shrink-0 items-center justify-center rounded-md aria-disabled:cursor-wait aria-disabled:opacity-50 enabled:hover:bg-raised enabled:hover:text-ink enabled:active:bg-line enabled:active:text-accent ${error ? 'text-danger' : copied ? 'text-success' : 'text-muted'}`}>
       <Icon name={copied ? 'check' : 'copy'} size={14} />
     </button>
     <span role="status" className="sr-only">{error ? `Copy failed: ${error}` : copied ? 'Block copied' : ''}</span>

@@ -44,6 +44,6 @@ export function ImageMenu({ image, x, y, close }: { image: HTMLImageElement; x: 
     if (event.key === 'Tab') { close(); }
   }}>
     <button type="button" role="menuitem" disabled={busy || copied} onClick={() => void copy()} className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-xs enabled:hover:bg-surface enabled:active:bg-line focus-visible:bg-surface focus-visible:outline-none"><Icon name={copied ? 'check' : 'copy'} size={14} />{copied ? 'Image copied' : busy ? 'Copying…' : 'Copy image'}</button>
-    {error && <p role="alert" className="max-h-28 overflow-auto px-2.5 py-1.5 text-xs break-words text-red-400">{error}</p>}
+    {error && <p role="alert" className="max-h-28 overflow-auto px-2.5 py-1.5 text-xs break-words text-danger">{error}</p>}
   </div>, image.closest('dialog') || document.body);
 }

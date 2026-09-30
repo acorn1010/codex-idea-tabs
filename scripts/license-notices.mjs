@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const web = resolve(dirname(fileURLToPath(import.meta.url)), '../web');
 const lock = JSON.parse(readFileSync(join(web, 'package-lock.json'), 'utf8'));
-const notices = ['Third-party licenses for the Codex Tabs web UI.\n'];
+const notices = ['Third-party licenses for the Codex Tabs web UI.\n', 'Provider icons: OpenAI Blossom (https://openai.com/brand/) and the Claude mark from Anthropic’s Claude Code extension. These marks belong to OpenAI and Anthropic and identify the selected service.\n'];
 for (const [path, entry] of Object.entries(lock.packages)) {
   if (!path || entry.dev) { continue; }
   const root = join(web, path);
