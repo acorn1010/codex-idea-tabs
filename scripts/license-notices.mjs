@@ -11,8 +11,13 @@ for (const [path, entry] of Object.entries(lock.packages)) {
   const root = join(web, path);
   const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
   const files = readdirSync(root).filter(name => /^(license|licence|copying)(\.|$)/i.test(name));
-  if (!files.length) { throw new Error(`No license file found for ${pkg.name}`); }
+  // These packages ship their complete MIT license in README.md instead of a LICENSE file.
+  const readmeLicense = !files.length && ['fastdom', 'strictdom'].includes(pkg.name)
+    ? readFileSync(join(root, 'README.md'), 'utf8').match(/^## License\r?\n([\s\S]*)/m)?.[1].trim()
+    : undefined;
+  if (!files.length && !readmeLicense) { throw new Error(`No license file found for ${pkg.name}`); }
   notices.push(`\n${pkg.name} ${pkg.version}\n${'='.repeat(60)}\n`);
+  if (readmeLicense) { notices.push(readmeLicense); }
   for (const file of files) { notices.push(readFileSync(join(root, file), 'utf8')); }
 }
 writeFileSync(join(web, 'dist/THIRD_PARTY_LICENSES.txt'), notices.join('\n'));

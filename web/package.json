@@ -9,6 +9,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "mermaid": "11.17.2",
     "react": "19.1.1",
     "react-dom": "19.1.1",
     "react-markdown": "10.1.0",

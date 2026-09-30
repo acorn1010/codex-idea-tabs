@@ -1,10 +1,12 @@
-import { memo, useEffect, useRef, useState, type MouseEvent, type ComponentProps } from 'react';
+import { memo, useEffect, useRef, useState, type MouseEvent, type ReactNode, type ComponentProps } from 'react';
 import { createPortal } from 'react-dom';
 import ReactMarkdown, { type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { request } from './bridge';
 import { Icon } from './icons';
 import { ImageMenu } from './ImageMenu';
+import { MermaidDiagram } from './MermaidDiagram';
+import { remarkMermaid } from './remarkMermaid';
 
 /** Local images travel through the backend file bridge, never through Windows UNC URLs in the browser. */
 export const ImagePreview = memo(function ImagePreview({ path, alt = 'Image', compact = false }: { path: string; alt?: string; compact?: boolean }) {
@@ -62,6 +64,12 @@ function ImageDialog({ imageMenu, returnFocus, url, alt, error, close, failed, o
 function CodeBlock({ node, children }: ComponentProps<'pre'> & ExtraProps) {
   const code = node?.children[0];
   const text = code?.type === 'element' ? code.children.map((child) => child.type === 'text' ? child.value : '').join('') : '';
+  const language = code?.type === 'element' ? code.properties.className : undefined;
+  if (Array.isArray(language) && language.some((name) => String(name).toLowerCase() === 'language-mermaid')) { return <MermaidDiagram source={text.replace(/\n$/, '')} />; }
+  return <CopyCodeBlock text={text}>{children}</CopyCodeBlock>;
+}
+
+function CopyCodeBlock({ text, children }: { text: string; children: ReactNode }) {
   const [copiedText, setCopiedText] = useState<string>();
   const [copying, setCopying] = useState(false);
   const [error, setError] = useState('');
@@ -90,7 +98,7 @@ function CodeBlock({ node, children }: ComponentProps<'pre'> & ExtraProps) {
 
 /** Render Markdown without raw HTML. Link clicks are handled by the IDE's file and browser actions. */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} urlTransform={(url) => url} components={{
+  return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMermaid]} urlTransform={(url) => url} components={{
     p: ({ children }) => <p className="my-2 leading-relaxed break-words">{children}</p>,
     h1: ({ children }) => <h1 className="mt-5 mb-2 text-lg font-semibold">{children}</h1>,
     h2: ({ children }) => <h2 className="mt-4 mb-2 text-base font-semibold">{children}</h2>,

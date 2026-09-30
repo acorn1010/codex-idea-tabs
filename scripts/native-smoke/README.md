@@ -48,6 +48,8 @@ CODEX_SMOKE_CHROME=/path/to/chrome node scripts/native-smoke/check-edit-layout.m
 
 This opens the bundled UI in a real browser at 360, 520, and 720 pixels wide. It checks image previews, visible edit controls, keyboard submission, and draft recovery after an error. It uses a local fixture bridge and does not launch IDEA or call a model.
 
+For Mermaid previews, build the UI and run `CODEX_SMOKE_CHROME=/path/to/chrome node scripts/native-smoke/check-mermaid.mjs`. It uses the same inline bundle and security policy as JCEF. It checks fenced and pasted flowcharts in both providers, light and dark themes, narrow layouts, source copy, keyboard access to expanded diagrams, streamed updates, invalid input, and offline rendering.
+
 To verify model defaults and saving without sending a message, use the fixture's Astra and Test model choices:
 
 ```sh
