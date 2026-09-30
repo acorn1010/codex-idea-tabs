@@ -80,7 +80,7 @@ public final class CodexService implements Disposable {
                 workspaceLock.readLock().lock();
                 try {
                     if (!Set.of("codex", "claude").contains(provider)) { throw new IllegalArgumentException("Unknown provider."); }
-                    if (source.get("provider").equals(provider)) { result.complete(snapshot(id)); return; }
+                    if (source.get("provider").equals(provider)) { settings().provider = provider; result.complete(snapshot(id)); return; }
                     ProviderHandoff.checkIdle(source.snapshot());
                     source.set("providerSwitching", true); changed(id);
                     var history = source.get("provider").equals("claude") ? claude.transcript(source) : transcript(id).join();
@@ -281,7 +281,7 @@ public final class CodexService implements Disposable {
     public Conversation createInWorkspace(String sourceId) {
         var source = chat(sourceId);
         var created = create();
-        created.set("provider", source.get("provider")); created.set("cwd", source.get("cwd")); created.set("workspaceBase", source.get("workspaceBase"));
+        created.set("cwd", source.get("cwd")); created.set("workspaceBase", source.get("workspaceBase"));
         changed(created.id); return created;
     }
     public CompletableFuture<Conversation> createForPathAsync(String path) { return CompletableFuture.supplyAsync(() -> createForPath(path), io); }
