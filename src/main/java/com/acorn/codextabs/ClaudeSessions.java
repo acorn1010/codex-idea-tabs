@@ -120,7 +120,7 @@ final class ClaudeSessions implements AutoCloseable {
                     chat.disconnected(); chat.set("claudeConnection", "disconnected"); chat.loadFailed(reason); changed.accept(chat);
                 });
                 if (session.closed || session.generation.get() != generation) { session.client.close(); throw new CancellationException("Claude connection was replaced"); }
-                var initialized = session.client.control(object("subtype", "initialize")).join();
+                var initialized = session.client.initialize().join();
                 if (!session.client.isAlive()) { throw new IllegalStateException("Claude exited during startup."); }
                 if (session.closed || session.generation.get() != generation) { throw new CancellationException("Claude connection was replaced"); }
                 chat.set("claudeModels", ClaudeProtocol.models(initialized));

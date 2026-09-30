@@ -4,6 +4,9 @@ import com.google.gson.*;
 import org.junit.jupiter.api.Test;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.*;
+import java.util.List;
+import org.junit.jupiter.api.io.TempDir;
 import java.util.concurrent.*;
 import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
@@ -31,6 +34,47 @@ class ClaudeClientTest {
             assertFalse(client.isAlive());
             assertThrows(IllegalStateException.class, () -> client.write(object("type", "user")));
         }
+    }
+    @Test void reportsUnsupportedStartupAndAllowsRetry() throws Exception {
+        var process = new FixtureProcess();
+        try (var client = new ClaudeClient(process, ignored -> {}, ignored -> {})) {
+            var init = client.initialize(50, TimeUnit.MILLISECONDS);
+            var sent = process.written.poll(2, TimeUnit.SECONDS); assertNotNull(sent);
+            assertEquals("initialize", text(obj(sent, "request"), "subtype"));
+            var error = assertThrows(ExecutionException.class, () -> init.get(2, TimeUnit.SECONDS));
+            assertTrue(error.getCause().getMessage().contains("startup handshake"));
+            assertTrue(error.getCause().getMessage().contains("current executable"));
+            assertInstanceOf(TimeoutException.class, error.getCause().getCause());
+            // A late response to a timed-out request must not complete the next attempt.
+            var retry = client.initialize();
+            process.emit(object("type", "control_response", "response", object("request_id", text(sent, "request_id"), "subtype", "success", "response", object("old", true))));
+            sent = process.written.poll(2, TimeUnit.SECONDS); assertNotNull(sent);
+            process.emit(object("type", "control_response", "response", object("request_id", text(sent, "request_id"), "subtype", "success", "response", object("models", new JsonArray()))));
+            assertTrue(retry.get(2, TimeUnit.SECONDS).has("models"));
+        }
+    }
+    @Test void findsNewestNvmVersionWithLimitedDesktopPath(@TempDir Path home) throws Exception {
+        var versions = home.resolve(".nvm/versions/node");
+        executable(versions.resolve("v22.3.0/bin/claude"));
+        executable(versions.resolve("v9.11.0/bin/claude"));
+        var newest = executable(versions.resolve("v22.14.0/bin/claude"));
+        Files.createDirectories(versions.resolve("v24.0.0"));
+        Files.createDirectories(versions.resolve("not-a-version"));
+        assertEquals(newest.toString(), ClaudeClient.executable("claude", "relative/path", home, List.of()));
+        Files.delete(newest);
+        assertTrue(ClaudeClient.executable("", "", home, List.of()).endsWith("v22.3.0/bin/claude"));
+    }
+    @Test void keepsExplicitExecutablePathAndNativeInstallPriority(@TempDir Path home) throws Exception {
+        var shell = executable(home.resolve("shell/bin/claude"));
+        var nativeInstall = executable(home.resolve(".local/bin/claude"));
+        executable(home.resolve(".nvm/versions/node/v22.14.0/bin/claude"));
+        assertEquals("/custom/claude", ClaudeClient.executable("/custom/claude", "", home, List.of(nativeInstall)));
+        assertEquals(shell.toString(), ClaudeClient.executable("", shell.getParent().toString(), home, List.of(nativeInstall)));
+        assertEquals(nativeInstall.toString(), ClaudeClient.executable("", "", home, List.of(nativeInstall)));
+    }
+    private static Path executable(Path path) throws IOException {
+        Files.createDirectories(path.getParent()); Files.writeString(path, "#!/bin/sh\nexit 0\n");
+        assertTrue(path.toFile().setExecutable(true)); return path;
     }
     private static final class FixtureProcess extends Process {
         final LinkedBlockingQueue<JsonObject> written = new LinkedBlockingQueue<>();

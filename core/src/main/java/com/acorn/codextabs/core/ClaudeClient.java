@@ -51,12 +51,24 @@ public final class ClaudeClient implements AutoCloseable {
         });
     }
     private String diagnostics() { synchronized (stderr) { return stderr.isEmpty() ? "" : "\n" + stderr.toString().strip(); } }
-    public CompletableFuture<JsonObject> control(JsonObject request) {
+    /** Startup must fail visibly when an old CLI cannot answer the control protocol. */
+    public CompletableFuture<JsonObject> initialize() { return initialize(30, TimeUnit.SECONDS); }
+    CompletableFuture<JsonObject> initialize(long timeout, TimeUnit unit) {
+        return control(object("subtype", "initialize"), timeout, unit).exceptionallyCompose(error -> {
+            while (error instanceof CompletionException && error.getCause() != null) { error = error.getCause(); }
+            if (error instanceof TimeoutException) {
+                return CompletableFuture.failedFuture(new IOException("Claude did not answer the startup handshake. Update Claude Code or select its current executable in Settings > Tools > Codex Tabs, then reconnect.", error));
+            }
+            return CompletableFuture.failedFuture(error);
+        });
+    }
+    public CompletableFuture<JsonObject> control(JsonObject request) { return control(request, 90, TimeUnit.SECONDS); }
+    private CompletableFuture<JsonObject> control(JsonObject request, long timeout, TimeUnit unit) {
         String id = UUID.randomUUID().toString();
         var future = new CompletableFuture<JsonObject>(); pending.put(id, future);
         try { write(object("type", "control_request", "request_id", id, "request", request)); }
         catch (RuntimeException error) { pending.remove(id); future.completeExceptionally(error); }
-        return future.orTimeout(90, TimeUnit.SECONDS).whenComplete((value, error) -> pending.remove(id));
+        return future.orTimeout(timeout, unit).whenComplete((value, error) -> pending.remove(id));
     }
     public void respond(String id, JsonObject response) { write(object("type", "control_response", "response", object("subtype", "success", "request_id", id, "response", response))); }
     public void reject(String id, String reason) { write(object("type", "control_response", "response", object("subtype", "error", "request_id", id, "error", reason))); }
@@ -77,19 +89,27 @@ public final class ClaudeClient implements AutoCloseable {
 
     /** Find native and npm installations without depending on the desktop IDE's shell PATH. */
     public static String executable(String configured) {
+        var home = Path.of(System.getProperty("user.home"));
+        return executable(configured, Objects.toString(System.getenv("PATH"), ""), home, List.of(
+            home.resolve(".local/bin/claude"), home.resolve(".claude/local/claude"), Path.of("/opt/homebrew/bin/claude"), Path.of("/usr/local/bin/claude")));
+    }
+    static String executable(String configured, String path, Path home, List<Path> fallbacks) {
         if (!configured.isBlank() && !configured.equals("claude")) { return configured; }
         var candidates = new ArrayList<Path>();
-        for (String directory : Objects.toString(System.getenv("PATH"), "").split(java.io.File.pathSeparator)) {
+        for (String directory : path.split(java.io.File.pathSeparator)) {
             if (!directory.isBlank() && Path.of(directory).isAbsolute()) { candidates.add(Path.of(directory, "claude")); }
         }
-        var home = Path.of(System.getProperty("user.home"));
-        candidates.addAll(List.of(home.resolve(".local/bin/claude"), home.resolve(".claude/local/claude"), Path.of("/opt/homebrew/bin/claude"), Path.of("/usr/local/bin/claude")));
+        candidates.addAll(fallbacks);
         var nvm = home.resolve(".nvm/versions/node");
         if (Files.isDirectory(nvm)) {
-            try (var versions = Files.list(nvm)) { versions.sorted(Comparator.reverseOrder()).map(path -> path.resolve("bin/claude")).forEach(candidates::add); }
-            catch (IOException ignored) {}
+            try (var versions = Files.list(nvm)) {
+                versions.filter(Files::isDirectory).filter(version -> version.getFileName().toString().matches("v\\d+\\.\\d+\\.\\d+"))
+                    // Compare numeric components so 22.14.0 comes before 22.3.0.
+                    .sorted(Comparator.comparing((Path version) -> java.lang.module.ModuleDescriptor.Version.parse(version.getFileName().toString().substring(1))).reversed())
+                    .map(version -> version.resolve("bin/claude")).forEach(candidates::add);
+            } catch (IOException ignored) {}
         }
-        return candidates.stream().filter(path -> Files.isRegularFile(path) && Files.isExecutable(path)).map(Path::toString).findFirst().orElse("claude");
+        return candidates.stream().filter(candidate -> Files.isRegularFile(candidate) && Files.isExecutable(candidate)).map(Path::toString).findFirst().orElse("claude");
     }
     /** Arguments remain separate from shell text, including WSL paths and user-selected models. */
     public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork) {
