@@ -18,12 +18,13 @@ const Message = memo(function Message({ item, editing, onEdit, onEditing, editab
   return <article data-message-id={item.id} data-message-role={user ? 'user' : 'assistant'} className={`group relative min-w-0 ${user ? `ml-auto max-w-[92%] ${editing ? 'w-full' : ''}` : 'w-full'}`}>
     <div className={user ? 'rounded-xl bg-raised px-3.5 py-1.5' : ''}>
       {editing ? <MessageEditor item={item} onEdit={onEdit} onClose={cancel} /> : <>
+        {!user && !!item.historyProvider && <div className="pt-1 text-[10px] text-muted">{item.historyProvider === 'claude' ? 'Claude' : 'Codex'}</div>}
         <Markdown text={text} />
         {(item.content || []).filter(isImage).map((part, index) => <ImagePreview key={index} path={String(part.path || part.url || '')} alt="Attached image" />)}
       </>}
     </div>
     {user && !editing && <div className="pointer-events-none absolute right-1 bottom-1 flex items-center gap-1 rounded-md bg-composer p-0.5 text-muted opacity-0 shadow-sm group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
-      {editable && <button ref={editButton} title="Edit message and continue in a new tab" aria-label="Edit message" onClick={() => onEditing(item.id)} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="edit" size={14} /></button>}
+      {editable && !item.historyProvider && <button ref={editButton} title="Edit message and continue in a new tab" aria-label="Edit message" onClick={() => onEditing(item.id)} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="edit" size={14} /></button>}
       {text && <button title="Copy message" aria-label="Copy message" onClick={copy} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name={copied ? 'check' : 'copy'} size={14} /></button>}
     </div>}
     {!user && text && <div className="group-has-[[data-code-block]:hover]:hidden group-has-[[data-code-block]:focus-within]:hidden pointer-events-none absolute right-1 bottom-1 rounded-md bg-surface p-0.5 text-muted opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100"><button title="Copy response" aria-label="Copy response" onClick={copy} className="flex size-7 items-center justify-center rounded-md hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name={copied ? 'check' : 'copy'} size={14} /></button></div>}

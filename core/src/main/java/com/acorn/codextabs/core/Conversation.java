@@ -31,6 +31,7 @@ public final class Conversation {
             if (!value.has("rpcId")) { chat.requests.put(text(value, "key"), value.deepCopy()); }
         }
         chat.state.addProperty("claudeConnection", "disconnected");
+        chat.state.addProperty("providerSwitching", false);
         chat.state.addProperty("working", false);
         chat.state.addProperty("turnId", "");
         return chat;
@@ -46,15 +47,17 @@ public final class Conversation {
         state.addProperty("error", message); state.addProperty("errorKind", "connection"); revision++;
     }
     public synchronized void loaded() { clearRecoverableError(); revision++; }
-    public synchronized boolean busy() { return flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
+    public synchronized boolean busy() { return flag(state, "providerSwitching") || flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
     private void clearRecoverableError() {
         if (Set.of("connection", "retry").contains(get("errorKind"))) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
     }
     public synchronized long revision() { return revision; }
+    /** Existing editor copies must replace their full history after a provider change. */
+    public synchronized void replaceAfter(long previousRevision) { historyRevision = revision = Math.max(revision, previousRevision) + 1; }
     /** Replace an idle Claude cache with the CLI's current main conversation branch. */
     public synchronized void replaceClaudeHistory(JsonArray history) {
         if (busy()) { throw new IllegalStateException("Wait for the current turn before refreshing history."); }
-        items.clear(); itemRevisions.clear(); history.forEach(value -> put(value.getAsJsonObject()));
+        var carried = carriedItems(); items.clear(); items.putAll(carried); itemRevisions.clear(); history.forEach(value -> put(value.getAsJsonObject()));
         revision++; historyRevision = revision;
     }
     public synchronized JsonArray items() {
@@ -69,7 +72,7 @@ public final class Conversation {
         return flag(state, "unread") ? "complete" : "idle";
     }
     public synchronized boolean archived() { return flag(state, "archived") || flag(state, "hidden"); }
-    public synchronized boolean canArchive() { return !flag(state, "working") && requests.isEmpty(); }
+    public synchronized boolean canArchive() { return !busy() && requests.isEmpty(); }
     public synchronized void archive(boolean archived) {
         if (archived && !canArchive()) { throw new IllegalStateException("Finish the active work and answer pending requests before archiving."); }
         state.addProperty("archived", archived);
@@ -117,9 +120,12 @@ public final class Conversation {
             state.addProperty("updatedAt", firstImport ? updatedAt : Math.max(state.get("updatedAt").getAsLong(), updatedAt));
         }
         if (!text(thread, "preview").isBlank()) { state.addProperty("preview", text(thread, "preview").substring(0, Math.min(120, text(thread, "preview").length())).replaceAll("\\s+", " ")); }
-        var history = new LinkedHashMap<String, JsonObject>();
+        var history = carriedItems();
         for (var turn : array(thread, "turns")) {
-            for (var item : array(turn.getAsJsonObject(), "items")) { history.put(text(item.getAsJsonObject(), "id"), item.getAsJsonObject().deepCopy()); }
+            for (var item : array(turn.getAsJsonObject(), "items")) {
+                var visible = ProviderHandoff.visibleItem(item.getAsJsonObject(), get("providerContext"));
+                if (visible != null) { history.put(text(visible, "id"), visible.deepCopy()); }
+            }
         }
         if (startedRevision == revision) { items.putAll(history); }
         else {
@@ -150,11 +156,12 @@ public final class Conversation {
     }
     /** Refresh from the newest page, or prepend an older page. Live events received during the fetch always win. */
     public synchronized void historyPage(JsonArray entries, String cursor, long startedRevision, boolean latest) {
-        var history = new LinkedHashMap<String, JsonObject>();
+        var history = carriedItems();
         for (int i = entries.size() - 1; i >= 0; i--) {
             var entry = entries.get(i).getAsJsonObject();
             var item = entry.has("item") ? obj(entry, "item") : entry;
-            history.put(text(item, "id"), item.deepCopy());
+            var visible = ProviderHandoff.visibleItem(item, get("providerContext"));
+            if (visible != null) { history.put(text(visible, "id"), visible.deepCopy()); }
         }
         items.forEach((id, item) -> {
             if ((!latest && !history.containsKey(id)) || itemRevisions.getOrDefault(id, 0L) > startedRevision) { history.put(id, item); }
@@ -282,13 +289,26 @@ public final class Conversation {
         state.addProperty("unread", false);
         return true;
     }
+    private synchronized LinkedHashMap<String, JsonObject> carriedItems() {
+        var carried = new LinkedHashMap<String, JsonObject>();
+        items.forEach((id, item) -> { if (item.has("historyProvider")) { carried.put(id, item); } });
+        return carried;
+    }
+    /** Carry earlier provider segments into a same-provider fork without copying its active segment. */
+    public synchronized void inheritHandoff(Conversation source) {
+        var carried = source.carriedItems(); carried.putAll(items); items.clear(); items.putAll(carried);
+        set("providerContext", source.get("providerContext"));
+        historyRevision = ++revision;
+    }
     private void put(JsonObject item) {
+        item = ProviderHandoff.visibleItem(item, get("providerContext"));
+        if (item == null) { return; }
         if (!text(item, "id").isBlank()) { items.put(text(item, "id"), item.deepCopy()); itemRevisions.put(text(item, "id"), revision + 1); questions(item); }
     }
     /** Codex sends asynchronous choices on agent messages, separate from blocking RPC requests. */
     private void questions(JsonObject item) {
         String key = text(item, "id");
-        if (!text(item, "type").equals("agentMessage") || array(item, "questions").isEmpty() || array(state, "answeredQuestions").contains(new JsonPrimitive(key))) { return; }
+        if (item.has("historyProvider") || !text(item, "type").equals("agentMessage") || array(item, "questions").isEmpty() || array(state, "answeredQuestions").contains(new JsonPrimitive(key))) { return; }
         var questions = new JsonArray();
         for (var entry : array(item, "questions")) {
             var source = entry.getAsJsonObject();

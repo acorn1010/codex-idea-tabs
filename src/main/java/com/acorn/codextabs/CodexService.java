@@ -68,16 +68,52 @@ public final class CodexService implements Disposable {
     }
     public static CodexService get(Project project) { return project.getService(CodexService.class); }
     public CodexSettings.State settings() { return project.getService(CodexSettings.class).getState(); }
-    private void claudeChanged(Conversation chat) { sessions.working(chat.id, chat.busy()); changed(chat.id); }
+    private void claudeChanged(Conversation chat) { if (chats.get(chat.id) != chat) { return; } sessions.working(chat.id, chat.busy()); changed(chat.id); }
     public boolean isClaude(String id) { return chat(id).get("provider").equals("claude"); }
-    /** A provider is fixed after the first message so history cannot be resumed by the wrong CLI. */
-    public synchronized void selectProvider(String id, String provider) {
-        if (!Set.of("codex", "claude").contains(provider)) { throw new IllegalArgumentException("Unknown provider."); }
-        var chat = chat(id);
-        if (chat.busy() || !chat.get("threadId").isBlank() || !chat.items().isEmpty() || chat.archived()) { throw new IllegalStateException("Choose the provider in a new chat."); }
-        claude.release(id); sessions.forget(id);
-        chat.set("provider", provider); chat.set("error", ""); settings().provider = provider;
-        changed(id); load(id);
+    /** Prepare the new session before replacing the chat, serialized with sends and archive actions. */
+    public CompletableFuture<JsonObject> selectProvider(String id, String provider) {
+        var result = new CompletableFuture<JsonObject>();
+        sessions.retain(id);
+        sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
+            .thenRunAsync(() -> {
+                var source = chat(id); Conversation candidate = null;
+                workspaceLock.readLock().lock();
+                try {
+                    if (!Set.of("codex", "claude").contains(provider)) { throw new IllegalArgumentException("Unknown provider."); }
+                    if (source.get("provider").equals(provider)) { result.complete(snapshot(id)); return; }
+                    ProviderHandoff.checkIdle(source.snapshot());
+                    source.set("providerSwitching", true); changed(id);
+                    var history = source.get("provider").equals("claude") ? claude.transcript(source) : transcript(id).join();
+                    ProviderHandoff.checkIdle(source.snapshot());
+                    var visibleHistory = source.items();
+                    candidate = ProviderHandoff.prepare(source.snapshot(), array(history, "items"), provider);
+                    if (provider.equals("claude")) { claude.load(candidate); }
+                    else { connect().join(); }
+                    ProviderHandoff.checkIdle(source.snapshot());
+                    if (!source.items().equals(visibleHistory)) { throw new IllegalStateException("The conversation changed while switching providers. Try again."); }
+                    // Release the old session while it still owns this tab's identity.
+                    String oldThread = source.get("threadId");
+                    if (source.get("provider").equals("claude")) { claude.release(id); }
+                    else if (!oldThread.isBlank() && client != null && client.isAlive()) { client.request("thread/unsubscribe", object("threadId", oldThread)).join(); }
+                    sessions.forget(id);
+                    var saved = source.snapshot();
+                    for (String field : List.of("draft", "draftAttachments", "draftSkills", "draftInput", "title", "pinned", "unread")) {
+                        if (saved.has(field)) { candidate.set(field, saved.get(field)); }
+                    }
+                    candidate.set("renamed", !candidate.get("title").equals("New chat"));
+                    candidate.replaceAfter(source.revision());
+                    if (provider.equals("claude")) { sessions.load(id, () -> CompletableFuture.completedFuture(null)).join(); }
+                    chats.put(id, candidate); settings().provider = provider;
+                    changed(id); result.complete(snapshot(id));
+                } catch (Exception error) {
+                    if (candidate != null && provider.equals("claude")) { claude.release(id); }
+                    result.completeExceptionally(error);
+                } finally {
+                    source.set("providerSwitching", false); changed(id);
+                    workspaceLock.readLock().unlock();
+                }
+            }, io).whenComplete((value, error) -> sessions.release(id)));
+        return result;
     }
     public void rememberModel(String id, JsonObject payload) {
         if (isClaude(id)) { settings().claudeModel = text(payload, "model"); settings().claudeEffort = text(payload, "effort"); changed(""); }
@@ -162,14 +198,14 @@ public final class CodexService implements Disposable {
     }
     public JsonObject snapshot(String id, long revision) {
         var chat = chat(id);
-        if (isClaude(id)) {
-            var update = chat.changes(revision);
+        var update = chat.changes(revision); update.remove("providerContext");
+        if (chat.get("provider").equals("claude")) {
             return object("chat", update, "sessions", summaries(), "models", array(update, "claudeModels"), "account", obj(update, "claudeAccount"),
                 "connection", chat.get("claudeConnection").isBlank() ? "disconnected" : chat.get("claudeConnection"), "error", "", "settings", composerSettings(true),
                 "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
         }
-        return object("chat", chat.changes(revision), "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
-            "error", connectionError, "settings", composerSettings(false), "distro", distro(), "cwd", chat(id).get("cwd"), "workspaceLabel", workspaceLabel(chat(id).get("cwd")), "project", project.getName());
+        return object("chat", update, "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
+            "error", connectionError, "settings", composerSettings(false), "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
     }
     /** Refresh all repository identities together, then return only this chat's Git choices. */
     public CompletableFuture<JsonObject> workspaces(String id) {
@@ -293,9 +329,12 @@ public final class CodexService implements Disposable {
                 }
                 if (GitWorktrees.same(source.get("cwd"), path)) { result.complete(object("id", id, "warning", warning)); return; }
                 var target = source;
-                if (!source.get("threadId").isBlank()) {
+                if (!source.get("threadId").isBlank() || !source.items().isEmpty()) {
                     try {
-                        if (isClaude(id)) {
+                        if (source.get("threadId").isBlank()) {
+                            var saved = source.snapshot(); saved.addProperty("id", UUID.randomUUID().toString());
+                            target = Conversation.restore(saved); chats.put(target.id, target);
+                        } else if (isClaude(id)) {
                             var saved = source.snapshot(); saved.addProperty("id", UUID.randomUUID().toString()); saved.add("claudeQueue", new JsonArray());
                             saved.addProperty("claudeResumeId", source.get("threadId")); saved.addProperty("claudeResumeAt", ""); saved.addProperty("threadId", "");
                             target = Conversation.restore(saved); chats.put(target.id, target);
@@ -303,6 +342,7 @@ public final class CodexService implements Disposable {
                             var rpc = connect().join();
                             var fork = rpc.request("thread/fork", object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true)).join();
                             target = importThread(obj(fork, "thread"));
+                            target.inheritHandoff(source);
                             target.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
                             target.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
                         }
@@ -554,8 +594,9 @@ public final class CodexService implements Disposable {
             var item = object("id", text(payload, "itemId"), "type", "userMessage", "content", array(point, "input"));
             var turns = new JsonArray(); turns.add(object("id", "", "items", List.of(item)));
             var edit = MessageEdit.prepare(turns, text(payload, "itemId"), text(payload, "text"), payload.has("images") ? array(payload, "images") : null);
-            var revised = chat(UUID.randomUUID().toString()); revised.set("provider", "claude"); revised.set("cwd", source.get("cwd"));
+            var revised = chat(UUID.randomUUID().toString()); revised.inheritHandoff(source); revised.set("provider", "claude"); revised.set("cwd", source.get("cwd"));
             revised.set("workspaceBase", source.get("workspaceBase")); revised.set("title", source.get("title") + " (edited)"); revised.set("renamed", true);
+            if (text(point, "anchor").isBlank() && !source.get("providerContext").isBlank()) { revised.set("providerContextPending", true); }
             if (!text(point, "anchor").isBlank()) {
                 revised.set("claudeResumeId", source.get("threadId")); revised.set("claudeResumeAt", text(point, "anchor"));
                 var restored = new Conversation(revised.id, source.get("cwd")); var protocol = new ClaudeProtocol(restored);
@@ -582,7 +623,7 @@ public final class CodexService implements Disposable {
     }
     public Conversation importThread(JsonObject thread) {
         String threadId = text(thread, "id");
-        var chat = chats.values().stream().filter(value -> !value.get("provider").equals("claude") && value.get("threadId").equals(threadId)).findFirst().orElseGet(() -> chat(threadId));
+        var chat = chats.values().stream().filter(value -> !value.get("provider").equals("claude") && value.get("threadId").equals(threadId)).findFirst().orElseGet(() -> chat(chats.containsKey(threadId) ? UUID.randomUUID().toString() : threadId));
         chat.hydrate(thread, chat.revision());
         if (!text(thread, "cwd").isBlank()) { chat.set("cwd", text(thread, "cwd")); }
         changed(chat.id);
@@ -611,6 +652,7 @@ public final class CodexService implements Disposable {
             if (client != rpc || !rpc.isAlive()) { return CompletableFuture.failedFuture(new CancellationException("Connection was replaced")); }
             return rpc.request("thread/resume", object("threadId", chat.get("threadId"), "cwd", chat.get("cwd"), "excludeTurns", true, "config", ComposerOptions.threadConfig(""))).thenComposeAsync(result -> {
                 if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
+                if (chat(id) != chat) { throw new CancellationException("Provider was changed"); }
                 chat.resumed(obj(result, "thread"), revision);
                 refreshGuidance(rpc, chat);
                 sessions.working(id, chat.busy());
@@ -646,17 +688,20 @@ public final class CodexService implements Disposable {
         if (!cursor.isBlank()) { params.addProperty("cursor", cursor); }
         return rpc.request("thread/items/list", params).thenApply(page -> {
             if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
+            if (chat(id) != chat) { throw new CancellationException("Provider was changed"); }
             chat.historyPage(array(page, "data"), text(page, "nextCursor"), startedRevision, cursor.isBlank()); changed(id); return page;
         });
     }
     public CompletableFuture<JsonObject> send(String id, JsonObject payload) {
         var chat = chat(id);
+        if (chat.get("providerSwitching").equals("true")) { return CompletableFuture.failedFuture(new IllegalStateException("Wait for the provider change to finish.")); }
         var result = new CompletableFuture<JsonObject>();
         sessions.retain(id);
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
             .thenRunAsync(() -> {
                 workspaceLock.readLock().lock();
                 try {
+                    if (chat(id) != chat) { throw new IllegalStateException("The provider changed. Send your message again."); }
                     if (!gitWorktrees().exists(chat.get("cwd"))) { throw new IllegalStateException("This chat's checkout is missing. Use the workspace menu to continue in an existing worktree."); }
                     if (chat.archived()) { throw new IllegalStateException("Restore this chat before sending a message."); }
                     String prompt = text(payload, "text");
@@ -707,6 +752,10 @@ public final class CodexService implements Disposable {
                         }
                     }
                     refreshGuidance(rpc, chat);
+                    if (chat.get("providerContextPending").equals("true")) {
+                        rpc.request("thread/inject_items", ProviderHandoff.injection(chat)).join();
+                        chat.set("providerContextPending", false);
+                    }
                     var params = object("threadId", chat.get("threadId"), "input", input);
                     String active = chat.get("turnId");
                     if (goalCommand) {
@@ -744,6 +793,10 @@ public final class CodexService implements Disposable {
     }
     /** Continue an edited turn in a new chat, leaving the source conversation and its active work intact. */
     public CompletableFuture<JsonObject> editMessage(String id, JsonObject payload) {
+        if (chat(id).get("providerSwitching").equals("true")) { return CompletableFuture.failedFuture(new IllegalStateException("Wait for the provider change to finish.")); }
+        if (chat(id).items().asList().stream().map(JsonElement::getAsJsonObject).anyMatch(item -> text(item, "id").equals(text(payload, "itemId")) && item.has("historyProvider"))) {
+            return CompletableFuture.failedFuture(new IllegalStateException("Messages from a previous provider are read-only. Send a new message to continue."));
+        }
         if (isClaude(id)) { return editClaude(id, payload); }
         return CompletableFuture.supplyAsync(() -> {
             workspaceLock.readLock().lock();
@@ -783,6 +836,8 @@ public final class CodexService implements Disposable {
             }
             var branch = obj(rpc.request(method, params).join(), "thread");
             var revised = importThread(branch);
+            revised.inheritHandoff(source);
+            if (edit.lastTurnId().isBlank() && !source.get("providerContext").isBlank()) { revised.set("providerContextPending", true); }
             revised.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
             revised.set("cwd", source.get("cwd")); revised.set("workspaceBase", source.get("workspaceBase"));
             revised.set("title", source.get("title") + " (edited)");
@@ -819,6 +874,7 @@ public final class CodexService implements Disposable {
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
             .thenRunAsync(() -> {
                 try {
+                    if (chat(id) != chat) { throw new IllegalStateException("The provider changed. Try again."); }
                     if (archived && !chat.canArchive()) { throw new IllegalStateException("Finish the active work and answer pending requests before archiving."); }
                     if (chat.archived() == archived) { result.complete(new JsonObject()); return; }
                     String threadId = chat.get("threadId");
@@ -931,7 +987,7 @@ public final class CodexService implements Disposable {
         if (text(event, "method").equals("account/updated") || text(event, "method").equals("account/login/completed")) {
             if (client != null) { client.request("account/read", object("refreshToken", false)).thenAccept(value -> { account = value; changed(""); }); }
         }
-        var target = chats.values().stream().filter(chat -> !threadId.isBlank() && chat.get("threadId").equals(threadId)).findFirst();
+        var target = chats.values().stream().filter(chat -> !chat.get("provider").equals("claude") && !threadId.isBlank() && chat.get("threadId").equals(threadId)).findFirst();
         if (target.isPresent()) {
             var chat = target.get(); chat.event(event); changed(chat.id);
             if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { sessions.forget(chat.id); }

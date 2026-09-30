@@ -21,7 +21,8 @@ public final class ChatTranscript {
                 if (!page.has("data") || !page.get("data").isJsonArray()) { throw new IllegalStateException("Could not copy the whole chat: history was unavailable. Try again."); }
                 for (var entry : array(page, "data")) {
                     var value = entry.getAsJsonObject();
-                    var item = value.has("item") ? obj(value, "item") : value;
+                    var item = ProviderHandoff.visibleItem(value.has("item") ? obj(value, "item") : value, text(snapshot, "providerContext"));
+                    if (item == null) { continue; }
                     if (text(item, "id").isBlank()) { throw new IllegalStateException("Could not copy the whole chat: a history item had no ID."); }
                     newestFirst.putIfAbsent(text(item, "id"), item);
                 }
@@ -29,12 +30,16 @@ public final class ChatTranscript {
             } while (!cursor.isBlank());
         }
         var ordered = new LinkedHashMap<String, JsonObject>();
+        for (var entry : array(snapshot, "items")) {
+            var item = entry.getAsJsonObject();
+            if (item.has("historyProvider")) { ordered.put(text(item, "id"), item); }
+        }
         newestFirst.reversed().forEach(ordered::put);
         // The server may not have saved the output currently streaming in this tab yet.
         for (var value : array(snapshot, "items")) {
             var item = value.getAsJsonObject();
             ordered.put(text(item, "id"), item);
         }
-        return object("title", text(snapshot, "title"), "items", ordered.values(), "requests", array(snapshot, "requests"));
+        return object("provider", text(snapshot, "provider", "codex"), "title", text(snapshot, "title"), "items", ordered.values(), "requests", array(snapshot, "requests"));
     }
 }

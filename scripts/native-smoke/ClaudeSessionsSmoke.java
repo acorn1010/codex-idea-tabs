@@ -54,7 +54,25 @@ public final class ClaudeSessionsSmoke {
             var starts = Files.readAllLines(root.resolve("starts.jsonl"));
             check(starts.get(starts.size() - 2).contains("--resume-session-at=" + anchor), "First edited fork uses cutoff");
             check(!starts.getLast().contains("--resume-session-at="), "Reopening edited chat preserves later turns");
-            System.out.println("Claude session checks passed: queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
+            var original = new Conversation(UUID.randomUUID().toString(), root.toString());
+            original.event(object("method", "item/completed", "params", object("item", object("id", "old", "type", "userMessage", "text", "Earlier requirement"))));
+            var switched = ProviderHandoff.prepare(original.snapshot(), original.items(), "claude");
+            sessions.load(switched); sessions.send(switched, object("model", "opus", "permissions", "ask"), input("Continue here")); await(() -> !switched.busy());
+            String firstSession = switched.get("threadId");
+            var sent = users(root).get(users(root).size() - 1).getAsJsonObject();
+            check(GSON.toJson(sent).contains("Earlier requirement") && GSON.toJson(sent).contains("Continue here"), "Prior context reaches Claude with new user input");
+            check(!GSON.toJson(switched.items()).contains("Codex Tabs conversation context"), "Context stays out of visible messages");
+            sessions.release(switched.id); sessions.load(switched);
+            sessions.send(switched, options(), input("After reconnect")); await(() -> !switched.busy());
+            sent = users(root).get(users(root).size() - 1).getAsJsonObject();
+            check(!GSON.toJson(sent).contains("Earlier requirement"), "Reconnect does not resend context");
+            sessions.release(switched.id);
+            var back = ProviderHandoff.prepare(switched.snapshot(), switched.items(), "codex");
+            var again = ProviderHandoff.prepare(back.snapshot(), back.items(), "claude");
+            sessions.load(again); sessions.send(again, options(), input("Switch back again")); await(() -> !again.busy());
+            check(!firstSession.equals(again.get("threadId")), "Switching back starts a fresh Claude session");
+            check(wire(root).asList().stream().map(JsonElement::getAsJsonObject).anyMatch(value -> text(obj(value, "request"), "subtype").equals("set_model") && text(obj(value, "request"), "model").equals("opus")), "Selected Opus model reaches the CLI");
+            System.out.println("Claude session checks passed: handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
         }

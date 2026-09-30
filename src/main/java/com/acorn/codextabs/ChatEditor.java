@@ -185,7 +185,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             return CompletableFuture.failedFuture(new IllegalStateException("This command is available only in Codex chats."));
         }
         switch (method) {
-            case "provider": service.selectProvider(file.id, text(params, "provider")); return completed(service.snapshot(file.id));
+            case "provider": return service.selectProvider(file.id, text(params, "provider"));
             case "ready": return service.restoreReady().thenApply(ignored -> {
                 ready = true; dirty = true; service.load(file.id); return service.snapshot(file.id);
             });

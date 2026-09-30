@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import { chatMarkdown } from './chatMarkdown';
 
 describe('chat Markdown', () => {
+  it('keeps the author of each reply after repeated provider switches', () => {
+    const chat = { provider: 'claude' as const, title: 'Mixed chat', items: [
+      { id: 'old', type: 'agentMessage', historyProvider: 'codex', text: 'Original answer' },
+      { id: 'middle', type: 'agentMessage', historyProvider: 'claude', text: 'Previous Claude answer' },
+      { id: 'current', type: 'agentMessage', text: 'Current answer' },
+    ] };
+    for (const mode of ['conversation', 'full'] as const) {
+      const markdown = chatMarkdown(chat, mode);
+      expect(markdown).toContain('## Codex\n\nOriginal answer');
+      expect(markdown).toContain('## Claude\n\nPrevious Claude answer');
+      expect(markdown).toContain('## Claude\n\nCurrent answer');
+    }
+  });
   it('labels Claude replies in both export modes', () => {
     const chat = { provider: 'claude' as const, title: 'Claude chat', items: [{ id: 'reply', type: 'agentMessage', text: 'Hello' }] };
     expect(chatMarkdown(chat)).toContain('## Claude\n\nHello');

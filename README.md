@@ -41,7 +41,9 @@ The plugin reads the available models from Codex. New workspaces start with **GP
 
 Install Claude Code and sign in by running `claude` in a terminal. Set **Claude executable** in **Settings → Tools → Codex Tabs** if needed. Native and npm installations are detected on macOS. An npm installation also uses the Node binary beside its CLI entry point.
 
-In an empty chat, use the **Codex / Claude** menu in the header. The last selection is the default for new chats. Once a message has been sent, the provider stays fixed for that conversation. Existing chats remain Codex chats. Models come from the selected CLI, and each provider keeps its own model preference.
+Use the **Codex / Claude** menu in the header to select a provider or switch an idle chat. Switching keeps the tab, checkout, draft, attachments, and visible history. The new provider starts a fresh session with prior conversation text as context. Tool output, image contents, and session approvals do not transfer. Very long conversations transfer recent text and show a notice. Messages from earlier providers remain readable and copyable but cannot be edited. Finish active work, answer pending requests, and send or remove queued messages before switching. A failed connection leaves the original chat in place.
+
+Choose a model in the dropdown at the bottom right of the composer. Models come from the selected CLI, and each provider keeps its own model preference. The last provider selected is the default for new chats. Update Claude Code if a newer model is missing, then reconnect the chat.
 
 Claude chats support streamed replies and tool activity, attachments, questions with multiple selections, stop, archive and restore, both Markdown copy modes, session history, and continuation in another worktree. Shared project guidance is supplied as additional system instructions when the CLI starts, with links to the original `.agents/skills` files. Native `CLAUDE.md` instructions remain active. The command picker includes commands reported by Claude and shared project skills.
 

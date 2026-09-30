@@ -47,6 +47,11 @@ final class ClaudeSessions implements AutoCloseable {
         frames.forEach(value -> protocol.accept(value.getAsJsonObject()));
         chat.replaceClaudeHistory(restored.items());
     }
+    JsonObject transcript(Conversation chat) {
+        var copy = Conversation.restore(chat.snapshot());
+        refreshHistory(copy);
+        return copy.snapshot();
+    }
     JsonObject list(Set<String> directories, String search) {
         try { return object("data", history().list(directories, search)); }
         catch (java.io.IOException error) { throw new IllegalStateException("Could not list Claude sessions.", error); }
@@ -106,7 +111,7 @@ final class ClaudeSessions implements AutoCloseable {
                 if (binary.isBlank()) { binary = "claude"; }
                 String resume = chat.get("threadId").isBlank() ? chat.get("claudeResumeId") : chat.get("threadId");
                 boolean fork = chat.get("threadId").isBlank() && !resume.isBlank();
-                session.sessionId = chat.get("threadId").isBlank() ? chat.id : chat.get("threadId");
+                session.sessionId = chat.get("threadId").isBlank() ? UUID.randomUUID().toString() : chat.get("threadId");
                 refreshHistory(chat);
                 var shared = guidance.get();
                 var builder = ClaudeClient.process(binary, chat.get("cwd"), distro.get(), session.sessionId, resume, fork, fork ? chat.get("claudeResumeAt") : "", shared.claudeContext());
@@ -175,10 +180,11 @@ final class ClaudeSessions implements AutoCloseable {
             session.client.control(object("subtype", "apply_flag_settings", "settings", object("effortLevel", text(payload, "effort").isBlank() ? null : text(payload, "effort"), "fastMode", flag(payload, "fast")))).join();
         }
         String turn = UUID.randomUUID().toString();
-        var body = content(input);
+        var body = content(ProviderHandoff.input(chat, input));
         session.protocol.start(turn, input);
         try { session.client.write(object("type", "user", "uuid", turn, "session_id", session.sessionId, "parent_tool_use_id", null, "message", object("role", "user", "content", body))); }
         catch (RuntimeException error) { chat.disconnected(); throw error; }
+        chat.set("providerContextPending", false);
         if (chat.get("threadId").isBlank()) { chat.set("threadId", session.sessionId); }
         if (!payload.has("reviewTarget")) { settings.get().claudePermissions = permissions; }
         return object("turn", object("id", turn));

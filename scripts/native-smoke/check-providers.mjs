@@ -86,7 +86,7 @@ try {
     await page.keyboard.press('Escape'); await field.fill('Hello Claude');
     await page.getByRole('button', { name: 'Send message', exact: true }).click();
     await page.getByRole('button', { name: 'Stop Claude', exact: true }).waitFor();
-    assert.equal(await page.getByRole('button', { name: /Provider:/ }).count(), 0);
+    assert.ok(await page.getByRole('button', { name: 'Provider: Claude', exact: true }).isDisabled());
     assert.equal(await page.getByRole('button', { name: 'Edit message', exact: true }).count(), 0);
     await field.fill('Next prompt'); assert.ok(await page.getByRole('button', { name: 'Send follow-up', exact: true }).isEnabled());
     await page.getByRole('button', { name: 'Send follow-up', exact: true }).click();

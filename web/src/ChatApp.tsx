@@ -93,6 +93,7 @@ export function ChatApp() {
       setPermissions(snapshot.settings.permissions || (provider === 'claude' ? 'ask' : 'auto'));
       setFast(!!snapshot.settings.fast); setPlanMode(!!snapshot.settings.planMode);
       setError(''); setConnectionError(''); setSkills([]); setSkillsError('');
+      setCommandPanel(undefined); setInspecting(false); setShowStatus(false); setLogin(undefined);
     }
     if (snapshot.connection === 'connected' && !snapshot.error && !snapshot.chat.error) { setConnectionError(''); }
     if (!initial.current) {
@@ -254,7 +255,7 @@ export function ChatApp() {
     }).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1));
   }, (over) => setDragging(over && !state?.chat.archived && !editingItemId));
   const send = async () => {
-    if (commandRunning.current) { return; }
+    if (commandRunning.current || changingProvider || state?.chat.providerSwitching) { return; }
     if (slash.command) { await runCommand(slash.command); return; }
     if (slashQuery(draft) !== undefined) { setError('Choose a command or skill from the menu.'); return; }
     recall.current = undefined;
@@ -282,7 +283,7 @@ export function ChatApp() {
     if (isClaude && selectedModel && permissions === 'auto' && !selectedModel.supportsAutoMode) { setPermissions('ask'); }
   }, [isClaude, selectedModel, permissions]);
   const attention = chat?.requests.length || 0;
-  const archiveBlocked = !chat || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
+  const archiveBlocked = !chat || changingProvider || !!chat.providerSwitching || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
   const setArchived = async (archived: boolean) => {
     if (archivePending || (archived && archiveBlocked)) { return; }
     setArchivePending(true); setError('');
@@ -372,9 +373,9 @@ export function ChatApp() {
   return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = state?.chat.archived ? 'none' : 'copy'; setDragging(!state?.chat.archived && !editingItemId); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); } }}>
     <header className="flex h-10 shrink-0 items-center gap-2 px-3">
       <span className={`size-1.5 shrink-0 rounded-full ${chat?.archived ? 'bg-muted' : attention ? 'bg-attention' : working ? 'bg-accent' : 'bg-success/70'}`} />
-      {!chat?.threadId && !chat?.items.length && !chat?.archived ? <ChoiceMenu label="Provider" value={isClaude ? 'claude' : 'codex'} placement="below" compact disabled={changingProvider || sending} options={[{ value: 'codex', label: 'Codex' }, { value: 'claude', label: 'Claude' }]} onChange={(provider) => {
-        if (changingProvider) { return; }
-        setChangingProvider(true);
+      {!chat?.archived ? <ChoiceMenu label="Provider" value={isClaude ? 'claude' : 'codex'} placement="below" compact disabled={changingProvider || !!chat?.providerSwitching || sending || !!working || attention > 0 || !!chat?.claudeQueue?.length || !!editingItemId || uploads > 0 || archivePending} hint="Switch providers in this tab. Conversation text and the worktree are kept. The new provider starts a fresh session." options={[{ value: 'codex', label: 'Codex' }, { value: 'claude', label: 'Claude' }]} onChange={(provider) => {
+        if (changingProvider || chat?.providerSwitching) { return; }
+        setChangingProvider(true); setError('');
         void preferenceSaves.current.then(() => request<Snapshot>('provider', { provider })).then(apply).catch((error: Error) => setError(error.message)).finally(() => { setChangingProvider(false); textarea.current?.focus(); });
       }} /> : <span className="text-[11px] text-muted">{providerName}</span>}
       <span className={`truncate text-[11px] ${attention ? 'text-attention' : 'text-muted'}`}>{status}</span>
@@ -402,7 +403,7 @@ export function ChatApp() {
         </div>
         {isClaude && <p className="mt-4 text-xs text-muted">Uses your Claude Code login. Run <code>claude</code> in a terminal to sign in.</p>}
         <p className="mt-5 text-[11px] text-muted/70">Ctrl+Alt+N · New chat <span className="px-2">/</span> Ctrl+K · Find chat</p>
-      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript editable={!isClaude || (!!chat.claudeSettingsSupported && !working)} items={chat.items} editingItemId={editingItemId} onEdit={editMessage} onEditing={onEditing} /></>}
+      </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript editable={!changingProvider && !chat.providerSwitching && (!isClaude || (!!chat.claudeSettingsSupported && !working))} items={chat.items} editingItemId={editingItemId} onEdit={editMessage} onEditing={onEditing} /></>}
       {working && <div className="mt-4 flex items-center gap-2 text-xs text-muted"><span className="size-1.5 rounded-full bg-accent" />{providerName} is working{attention ? ' · Your answer can help guide it' : ''}</div>}
       <div ref={end} />
     </div>
@@ -416,6 +417,7 @@ export function ChatApp() {
     </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
       {showStatus && state && (isClaude ? <ClaudeStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} /> : <ChatStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />)}
       {commandPanel && <CommandPanel key={commandPanel} action={commandPanel} working={!!working} options={{ model, effort, permissions, fast: effectiveFast, planMode }} onClose={() => { setCommandPanel(undefined); textarea.current?.focus(); }} />}
+      {chat?.providerNotice && <p role="status" className="text-xs text-muted">{chat.providerNotice}</p>}
       {chat?.workspaceNotice && <div role="status" className="flex items-start gap-2 rounded-lg bg-attention/10 px-3 py-2 text-xs text-attention"><p className="flex-1">{chat.workspaceNotice}</p><SmallButton label="Dismiss workspace notice" icon="close" onClick={() => void run('dismissWorkspaceNotice')} /></div>}
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
@@ -431,7 +433,7 @@ export function ChatApp() {
           {attachment.mime.startsWith('image/') ? <ImagePreview path={attachment.path} alt={attachment.name} compact /> : <span className="flex min-w-0 items-center gap-1.5 py-1 pl-2"><Icon name="file" size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span></span>}
           <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="close" size={11} /></button>
         </span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
-        <textarea ref={textarea} disabled={archivePending || changingProvider} {...slash.inputProps} aria-label={`Message ${providerName}`} aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
+        <textarea ref={textarea} disabled={archivePending || changingProvider || !!chat?.providerSwitching} {...slash.inputProps} aria-label={`Message ${providerName}`} aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
           if (slash.keyDown(event)) { recall.current = undefined; return; }
           const plainUp = event.key === 'ArrowUp' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
           if (!plainUp || event.nativeEvent.isComposing) { recall.current = undefined; }
@@ -467,11 +469,11 @@ export function ChatApp() {
           ]} />
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
-          <ChoiceMenu openRequest={modelMenuRequest} label="Model" value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: `${providerName} default` }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).filter((value) => value.model !== '').map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
+          <ChoiceMenu openRequest={modelMenuRequest} label="Model" disabled={changingProvider || !!chat?.providerSwitching} value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: `${providerName} default` }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).filter((value) => value.model !== '').map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
           {selectedModel && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex size-7 shrink-0 items-center justify-center gap-1 rounded text-[10px] @min-[640px]/composer:w-auto @min-[640px]/composer:px-1 hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[640px]/composer:hidden">IDE context</span></button>
           {working && <button aria-label={`Stop ${providerName}`} title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
-          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? isClaude ? 'Queue for the next turn'  : 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={changingProvider || archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
+          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? isClaude ? 'Queue for the next turn'  : 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={changingProvider || !!chat?.providerSwitching || archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>
         </div>
       </div>
