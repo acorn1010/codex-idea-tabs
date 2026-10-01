@@ -61,11 +61,20 @@ final class ClaudeSessions implements AutoCloseable {
             "cost", chat.snapshot().get("claudeCost"), "rateLimit", obj(chat.snapshot(), "claudeRateLimit"));
         if (chat.archived()) { result.addProperty("contextError", "Restore this chat to inspect live context."); return result; }
         var client = session(chat).client;
+        // Ask the CLI for plan usage without scanning local transcripts for usage attribution.
+        var limits = client.control(object("subtype", "get_usage", "skip_behaviors", true)).orTimeout(10, TimeUnit.SECONDS);
         try {
             if (!flag(chat.snapshot(), "claudeSettingsSupported")) { throw new IllegalStateException("This CLI does not advertise current model controls."); }
             result.add("context", client.control(object("subtype", "get_context_usage")).orTimeout(10, TimeUnit.SECONDS).join());
         }
         catch (Exception error) { result.addProperty("contextError", "Context details are unavailable in this Claude version. Update Claude Code. " + CodexService.message(error)); }
+        try {
+            var usage = limits.join();
+            if (!usage.has("rate_limits_available")) { throw new IllegalStateException("Update Claude Code to read subscription limits."); }
+            result.addProperty("rateLimitsAvailable", flag(usage, "rate_limits_available"));
+            result.add("rateLimits", obj(usage, "rate_limits"));
+        }
+        catch (Exception error) { result.addProperty("rateLimitsError", "Could not read subscription limits. " + CodexService.message(error)); }
         return result;
     }
     JsonObject mcp(Conversation chat) {

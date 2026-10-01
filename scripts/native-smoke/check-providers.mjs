@@ -21,6 +21,7 @@ try {
     const claude = { model: 'sonnet', effort: '', modelSelectionSaved: true, permissions: 'ask' };
     const snapshot = { connection: 'connected', error: '', project: 'Project', cwd: '/project', settings: codex, models: [], account: {}, sessions: [], chat };
     window.__requests = []; window.__copies = [];
+    window.__limits = { rateLimitsAvailable: true, rateLimits: { five_hour: { utilization: 25, resets_at: '2026-10-01T04:00:00Z' }, seven_day: { utilization: 64, resets_at: '2026-10-05T04:00:00Z' } } };
     const publish = () => { chat.revision++; window.dispatchEvent(new CustomEvent('codex-state', { detail: structuredClone(snapshot) })); };
     window.__upgrade = () => {
       chat.claudeSettingsSupported = true;
@@ -46,7 +47,7 @@ try {
       if (method === 'resumeQueued') { chat.claudeQueue = []; chat.working = true; publish(); }
       if (method === 'answer') { chat.requests = []; publish(); }
       if (method === 'skills') { reply({ data: [{ cwd: '/project', skills: [{ name: 'explain', path: 'claude-command:explain', description: 'Explain changes', nativeCommand: true, enabled: true, scope: 'user' }, { name: 'repo-guide', path: '/shared/.agents/skills/repo-guide/SKILL.md', description: 'Shared project rules', enabled: true, scope: 'repo' }] }] }); return; }
-      if (method === 'accountLimits') { reply({ context: { totalTokens: 512, maxTokens: 200000, categories: [{ name: 'Messages', tokens: 512 }], memoryFiles: [{ path: '/project/CLAUDE.md' }] }, cost: 0.0123, usage: { input_tokens: 90, output_tokens: 10 }, rateLimit: { status: 'allowed' } }); return; }
+      if (method === 'accountLimits') { reply({ context: { totalTokens: 512, maxTokens: 200000, categories: [{ name: 'Messages', tokens: 512 }], memoryFiles: [{ path: '/project/CLAUDE.md' }] }, cost: 0.0123, usage: { input_tokens: 90, output_tokens: 10 }, rateLimit: { status: 'allowed' }, ...window.__limits }); return; }
       if (method === 'mcpStatus') { reply({ data: [{ name: 'My server', authStatus: 'connected', tools: { read: {} } }] }); return; }
       if (method === 'send') {
         chat.threadId = 'saved'; chat.working = true; chat.status = 'working';
@@ -109,9 +110,43 @@ try {
     await page.getByRole('option', { name: /Approve for me/ }).click();
     await field.fill('/fast'); await page.getByRole('option', { name: /^Fast/ }).click();
     await page.getByRole('button', { name: 'Fast ×', exact: true }).waitFor();
-    await page.getByRole('button', { name: 'Inspect context', exact: true }).click();
+    await field.fill('/status'); await page.getByRole('option', { name: /^Status/ }).click();
+    const status = page.getByRole('region', { name: 'Claude session status' });
     await page.getByText('Context: 512 / 200,000 tokens', { exact: true }).waitFor();
-    await page.getByRole('region', { name: 'Claude session status' }).getByRole('button', { name: 'Close', exact: true }).click();
+    const fiveHour = status.getByRole('progressbar', { name: '5h limit remaining' });
+    const weekly = status.getByRole('progressbar', { name: 'Weekly limit remaining' });
+    assert.equal(await fiveHour.getAttribute('aria-valuenow'), '75');
+    assert.equal(await weekly.getAttribute('aria-valuenow'), '36');
+    assert.equal(await status.getByText(/^Resets /).count(), 2);
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate(theme => { document.documentElement.dataset.theme = theme; }, theme);
+      for (const bar of [fiveHour, weekly]) {
+        const bounds = await bar.boundingBox(); assert.ok(bounds.width > 100 && bounds.height >= 6);
+      }
+      assert.ok(await status.evaluate(element => element.scrollWidth <= element.clientWidth));
+      await page.screenshot({ path: `${output}/claude-limits-${theme}-${width}.png` });
+    }
+    await page.evaluate(() => { window.__limits.rateLimits = { five_hour: { utilization: 0 }, seven_day: { utilization: 125 } }; });
+    await status.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await status.getByText('100% left', { exact: true }).waitFor();
+    assert.equal(await fiveHour.getAttribute('aria-valuenow'), '100');
+    assert.equal(await weekly.getAttribute('aria-valuenow'), '0');
+    await page.evaluate(() => { window.__limits.rateLimits = { five_hour: { utilization: null, resets_at: 'invalid' }, seven_day: null }; });
+    await status.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await fiveHour.waitFor({ state: 'detached' });
+    assert.equal(await status.getByRole('progressbar').count(), 0);
+    assert.equal(await status.getByText('Not reported', { exact: true }).count(), 2);
+    assert.equal(await status.getByText(/Invalid Date/).count(), 0);
+    await page.evaluate(() => { window.__limits = { rateLimitsAvailable: false }; });
+    await status.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await status.getByText('Subscription limits are unavailable for this sign-in.', { exact: true }).waitFor();
+    await page.evaluate(() => { window.__limits = { rateLimitsError: 'Could not read subscription limits. Update Claude Code.' }; });
+    await status.getByRole('button', { name: 'Refresh', exact: true }).click();
+    await status.getByRole('alert').getByText(/Could not read subscription limits/).waitFor();
+    assert.equal(await status.getByRole('progressbar').count(), 0);
+    await status.getByText('Context: 512 / 200,000 tokens', { exact: true }).waitFor();
+    await status.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
     await field.fill('/mcp'); await page.getByRole('option', { name: /^MCP/ }).click();
     await page.getByText('My server', { exact: true }).waitFor();
     await page.getByRole('region', { name: 'MCP servers' }).getByRole('button', { name: 'Close', exact: true }).click();
@@ -130,7 +165,7 @@ try {
     await page.keyboard.press('Escape');
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: `${output}/claude-chat-${width}.png` });
-    console.log({ width, providerSelection: true, retainedDraft: true, correctModelsAndPermissions: true, claudeMarkdown: true });
+    console.log({ width, providerSelection: true, retainedDraft: true, correctModelsAndPermissions: true, claudeMarkdown: true, subscriptionLimitBars: true, refreshAndUnavailableLimits: true });
   }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

@@ -43,6 +43,11 @@ for line in sys.stdin:
         response = {}
         if subtype == "initialize":
             response = {"models": [{"value": "default", "supportsEffort": True, "supportedEffortLevels": ["low", "high"], "supportsAutoMode": True, "supportsFastMode": True}], "commands": [{"name": "inspect", "description": "Inspect"}]}
+        elif subtype == "get_usage":
+            if (root / "usage-unavailable").exists():
+                emit({"type": "control_response", "response": {"subtype": "error", "request_id": frame["request_id"], "error": "Unsupported control request: get_usage"}})
+                continue
+            response = {"rate_limits_available": True, "rate_limits": {"five_hour": {"utilization": 25, "resets_at": "2026-10-01T04:00:00Z"}, "seven_day": {"utilization": 64, "resets_at": "2026-10-05T04:00:00Z"}}}
         elif subtype == "get_context_usage":
             response = {"totalTokens": 512, "maxTokens": 200000, "categories": []}
         elif subtype == "mcp_status":

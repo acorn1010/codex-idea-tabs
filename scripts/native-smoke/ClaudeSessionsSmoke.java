@@ -46,7 +46,14 @@ public final class ClaudeSessionsSmoke {
             sessions.send(chat, options(), input("question")); await(() -> !array(chat.snapshot(), "requests").isEmpty());
             request = array(chat.snapshot(), "requests").get(0).getAsJsonObject();
             sessions.answer(chat, object("key", text(request, "key"), "answers", object("0", object("answers", List.of("A", "B"))))); await(() -> !chat.busy());
-            check(text(obj(sessions.status(chat), "context"), "totalTokens").equals("512"), "Context status");
+            var status = sessions.status(chat);
+            check(text(obj(status, "context"), "totalTokens").equals("512"), "Context status");
+            check(flag(status, "rateLimitsAvailable") && text(obj(obj(status, "rateLimits"), "five_hour"), "utilization").equals("25") && text(obj(obj(status, "rateLimits"), "seven_day"), "utilization").equals("64"), "Both plan limits are read from the CLI");
+            check(wire(root).asList().stream().map(JsonElement::getAsJsonObject).anyMatch(value -> text(obj(value, "request"), "subtype").equals("get_usage") && flag(obj(value, "request"), "skip_behaviors")), "Quota reads skip transcript scans");
+            Files.writeString(root.resolve("usage-unavailable"), "old CLI");
+            status = sessions.status(chat);
+            check(text(status, "rateLimitsError").contains("get_usage") && text(obj(status, "context"), "totalTokens").equals("512"), "Unavailable quota does not hide context");
+            Files.delete(root.resolve("usage-unavailable"));
             check(array(sessions.mcp(chat), "data").size() == 1, "MCP status");
             check(array(array(sessions.skills(chat), "data").get(0).getAsJsonObject(), "skills").size() == 1, "Commands");
             var edited = new Conversation(UUID.randomUUID().toString(), root.toString()); edited.set("provider", "claude");
