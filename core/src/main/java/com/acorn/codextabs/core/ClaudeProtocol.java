@@ -11,6 +11,8 @@ public final class ClaudeProtocol {
     private final Conversation chat;
     private final Map<String, JsonObject> tools = new HashMap<>();
     private final Map<Integer, JsonObject> blocks = new HashMap<>();
+    private final Map<String, Integer> messageBlockCounts = new HashMap<>();
+    private final Map<String, Integer> completedFrameOffsets = new HashMap<>();
     private String messageId = "";
     private String turnId = "";
     public ClaudeProtocol(Conversation chat) { this.chat = chat; }
@@ -30,8 +32,16 @@ public final class ClaudeProtocol {
             case "assistant" -> {
                 var message = obj(frame, "message");
                 String id = text(message, "id", text(frame, "uuid"));
-                int index = 0;
-                for (var content : array(message, "content")) { block(id + ":" + index++, content.getAsJsonObject(), true); }
+                var contents = array(message, "content");
+                String uuid = text(frame, "uuid");
+                // Claude emits completed chunks with separate UUIDs but the same message ID.
+                // Keep cumulative block indexes and reuse them when a chunk is replayed.
+                int index = uuid.isBlank() ? 0 : completedFrameOffsets.computeIfAbsent(uuid, ignored -> {
+                    int offset = messageBlockCounts.getOrDefault(id, 0);
+                    messageBlockCounts.put(id, offset + contents.size());
+                    return offset;
+                });
+                for (var content : contents) { block(id + ":" + index++, content.getAsJsonObject(), true); }
             }
             case "user" -> {
                 var userInput = ClaudeHistory.input(frame);

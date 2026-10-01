@@ -26,6 +26,51 @@ class ClaudeProtocolTest {
         assertFalse(chat.busy()); assertEquals("session", chat.get("threadId"));
         assertEquals("claude", text(Conversation.restore(chat.snapshot()).summary(), "provider"));
     }
+    @Test void splitCompletedFramesUseTheSameBlockIndexesAsStreamingAndHistory() {
+        var live = new Conversation("live", "/project"); var stream = new ClaudeProtocol(live);
+        var restored = new Conversation("restored", "/project"); var history = new ClaudeProtocol(restored);
+        var contents = List.of(object("type", "thinking", "thinking", "Checking the lock scope."),
+            object("type", "text", "text", "Checking the shared lock."),
+            object("type", "tool_use", "id", "tool", "name", "Bash", "input", object("command", "pwd")),
+            object("type", "text", "text", "Checking the shared lock."));
+        stream(stream, object("type", "message_start", "message", object("id", "message")));
+        var frames = new ArrayList<JsonObject>();
+        for (int index = 0; index < contents.size(); index++) {
+            var content = contents.get(index);
+            stream(stream, object("type", "content_block_start", "index", index, "content_block", content));
+            stream(stream, object("type", "content_block_stop", "index", index));
+            var frame = object("type", "assistant", "uuid", "frame-" + index, "message", object("id", "message", "content", List.of(content)));
+            frames.add(frame); stream.accept(frame); history.accept(frame);
+            assertEquals(restored.items(), live.items(), "Completed block must update its streamed item at index " + index);
+            assertEquals(index + 1, live.items().size());
+        }
+        // Replayed frames keep their IDs, while equal text in separate blocks stays separate.
+        frames.forEach(stream::accept); frames.forEach(history::accept);
+        assertEquals(restored.items(), live.items()); assertEquals(4, live.items().size());
+        assertEquals("reasoning", text(live.items().get(0).getAsJsonObject(), "type"));
+        assertEquals("message:1", text(live.items().get(1).getAsJsonObject(), "id"));
+        assertEquals("message:3", text(live.items().get(3).getAsJsonObject(), "id"));
+        var result = object("type", "user", "message", object("content", List.of(object("type", "tool_result", "tool_use_id", "tool", "content", "/project"))));
+        stream.accept(result); history.accept(result); stream.accept(frames.get(2));
+        assertEquals(restored.items(), live.items());
+        assertEquals("completed", text(live.items().get(2).getAsJsonObject(), "status"));
+    }
+    @Test void completedChunksKeepIndependentOffsetsForEachMessage() {
+        var chat = new Conversation("id", "/project"); var protocol = new ClaudeProtocol(chat);
+        for (String message : List.of("first", "second")) {
+            stream(protocol, object("type", "message_start", "message", object("id", message)));
+            stream(protocol, object("type", "content_block_start", "index", 0, "content_block", object("type", "thinking", "thinking", "Plan")));
+            stream(protocol, object("type", "content_block_start", "index", 1, "content_block", object("type", "text", "text", "Same text")));
+        }
+        // Completed chunks can arrive after a different message has started streaming.
+        for (String message : List.of("first", "second")) {
+            protocol.accept(object("type", "assistant", "uuid", message + "-thinking", "message", object("id", message, "content", List.of(object("type", "thinking", "thinking", "Plan")))));
+            protocol.accept(object("type", "assistant", "uuid", message + "-text", "message", object("id", message, "content", List.of(object("type", "text", "text", "Same text"), object("type", "text", "text", "A separate block")))));
+        }
+        assertEquals(6, chat.items().size());
+        assertEquals(2, chat.items().asList().stream().map(JsonElement::getAsJsonObject).filter(item -> text(item, "type").equals("reasoning")).count());
+        assertEquals(2, chat.items().asList().stream().map(JsonElement::getAsJsonObject).filter(item -> text(item, "text").equals("Same text")).count());
+    }
     @Test void partialToolInputAndNestedAgentTextDoNotCorruptTheMainReply() {
         var chat = new Conversation("id", "/project"); var protocol = new ClaudeProtocol(chat); protocol.start("turn", new JsonArray());
         stream(protocol, object("type", "message_start", "message", object("id", "m")));
