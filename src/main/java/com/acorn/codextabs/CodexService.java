@@ -115,6 +115,17 @@ public final class CodexService implements Disposable {
             }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
+    /** Save a deliberate permission choice without changing the running turn. */
+    public synchronized void rememberPermissions(String id, JsonObject payload) {
+        String permissions = text(payload, "permissions");
+        boolean claudeProvider = isClaude(id);
+        if (!(claudeProvider ? Set.of("auto", "ask", "edit", "read") : Set.of("auto", "ask", "read")).contains(permissions)) {
+            throw new IllegalArgumentException("Choose a valid permission mode.");
+        }
+        if (claudeProvider) { settings().claudePermissions = permissions; }
+        else { settings().permissions = permissions; }
+        changed("");
+    }
     public void rememberModel(String id, JsonObject payload) {
         if (isClaude(id)) { settings().claudeModel = text(payload, "model"); settings().claudeEffort = text(payload, "effort"); changed(""); }
         else { rememberModel(payload); }
@@ -783,7 +794,6 @@ public final class CodexService implements Disposable {
                     if (chat.get("draft").equals(prompt)) { chat.set("draft", ""); }
                     if (!goalCommand && !reviewCommand) { chat.set("draftInput", new JsonArray()); }
                     chat.set("error", "");
-                    options.permissions = permissions;
                     sessions.working(id, chat.busy());
                     changed(id);
                 } catch (Exception error) { chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }

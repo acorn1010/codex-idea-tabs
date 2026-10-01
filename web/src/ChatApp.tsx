@@ -38,7 +38,10 @@ export function ChatApp() {
   const [draft, setDraft] = useState('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
-  const [permissions, setPermissions] = useState('auto');
+  const [permissionPreference, setPermissionPreference] = useState('auto');
+  const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
+  // An unsupported model uses Ask me without forgetting the user's saved choice.
+  const permissions = isClaude && permissionPreference === 'auto' && !selectedModel?.supportsAutoMode ? 'ask' : permissionPreference;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const [archivePending, setArchivePending] = useState(false);
@@ -91,7 +94,7 @@ export function ChatApp() {
     if (appliedProvider.current !== provider) {
       appliedProvider.current = provider; modelInitialized.current = false;
       setModel(snapshot.settings.model || ''); setEffort(snapshot.settings.effort || '');
-      setPermissions(snapshot.settings.permissions || (provider === 'claude' ? 'ask' : 'auto'));
+      setPermissionPreference(snapshot.settings.permissions || (provider === 'claude' ? 'ask' : 'auto'));
       setFast(!!snapshot.settings.fast); setPlanMode(!!snapshot.settings.planMode);
       setError(''); setConnectionError(''); setSkills([]); setSkillsError('');
       setCommandPanel(undefined); setInspecting(false); setShowStatus(false); setLogin(undefined);
@@ -102,7 +105,6 @@ export function ChatApp() {
       setAttachments(snapshot.chat.draftAttachments || []);
       setDraftSkills(snapshot.chat.draftSkills || []);
       setFast(!!snapshot.settings.fast); setPlanMode(!!snapshot.settings.planMode);
-      setPermissions(snapshot.settings.permissions || 'auto');
     }
     if (!modelInitialized.current && (snapshot.settings.modelSelectionSaved || snapshot.settings.model || snapshot.settings.effort)) {
       modelInitialized.current = true;
@@ -219,6 +221,13 @@ export function ChatApp() {
       if (recall.current === session) { session.error = `Could not recall earlier messages: ${(error as Error).message}`; setError(session.error); }
     } finally { session.pending = false; }
   };
+  const rememberPermissions = (nextPermissions: string) => {
+    setPermissionPreference(nextPermissions);
+    preferenceSaves.current = preferenceSaves.current.catch(() => {}).then(async () => {
+      try { await request('permissionPreferences', { permissions: nextPermissions }); }
+      catch (error) { setError(`Could not save permission mode: ${(error as Error).message}`); }
+    });
+  };
   const rememberModel = (nextModel: string, nextEffort: string) => {
     modelInitialized.current = true;
     setModel(nextModel); setEffort(nextEffort);
@@ -279,10 +288,6 @@ export function ChatApp() {
   };
   const chat = state?.chat;
   const working = chat?.working;
-  const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
-  useEffect(() => {
-    if (isClaude && selectedModel && permissions === 'auto' && !selectedModel.supportsAutoMode) { setPermissions('ask'); }
-  }, [isClaude, selectedModel, permissions]);
   const attention = chat?.requests.length || 0;
   const archiveBlocked = !chat || changingProvider || !!chat.providerSwitching || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
   const setArchived = async (archived: boolean) => {
@@ -351,7 +356,7 @@ export function ChatApp() {
         case 'status': setCommandPanel(undefined); setShowStatus((value) => !value); textarea.current?.focus(); break;
         case 'review': case 'goal': case 'feedback': case 'mcp': setShowStatus(false); setCommandPanel(item.command); break;
         case 'fast': await saveMode(!effectiveFast, planMode); break;
-        case 'plan': if (isClaude) { setPermissions((current) => current === 'read' ? 'ask' : 'read'); } else { await saveMode(fast, !planMode); } break;
+        case 'plan': if (isClaude) { rememberPermissions(permissions === 'read' ? 'ask' : 'read'); } else { await saveMode(fast, !planMode); } break;
         case 'ide-context': setContext((value) => !value); break;
         case 'init': setDraft(`Inspect this project and create ${isClaude ? 'CLAUDE.md' : 'AGENTS.md'} with clear setup, test, and coding instructions. Preserve useful existing instructions if the file already exists.`); break;
         case 'memories': setInspectionSearch('memory'); setInspecting(true); break;
@@ -459,7 +464,7 @@ export function ChatApp() {
           <div className="flex shrink-0 items-center gap-1">
           <SmallButton label="Attach files" icon="plus" onClick={() => { setUploads((count) => count + 1); void request<{ files: Attachment[] }>('chooseFiles').then((value) => setAttachments((current) => [...current, ...value.files])).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1)); }} />
           {chat && <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} />}
-          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" value={permissions} onChange={setPermissions} hint={working ? 'Changes apply to the next turn. The current turn keeps its existing permissions.' : undefined} options={isClaude ? [
+          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" disabled={changingProvider || !!chat?.providerSwitching} value={permissions} onChange={rememberPermissions} hint={working ? 'Changes apply to the next turn. The current turn keeps its existing permissions.' : undefined} options={isClaude ? [
             ...(selectedModel?.supportsAutoMode ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'Claude checks tool requests before approving them automatically.' }] : []),
             { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'Use Claude’s configured permissions and ask for any additional approval.' },
             { value: 'edit', label: 'Accept edits', shortLabel: 'Edit', description: 'Allow file edits. Claude still asks before other actions that need approval.' },

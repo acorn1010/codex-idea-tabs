@@ -143,6 +143,8 @@ Codex owns authentication, thread history, tools, sandboxing, and model executio
 
 **Approve for me** uses Codex's automatic approval review with a workspace-write sandbox. **Ask me** routes approval requests to you. **Read only** uses a read-only sandbox. None of these modes enables unrestricted execution.
 
+Permission choices are saved as soon as you select them, separately for Codex and Claude in each IDEA project. New chats and restored tabs use the saved choice after an IDEA restart. Claude uses **Ask me** for models that do not support automatic approval without replacing your saved choice.
+
 Model, reasoning, and permission changes apply to the next turn. A follow-up sent while Codex is working steers the existing turn with its current settings.
 
 The web UI is bundled in the plugin. It has no development server or remote CDN dependency. Markdown raw HTML is disabled, and local images are read through the native bridge.

@@ -206,6 +206,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
                 return service.rpc("feedback/upload", object("classification", "other", "reason", reason, "includeLogs", false, "threadId", chat.get("threadId").isBlank() ? null : chat.get("threadId")));
             }
             case "modelPreferences": service.rememberModel(file.id, params); return completed(new JsonObject());
+            case "permissionPreferences": service.rememberPermissions(file.id, params); return completed(new JsonObject());
             case "editMessage": return service.editMessage(file.id, params).thenApply(result -> {
                 ui(() -> ChatFiles.open(project, text(result, "id"), false));
                 return result;

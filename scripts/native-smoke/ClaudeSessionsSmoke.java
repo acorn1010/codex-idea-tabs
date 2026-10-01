@@ -25,6 +25,8 @@ public final class ClaudeSessionsSmoke {
             Files.writeString(root.resolve("release-turn"), "go");
             await(() -> !chat.busy() && array(chat.snapshot(), "claudeQueue").isEmpty() && countUsers(root) == 2);
             check(ClaudeHistory.prompt(obj(users(root).get(1).getAsJsonObject(), "message").get("content")).equals("second"), "Queue order");
+            check(settings.claudePermissions.equals("ask"), "An older queued turn replaced the saved permission preference");
+            settings.claudePermissions = "auto";
             check(wire(root).asList().stream().map(JsonElement::getAsJsonObject).anyMatch(value -> text(obj(value, "request"), "subtype").equals("apply_flag_settings") && flag(obj(obj(value, "request"), "settings"), "fastMode")), "Queued settings applied");
             Files.delete(root.resolve("release-turn"));
             sessions.send(chat, options(), input("hold stopped")); sessions.send(chat, options(), input("after stop"));
@@ -72,6 +74,7 @@ public final class ClaudeSessionsSmoke {
             sessions.load(again); sessions.send(again, options(), input("Switch back again")); await(() -> !again.busy());
             check(!firstSession.equals(again.get("threadId")), "Switching back starts a fresh Claude session");
             check(wire(root).asList().stream().map(JsonElement::getAsJsonObject).anyMatch(value -> text(obj(value, "request"), "subtype").equals("set_model") && text(obj(value, "request"), "model").equals("opus")), "Selected Opus model reaches the CLI");
+            check(settings.claudePermissions.equals("auto"), "Per-turn permission modes replaced the saved preference");
             System.out.println("Claude session checks passed: handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }

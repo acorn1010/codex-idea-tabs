@@ -186,7 +186,6 @@ final class ClaudeSessions implements AutoCloseable {
         catch (RuntimeException error) { chat.disconnected(); throw error; }
         chat.set("providerContextPending", false);
         if (chat.get("threadId").isBlank()) { chat.set("threadId", session.sessionId); }
-        if (!payload.has("reviewTarget")) { settings.get().claudePermissions = permissions; }
         return object("turn", object("id", turn));
     }
     private JsonArray content(JsonArray input) {
