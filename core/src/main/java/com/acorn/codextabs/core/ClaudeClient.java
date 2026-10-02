@@ -15,10 +15,12 @@ public final class ClaudeClient implements AutoCloseable {
     private final Process process;
     private final BufferedWriter writer;
     private final ConcurrentMap<String, CompletableFuture<JsonObject>> pending = new ConcurrentHashMap<>();
-    private final ExecutorService workers = Executors.newVirtualThreadPerTaskExecutor();
+    // Native process pipes can occupy virtual-thread carriers indefinitely, starving sends and reconnects.
+    private final ExecutorService workers = Executors.newFixedThreadPool(3, Thread.ofPlatform().daemon().name("codex-tabs-claude-io-", 0).factory());
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Consumer<String> disconnected;
     private final StringBuilder stderr = new StringBuilder();
+    private final ArrayBlockingQueue<String> outbound = new ArrayBlockingQueue<>(256);
 
     public ClaudeClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected) {
         this.process = process; this.disconnected = disconnected;
@@ -39,6 +41,15 @@ public final class ClaudeClient implements AutoCloseable {
                 }
                 fail("Claude disconnected. Reconnect to resume this chat." + diagnostics());
             } catch (Exception error) { fail("Claude connection failed: " + error.getMessage() + diagnostics()); }
+        });
+        // A child that stops reading must not block callers before their request timeout starts.
+        workers.submit(() -> {
+            try {
+                while (!closed.get()) {
+                    writer.write(outbound.take()); writer.newLine(); writer.flush();
+                }
+            } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            catch (IOException error) { fail("Could not write to Claude: " + error.getMessage()); }
         });
         // Keep a small diagnostic in memory, never write conversation data to IDE logs.
         workers.submit(() -> {
@@ -72,17 +83,17 @@ public final class ClaudeClient implements AutoCloseable {
     }
     public void respond(String id, JsonObject response) { write(object("type", "control_response", "response", object("subtype", "success", "request_id", id, "response", response))); }
     public void reject(String id, String reason) { write(object("type", "control_response", "response", object("subtype", "error", "request_id", id, "error", reason))); }
-    public synchronized void write(JsonObject message) {
+    public void write(JsonObject message) {
         if (!isAlive()) { throw new IllegalStateException("Claude is disconnected. Reconnect and try again."); }
-        try { writer.write(GSON.toJson(message)); writer.newLine(); writer.flush(); }
-        catch (IOException error) { fail("Could not write to Claude: " + error.getMessage()); throw new UncheckedIOException(error); }
+        if (!outbound.offer(GSON.toJson(message))) { throw new IllegalStateException("Claude is not reading requests. Reconnect and try again."); }
     }
     public boolean isAlive() { return !closed.get() && process.isAlive(); }
     private void fail(String reason) {
         if (!closed.compareAndSet(false, true)) { return; }
         pending.values().forEach(future -> future.completeExceptionally(new IOException(reason))); pending.clear();
-        process.destroy();
+        outbound.clear();
         CompletableFuture.delayedExecutor(2, TimeUnit.SECONDS).execute(() -> { if (process.isAlive()) { process.destroyForcibly(); } });
+        process.destroy();
         workers.shutdownNow(); disconnected.accept(reason);
     }
     @Override public void close() { fail("Disconnected"); }

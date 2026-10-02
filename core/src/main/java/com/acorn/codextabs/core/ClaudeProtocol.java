@@ -23,11 +23,13 @@ public final class ClaudeProtocol {
         item(object("id", turn, "type", "userMessage", "content", input), true);
     }
     public synchronized void accept(JsonObject frame) {
-        String session = text(frame, "session_id");
-        if (!session.isBlank()) { chat.set("threadId", session); }
         // Nested agents have their own message streams. Their parent's tool result carries the result.
         if (!text(frame, "parent_tool_use_id").isBlank()) { return; }
-        switch (text(frame, "type")) {
+        String type = text(frame, "type"), session = text(frame, "session_id");
+        // Startup notifications carry a process ID even before Claude saves a conversation.
+        boolean conversation = Set.of("user", "assistant", "stream_event").contains(type) || (type.equals("result") && !turnId.isBlank());
+        if (conversation && !session.isBlank()) { chat.set("threadId", session); }
+        switch (type) {
             case "stream_event" -> stream(obj(frame, "event"));
             case "assistant" -> {
                 var message = obj(frame, "message");

@@ -7,6 +7,21 @@ import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class ClaudeProtocolTest {
+    @Test void startupMetadataDoesNotMakeAnUnsentChatResumable() {
+        var chat = new Conversation("id", "/project"); var protocol = new ClaudeProtocol(chat);
+        for (String subtype : List.of("init", "notification", "status", "hook_started", "hook_response")) {
+            protocol.accept(object("type", "system", "subtype", subtype, "session_id", "unsaved-session"));
+            assertEquals("", chat.get("threadId"), "Startup " + subtype + " must not create a resumable session");
+        }
+        protocol.accept(object("type", "rate_limit_event", "session_id", "unsaved-session"));
+        assertEquals("", chat.get("threadId"));
+        protocol.accept(object("type", "result", "is_error", true, "session_id", "unsaved-session"));
+        assertEquals("", chat.get("threadId"), "A startup failure must not create a resumable session");
+        protocol.accept(object("type", "assistant", "session_id", "saved-session", "message", object("id", "m", "content", List.of(object("type", "text", "text", "Hello")))));
+        assertEquals("saved-session", chat.get("threadId"), "Conversation frames still record the session");
+        protocol.accept(object("type", "assistant", "session_id", "nested-session", "parent_tool_use_id", "parent", "message", object("id", "nested", "content", List.of(object("type", "text", "text", "Nested")))));
+        assertEquals("saved-session", chat.get("threadId"), "Nested agents must not replace the main session");
+    }
     @Test void streamingAndCompleteMessagesShareIdentityAndKeepToolResults() {
         var chat = new Conversation(UUID.randomUUID().toString(), "/project"); chat.set("provider", "claude");
         var protocol = new ClaudeProtocol(chat); protocol.start("turn", GSON.toJsonTree(List.of(object("type", "text", "text", "Question"))).getAsJsonArray());

@@ -89,7 +89,8 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             return null;
         });
         String nonce = UUID.randomUUID().toString();
-        String boot = "window.__codexTextNavigation=true;window.__codexSend=function(value){" + bridge.inject("value") + "};";
+        String bridgeFailure = "function(code,message){window.dispatchEvent(new CustomEvent('codex-reply',{detail:{id:JSON.parse(value).id,error:'IntelliJ could not receive this request. Close and reopen this chat, then try again. '+message}}));}";
+        String boot = "window.__codexTextNavigation=true;window.__codexSend=function(value){" + bridge.inject("value", "function(response){}", bridgeFailure) + "};";
         if (org.cef.CefApp.isRemoteEnabled()) { boot += "window.__codexNativeCursor=true;"; }
         String html = "<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
             + "<meta http-equiv='Content-Security-Policy' content=\"default-src 'none'; script-src 'nonce-" + nonce + "'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'\">"

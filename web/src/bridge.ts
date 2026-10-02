@@ -39,8 +39,12 @@ export function request<T = Json>(method: string, params: Json = {}): Promise<T>
   return new Promise((resolve, reject) => {
     if (!window.__codexSend) { reject(new Error('Open this chat inside IntelliJ IDEA.')); return; }
     const id = ++sequence;
-    const timeout = window.setTimeout(() => { pending.delete(id); reject(new Error('This request took too long. Check the Codex connection.')); }, 120_000);
+    const timeout = window.setTimeout(() => { pending.delete(id); reject(new Error(method === 'send' ? 'The chat did not confirm this message. Your draft is kept. Reconnect and check the conversation before retrying.' : 'This request took too long. Check the chat connection.')); }, 120_000);
     pending.set(id, { resolve: (value) => resolve(value as T), reject, timeout });
-    window.__codexSend(JSON.stringify({ id, method, params }));
+    try { window.__codexSend(JSON.stringify({ id, method, params })); }
+    catch (error) {
+      window.clearTimeout(timeout); pending.delete(id);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }

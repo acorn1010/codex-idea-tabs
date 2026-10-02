@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Deterministic Claude stream fixture. No network, model, tools, or credentials."""
 import json
+import os
 import pathlib
 import sys
 import threading
 import time
+import uuid
 
 root = pathlib.Path.cwd()
 lock = threading.Lock()
@@ -17,13 +19,22 @@ def emit(frame):
     with lock:
         print(json.dumps(frame), flush=True)
 
+# Startup IDs identify a process before the CLI has saved any conversation.
+resume_id = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--resume=")), "")
+session_id = next((arg.split("=", 1)[1] for arg in sys.argv if arg.startswith("--session-id=")), resume_id or str(uuid.uuid4()))
+saved_sessions = root / "saved-sessions"
+saved_sessions.mkdir(exist_ok=True)
+if resume_id and not (saved_sessions / resume_id).exists():
+    print("No conversation found with session ID: " + resume_id, file=sys.stderr, flush=True)
+    sys.exit(1)
+
 def finish(token):
     global active
     if active != token:
         return
     active = None
-    emit({"type": "assistant", "message": {"id": token, "content": [{"type": "text", "text": "Done"}]}})
-    emit({"type": "result", "subtype": "success", "usage": {"input_tokens": 10, "output_tokens": 2}, "total_cost_usd": 0.01})
+    emit({"type": "assistant", "session_id": session_id, "message": {"id": token, "content": [{"type": "text", "text": "Done"}]}})
+    emit({"type": "result", "session_id": session_id, "subtype": "success", "usage": {"input_tokens": 10, "output_tokens": 2}, "total_cost_usd": 0.01})
 
 def release(token):
     while active == token:
@@ -41,7 +52,13 @@ for line in sys.stdin:
         request = frame["request"]
         subtype = request["subtype"]
         response = {}
+        if subtype == "set_model" and (root / "hold-model").exists():
+            (root / "model-waiting").write_text("waiting")
+            while (root / "hold-model").exists():
+                time.sleep(0.01)
         if subtype == "initialize":
+            emit({"type": "system", "subtype": "notification", "session_id": session_id, "text": "Fixture ready"})
+            (root / "claude-pid").write_text(str(os.getpid()))
             response = {"models": [{"value": "default", "supportsEffort": True, "supportedEffortLevels": ["low", "high"], "supportsAutoMode": True, "supportsFastMode": True}], "commands": [{"name": "inspect", "description": "Inspect"}]}
         elif subtype == "get_usage":
             if (root / "usage-unavailable").exists():
@@ -56,6 +73,7 @@ for line in sys.stdin:
             finish(active)
         emit({"type": "control_response", "response": {"subtype": "success", "request_id": frame["request_id"], "response": response}})
     elif kind == "user":
+        (saved_sessions / session_id).touch()
         active = frame["uuid"]
         content = frame["message"]["content"]
         prompt = " ".join(part.get("text", "") for part in content)

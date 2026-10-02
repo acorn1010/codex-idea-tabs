@@ -10,6 +10,7 @@ import static com.acorn.codextabs.core.Json.*;
 
 /** Own Claude processes independently so a Codex disconnect cannot interrupt Claude chats. */
 final class ClaudeSessions implements AutoCloseable {
+    private static final long TURN_SETUP_SECONDS = 15;
     private final ConcurrentMap<String, Session> sessions = new ConcurrentHashMap<>();
     private final Supplier<CodexSettings.State> settings;
     private final Supplier<String> distro;
@@ -108,6 +109,14 @@ final class ClaudeSessions implements AutoCloseable {
     void cancelQueued(Conversation chat, String id) { new ClaudeQueue(chat).remove(id); changed.accept(chat); }
     void resumeQueued(Conversation chat) { session(chat).next(); }
 
+    private void recoverUnsentHandoff(Conversation chat) {
+        // Older versions saved startup IDs for handoffs that had never sent a Claude message.
+        // Clear only that case. Missing sessions with actual Claude history still need to report an error.
+        if (chat.get("threadId").isBlank() || !chat.get("providerContextPending").equals("true") || !chat.get("claudeResumeId").isBlank()) { return; }
+        if (chat.items().asList().stream().anyMatch(item -> text(item.getAsJsonObject(), "historyProvider").isBlank())) { return; }
+        if (frames(chat).isEmpty()) { chat.set("threadId", ""); }
+    }
+
     private Session session(Conversation chat) {
         var session = sessions.computeIfAbsent(chat.id, ignored -> new Session(chat));
         synchronized (session) {
@@ -118,6 +127,7 @@ final class ClaudeSessions implements AutoCloseable {
             try {
                 String binary = distro.get().isBlank() ? ClaudeClient.executable(settings.get().claudeBinary) : settings.get().claudeBinary;
                 if (binary.isBlank()) { binary = "claude"; }
+                recoverUnsentHandoff(chat);
                 String resume = chat.get("threadId").isBlank() ? chat.get("claudeResumeId") : chat.get("threadId");
                 boolean fork = chat.get("threadId").isBlank() && !resume.isBlank();
                 session.sessionId = chat.get("threadId").isBlank() ? UUID.randomUUID().toString() : chat.get("threadId");
@@ -183,11 +193,22 @@ final class ClaudeSessions implements AutoCloseable {
         String permissions = payload.has("reviewTarget") ? "read" : text(payload, "permissions", settings.get().claudePermissions);
         String mode = switch (permissions) { case "ask" -> "default"; case "edit" -> "acceptEdits"; case "read" -> "plan"; case "auto" -> "auto"; default -> throw new IllegalArgumentException("Choose a Claude permission mode."); };
         String model = text(payload, "model", settings.get().claudeModel);
-        session.client.control(object("subtype", "set_model", "model", model.isBlank() ? null : model)).join();
-        session.client.control(object("subtype", "set_permission_mode", "mode", mode)).join();
-        if (flag(chat.snapshot(), "claudeSettingsSupported")) {
-            session.client.control(object("subtype", "apply_flag_settings", "settings", object("effortLevel", text(payload, "effort").isBlank() ? null : text(payload, "effort"), "fastMode", flag(payload, "fast")))).join();
-        }
+        var client = session.client;
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TURN_SETUP_SECONDS);
+        try {
+            configure(client, object("subtype", "set_model", "model", model.isBlank() ? null : model), deadline);
+            configure(client, object("subtype", "set_permission_mode", "mode", mode), deadline);
+            if (flag(chat.snapshot(), "claudeSettingsSupported")) {
+                configure(client, object("subtype", "apply_flag_settings", "settings", object("effortLevel", text(payload, "effort").isBlank() ? null : text(payload, "effort"), "fastMode", flag(payload, "fast"))), deadline);
+            }
+        } catch (TimeoutException error) {
+            // End preparation before enabling retry. A late settings reply must never submit the old draft.
+            session.close(); changed.accept(chat);
+            throw new IllegalStateException("Claude did not finish preparing this message. Your message was not sent. Reconnect and try again.");
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Message preparation was interrupted. Your message was not sent.");
+        } catch (ExecutionException error) { throw new CompletionException(error); }
         String turn = UUID.randomUUID().toString();
         var body = content(ProviderHandoff.input(chat, input));
         session.protocol.start(turn, input);
@@ -196,6 +217,11 @@ final class ClaudeSessions implements AutoCloseable {
         chat.set("providerContextPending", false);
         if (chat.get("threadId").isBlank()) { chat.set("threadId", session.sessionId); }
         return object("turn", object("id", turn));
+    }
+    private static void configure(ClaudeClient client, JsonObject request, long deadline) throws InterruptedException, ExecutionException, TimeoutException {
+        long remaining = deadline - System.nanoTime();
+        if (remaining <= 0) { throw new TimeoutException(); }
+        client.control(request).get(remaining, TimeUnit.NANOSECONDS);
     }
     private JsonArray content(JsonArray input) {
         var result = new JsonArray();

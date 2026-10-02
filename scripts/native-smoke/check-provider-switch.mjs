@@ -25,6 +25,7 @@ try {
     window.__requests = []; window.__copies = [];
     const publish = () => { chat.revision++; window.dispatchEvent(new CustomEvent('codex-state', { detail: structuredClone(snapshot) })); };
     window.__state = patch => { Object.assign(chat, patch); publish(); };
+    window.__connection = value => { snapshot.connection = value; chat.error = ""; publish(); };
     window.__codexSend = raw => {
       const { id, method, params } = JSON.parse(raw); window.__requests.push({ method, params });
       const reply = (result, error) => queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, result: structuredClone(result), error } })));
@@ -39,6 +40,7 @@ try {
         };
         return;
       }
+      if (method === 'reconnect') { snapshot.connection = 'connected'; publish(); }
       if (method === 'modelPreferences') { Object.assign(settings[chat.provider], params); }
       if (method === 'permissionPreferences') {
         settings[chat.provider].permissions = params.permissions;
@@ -123,8 +125,18 @@ try {
     await choose('Claude'); await page.evaluate(() => window.__finishSwitch());
     await chooseModel('Opus 5.5');
     await page.getByRole('button', { name: 'Permission mode: Approve for me', exact: true }).waitFor();
+    await page.evaluate(() => window.__connection('disconnected'));
+    await page.getByRole('alert').filter({ hasText: 'Claude is disconnected.' }).waitFor();
+    assert.ok(await provider.isEnabled(), 'A disconnected provider must allow switching');
+    await page.screenshot({ path: `${output}/claude-disconnected-${width}.png` });
+    await page.getByRole('button', { name: 'Reconnect', exact: true }).click();
+    await page.getByRole('alert').waitFor({ state: 'detached' });
+    assert.ok(await page.evaluate(() => window.__requests.some(call => call.method === 'reconnect')));
+    await page.evaluate(() => window.__connection('disconnected'));
+    await choose('Codex'); await page.evaluate(() => window.__finishSwitch());
+    await page.getByRole('button', { name: 'Provider: Codex', exact: true }).waitFor();
     await page.evaluate(() => localStorage.removeItem('permissionPreferences'));
-    console.log({ permissionSelectionSavedBeforeSend: true, independentProviderPreferences: true, permissionReload: true, unsupportedModelFallback: true, width, savedChatSwitching: true, busyAndQueueGuards: true, failedSwitchRetry: true, preservedHistoryDraftAndFiles: true, opusAndEffort: true, repeatedSwitches: true });
+    console.log({ disconnectedRecovery: true, permissionSelectionSavedBeforeSend: true, independentProviderPreferences: true, permissionReload: true, unsupportedModelFallback: true, width, savedChatSwitching: true, busyAndQueueGuards: true, failedSwitchRetry: true, preservedHistoryDraftAndFiles: true, opusAndEffort: true, repeatedSwitches: true });
   }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

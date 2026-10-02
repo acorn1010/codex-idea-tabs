@@ -53,6 +53,23 @@ class ClaudeClientTest {
             assertTrue(retry.get(2, TimeUnit.SECONDS).has("models"));
         }
     }
+    @Test void blockedStdinDoesNotBlockStartupTimeoutOrDisconnect() throws Exception {
+        var process = new FixtureProcess(); process.writesAllowed = new CountDownLatch(1);
+        var disconnected = new LinkedBlockingQueue<String>();
+        try (var calls = Executors.newVirtualThreadPerTaskExecutor();
+             var client = new ClaudeClient(process, ignored -> {}, disconnected::offer)) {
+            var call = calls.submit(() -> client.initialize(50, TimeUnit.MILLISECONDS));
+            try {
+                var initialized = call.get(2, TimeUnit.SECONDS);
+                var error = assertThrows(ExecutionException.class, () -> initialized.get(2, TimeUnit.SECONDS));
+                assertTrue(error.getCause().getMessage().contains("startup handshake"));
+                assertTrue(process.written.isEmpty(), "The fixture must not read stdin");
+                client.close();
+                assertNotNull(disconnected.poll(2, TimeUnit.SECONDS));
+                assertThrows(IllegalStateException.class, () -> client.write(object("type", "user")));
+            } finally { process.writesAllowed.countDown(); }
+        }
+    }
     @Test void findsNewestNvmVersionWithLimitedDesktopPath(@TempDir Path home) throws Exception {
         var versions = home.resolve(".nvm/versions/node");
         executable(versions.resolve("v22.3.0/bin/claude"));
@@ -81,8 +98,10 @@ class ClaudeClientTest {
         final PipedInputStream output = new PipedInputStream();
         final PipedOutputStream server = new PipedOutputStream(output);
         volatile boolean alive = true;
+        volatile CountDownLatch writesAllowed = new CountDownLatch(0);
         final OutputStream input = new ByteArrayOutputStream() {
-            @Override public synchronized void flush() {
+            @Override public synchronized void flush() throws IOException {
+                try { writesAllowed.await(); } catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IOException(error); }
                 String data = toString(StandardCharsets.UTF_8); reset();
                 for (String line : data.lines().toList()) { written.offer(JsonParser.parseString(line).getAsJsonObject()); }
             }

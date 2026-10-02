@@ -35,6 +35,7 @@ public final class ClaudeSessionsSmoke {
             check(countUsers(root) == 3 && array(chat.snapshot(), "claudeQueue").size() == 1, "Stop preserves queue");
             sessions.resumeQueued(chat); await(() -> !chat.busy() && countUsers(root) == 4);
             sessions.send(chat, options(), input("hold reconnect")); sessions.send(chat, options(), input("after reconnect"));
+            await(() -> countUsers(root) == 5);
             sessions.release(chat.id); sessions.load(chat);
             check(flag(chat.snapshot(), "claudeQueuePaused") && array(chat.snapshot(), "claudeQueue").size() == 1 && countUsers(root) == 5, "Reconnect preserves paused queue");
             sessions.resumeQueued(chat); await(() -> !chat.busy() && countUsers(root) == 6);
@@ -58,6 +59,7 @@ public final class ClaudeSessionsSmoke {
             check(array(array(sessions.skills(chat), "data").get(0).getAsJsonObject(), "skills").size() == 1, "Commands");
             var edited = new Conversation(UUID.randomUUID().toString(), root.toString()); edited.set("provider", "claude");
             String anchor = UUID.randomUUID().toString(); edited.set("claudeResumeId", UUID.randomUUID().toString()); edited.set("claudeResumeAt", anchor);
+            Files.createFile(root.resolve("saved-sessions").resolve(edited.get("claudeResumeId")));
             sessions.load(edited); sessions.send(edited, options(), input("edited")); await(() -> !edited.busy());
             sessions.release(edited.id); sessions.load(edited);
             var starts = Files.readAllLines(root.resolve("starts.jsonl"));
@@ -66,13 +68,33 @@ public final class ClaudeSessionsSmoke {
             var original = new Conversation(UUID.randomUUID().toString(), root.toString());
             original.event(object("method", "item/completed", "params", object("item", object("id", "old", "type", "userMessage", "text", "Earlier requirement"))));
             var switched = ProviderHandoff.prepare(original.snapshot(), original.items(), "claude");
-            sessions.load(switched); sessions.send(switched, object("model", "opus", "permissions", "ask"), input("Continue here")); await(() -> !switched.busy());
+            switched.set("draft", "Unsent draft");
+            String context = switched.get("providerContext"); var carried = switched.items();
+            int beforeHandoff = countUsers(root);
+            sessions.load(switched);
+            check(switched.get("threadId").isBlank(), "An idle startup ID must not be saved as a conversation");
+            sessions.release(switched.id);
+            switched = Conversation.restore(switched.snapshot());
+            sessions.load(switched);
+            check(switched.get("threadId").isBlank() && countUsers(root) == beforeHandoff, "An unsent handoff reopens without resuming or sending");
+            sessions.release(switched.id);
+            // Repair caches written by versions that saved a startup ID before the first message.
+            switched.set("threadId", UUID.randomUUID().toString());
+            switched.loadFailed("No conversation found with session ID");
+            sessions.load(switched);
+            check(switched.get("threadId").isBlank() && switched.get("error").isBlank(), "A missing unsent handoff session recovers");
+            check(switched.get("providerContext").equals(context) && switched.get("providerContextPending").equals("true")
+                && switched.get("draft").equals("Unsent draft") && switched.items().equals(carried), "Recovery preserves draft, context, and visible history");
+            check(countUsers(root) == beforeHandoff && !Files.readAllLines(root.resolve("starts.jsonl")).getLast().contains("--resume="), "Recovery starts fresh without submitting a prompt");
+            sessions.send(switched, object("model", "opus", "permissions", "ask"), input("Continue here"));
+            final var handedOff = switched;
+            await(() -> !handedOff.busy());
             String firstSession = switched.get("threadId");
             var sent = users(root).get(users(root).size() - 1).getAsJsonObject();
             check(GSON.toJson(sent).contains("Earlier requirement") && GSON.toJson(sent).contains("Continue here"), "Prior context reaches Claude with new user input");
             check(!GSON.toJson(switched.items()).contains("Codex Tabs conversation context"), "Context stays out of visible messages");
             sessions.release(switched.id); sessions.load(switched);
-            sessions.send(switched, options(), input("After reconnect")); await(() -> !switched.busy());
+            sessions.send(switched, options(), input("After reconnect")); await(() -> !handedOff.busy());
             sent = users(root).get(users(root).size() - 1).getAsJsonObject();
             check(!GSON.toJson(sent).contains("Earlier requirement"), "Reconnect does not resend context");
             sessions.release(switched.id);
@@ -82,10 +104,36 @@ public final class ClaudeSessionsSmoke {
             check(!firstSession.equals(again.get("threadId")), "Switching back starts a fresh Claude session");
             check(wire(root).asList().stream().map(JsonElement::getAsJsonObject).anyMatch(value -> text(obj(value, "request"), "subtype").equals("set_model") && text(obj(value, "request"), "model").equals("opus")), "Selected Opus model reaches the CLI");
             check(settings.claudePermissions.equals("auto"), "Per-turn permission modes replaced the saved preference");
-            System.out.println("Claude session checks passed: handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
+            sessions.release(again.id);
+            checkRecoveryBoundaries(sessions, original, root);
+            System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
         }
+    }
+    private static void checkRecoveryBoundaries(ClaudeSessions sessions, Conversation original, Path root) throws Exception {
+        var withMessages = ProviderHandoff.prepare(original.snapshot(), original.items(), "claude");
+        String missing = UUID.randomUUID().toString(); withMessages.set("threadId", missing);
+        withMessages.event(object("method", "item/completed", "params", object("item", object("id", "native", "type", "userMessage", "text", "Already sent"))));
+        try { sessions.load(withMessages); throw new AssertionError("A missing session with Claude messages must not silently start over"); }
+        catch (IllegalStateException expected) { check(expected.getMessage().contains("No conversation found"), "Report the real resume failure"); }
+        check(withMessages.get("threadId").equals(missing), "Keep the saved session ID when Claude messages exist");
+        sessions.release(withMessages.id);
+
+        var onDisk = ProviderHandoff.prepare(original.snapshot(), original.items(), "claude");
+        String saved = UUID.randomUUID().toString(); onDisk.set("threadId", saved);
+        var directory = Path.of(System.getenv("CLAUDE_CONFIG_DIR"), "projects", "smoke-" + saved);
+        Files.createDirectories(directory);
+        var transcript = directory.resolve(saved + ".jsonl");
+        Files.writeString(transcript, GSON.toJson(object("type", "user", "uuid", "persisted-user", "session_id", saved,
+            "message", object("role", "user", "content", "Already saved by Claude"))) + "\n");
+        Files.createFile(root.resolve("saved-sessions").resolve(saved));
+        try {
+            sessions.load(onDisk);
+            check(onDisk.get("threadId").equals(saved), "An existing Claude transcript must still resume");
+            check(Files.readAllLines(root.resolve("starts.jsonl")).getLast().contains("--resume=" + saved), "Use the existing transcript ID");
+            check(GSON.toJson(onDisk.items()).contains("Already saved by Claude"), "Restore the existing Claude history");
+        } finally { sessions.release(onDisk.id); Files.delete(transcript); Files.delete(directory); }
     }
     private static JsonObject options() { return object("model", "", "permissions", "ask", "effort", "", "fast", false); }
     private static JsonArray input(String text) { return GSON.toJsonTree(List.of(object("type", "text", "text", text))).getAsJsonArray(); }

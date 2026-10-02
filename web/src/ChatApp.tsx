@@ -304,6 +304,7 @@ export function ChatApp() {
   };
   const needsLogin = state?.account.requiresOpenaiAuth && !state.account.account;
   const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
+  const alert = error || chat?.error || state?.error || connectionError || (chat && !chat.archived && state?.connection === 'disconnected' ? `${providerName} is disconnected. Reconnect to continue.` : '');
   const statusColor = status === 'Archived' ? 'text-muted' : status === 'Needs your input' || status === 'Connecting' ? 'text-attention' : status === 'Working' ? 'text-accent' : status === 'Ready' ? 'text-success' : 'text-danger';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
   const fastTier = selectedModel?.serviceTiers?.find((tier) => tier.name.toLowerCase() === 'fast' || ['fast', 'priority'].includes(tier.id));
@@ -396,7 +397,7 @@ export function ChatApp() {
     {slash.menu}
     {inspecting && <ContextInspector initialSearch={inspectionSearch} model={model} effort={effort} status={chat?.status} onClose={() => setInspecting(false)} />}
 
-    {(state?.error || error || connectionError || chat?.error) && <div role="alert" className="flex items-start gap-2 border-b border-danger-border bg-danger-surface px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1 break-words">{error || chat?.error || state?.error || connectionError}</span><button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded bg-danger px-2 py-0.5 font-medium text-surface hover:brightness-110 active:brightness-90">Reconnect</button></div>}
+    {alert && <div role="alert" className="flex items-start gap-2 border-b border-danger-border bg-danger-surface px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1 break-words">{alert}</span><button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded bg-danger px-2 py-0.5 font-medium text-surface hover:brightness-110 active:brightness-90">Reconnect</button></div>}
     {needsLogin && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs"><span className="flex-1">Use your Codex subscription</span><button className="rounded bg-accent px-2.5 py-1 text-composer hover:brightness-110 active:brightness-90" onClick={() => { void run('login').then((value) => { if (value) { setLogin(value); } }); }}>Sign in with ChatGPT</button></div>}
     {login && needsLogin && <div className="border-b border-line p-3 text-xs"><p>Open the sign-in page and enter <strong className="select-all text-accent">{String(login.userCode || '')}</strong>.</p><button className="mt-2 rounded text-accent underline hover:bg-accent/10 active:bg-accent/20" onClick={() => void run('openLink', { path: login.verificationUrl })}>Open sign-in page ↗</button></div>}
 
@@ -460,6 +461,7 @@ export function ChatApp() {
           const text = event.clipboardData.getData('text/plain');
           if (text.length > 20_000) { event.preventDefault(); void uploadFiles([new File([text], 'pasted-text.txt', { type: 'text/plain;charset=utf-8' })]); }
         }} placeholder={working ? isClaude ? 'Queue a follow-up for Claude…' : 'Guide the work, or add a follow-up…' : `Ask ${providerName} to build, fix, or explore…`} className="block max-h-50 min-h-16 w-full cursor-text resize-none bg-transparent px-3 pt-3 pb-2 text-[13px] leading-relaxed placeholder:text-muted/70" />
+        {sending && <p role="status" className="px-3 pb-2 text-[11px] text-muted">Sending message… Your draft is kept until the chat accepts it.</p>}
         <div className="flex items-center gap-1 px-2 pb-2">
           <div className="flex shrink-0 items-center gap-1">
           <SmallButton label="Attach files" icon="plus" onClick={() => { setUploads((count) => count + 1); void request<{ files: Attachment[] }>('chooseFiles').then((value) => setAttachments((current) => [...current, ...value.files])).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1)); }} />

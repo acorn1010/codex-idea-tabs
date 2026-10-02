@@ -17,7 +17,8 @@ public final class RpcClient implements AutoCloseable {
     private final AtomicBoolean closed = new AtomicBoolean();
     private final Consumer<JsonObject> events;
     private final Consumer<String> disconnected;
-    private final ExecutorService reader = Executors.newVirtualThreadPerTaskExecutor();
+    // Native process pipes can occupy virtual-thread carriers indefinitely, starving sends and reconnects.
+    private final ExecutorService reader = Executors.newFixedThreadPool(3, Thread.ofPlatform().daemon().name("codex-tabs-codex-io-", 0).factory());
     private final ArrayBlockingQueue<String> outbound = new ArrayBlockingQueue<>(256);
 
     public RpcClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected) {

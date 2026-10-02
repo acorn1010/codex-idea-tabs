@@ -110,6 +110,10 @@ Run `check-reasoning.mjs` with `CODEX_SMOKE_CHROME` to check readable thinking s
 
 Run `check-file-drops.mjs` with `CODEX_SMOKE_CHROME` to check browser file bytes and the native drop bridge at 360, 520, and 900 pixels, including scaled coordinates. It covers PDFs, multiple files, removal, saved drafts, send blocking, partial failures, retry, inline image edits, and archived chats. The host file reader has core tests for unchanged PDF bytes, image restrictions, missing files, directories, and the 50 MB limit. These headless checks do not perform a Windows Explorer or IDEA project-tree drag. For that check, drop a local PDF from each source into an already running IDEA, confirm one attachment, send it, and confirm the source file remains in place. Do not start another IDEA process for this check.
 
+## Native process pipes
+
+`NativeProcessTransportTest` runs automatically with `:core:test`. It opens three real fixture subprocesses per provider in a JVM with two virtual-thread workers, then checks that background tasks and CLI requests still finish. This catches idle pipe readers blocking the shared scheduler, which in-memory stream fixtures cannot reproduce. The fixture never calls a model.
+
 ## Multiple repositories
 
 `check-repositories.mjs` checks the repository search, branch choices, draft retention, and project-folder option at 360, 520, and 900 pixels. Run it with `CODEX_SMOKE_CHROME` set to the browser executable after building the web UI. `check-worktrees.mjs` also checks that the original worktree controls still work.
@@ -149,3 +153,7 @@ Run `./gradlew claudeSessionsSmoke` to exercise the actual Claude session contro
 For switching existing chats between providers, run `CODEX_SMOKE_CHROME=/path/to/chrome node scripts/native-smoke/check-provider-switch.mjs`. It checks preserved history, drafts and files, failure recovery, blocked switches during work or approvals, repeated switches, and Opus 5.5 model and effort selection. `./gradlew claudeSessionsSmoke` also verifies context transfer and fresh Claude session IDs through the subprocess bridge.
 
 Set `-Dcodex.smoke.providerPreference.check=true` in the isolated IDEA profile to check that the saved provider applies to plain new tabs, new or split chats from an older tab, and file-context chats. It also checks selecting the active provider, permission choices for each provider before sending, invalid permission modes, and reloading settings through IDEA's XML serializer. Results go to `provider-preference-result.json`. Neither CLI is started.
+
+Set `-Dcodex.smoke.providerRecovery.check=true` in a disposable IDEA profile to test recovery after the Claude subprocess exits. Point `codex.smoke.binary` at `scripts/fake-codex.py` and `codex.smoke.claudeBinary` at `scripts/native-smoke/fake-claude.py`. Set `codex.smoke.cwd`, `CLAUDE_CONFIG_DIR`, and `CODEX_SMOKE_ROOT` to separate temporary directories. The check stops only its fixture process, reconnects the same chat, switches to Codex while Claude is disconnected, and verifies the draft survives. Results go to `provider-recovery-result.json`. `check-provider-switch.mjs` also checks the disconnected banner, Reconnect action, and provider menu at 360 and 900 pixels.
+
+Run `check-submit-recovery.mjs` with `CODEX_SMOKE_CHROME` after building the UI. It checks pending-send feedback, failed sends, native bridge errors, timeout recovery, late replies, draft and attachment retention, and an explicit retry for both providers at 360 and 900 pixels. No real messages are sent. The native provider recovery check also stalls Claude's model setup, verifies that no user message reaches the fixture, and retries exactly once after reconnecting.

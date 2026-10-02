@@ -68,7 +68,12 @@ public final class CodexService implements Disposable {
     }
     public static CodexService get(Project project) { return project.getService(CodexService.class); }
     public CodexSettings.State settings() { return project.getService(CodexSettings.class).getState(); }
-    private void claudeChanged(Conversation chat) { if (chats.get(chat.id) != chat) { return; } sessions.working(chat.id, chat.busy()); changed(chat.id); }
+    private void claudeChanged(Conversation chat) {
+        if (chats.get(chat.id) != chat) { return; }
+        // A completed load belongs to the process that just exited, not its replacement.
+        if (chat.get("claudeConnection").equals("disconnected")) { sessions.forget(chat.id); }
+        sessions.working(chat.id, chat.busy()); changed(chat.id);
+    }
     public boolean isClaude(String id) { return chat(id).get("provider").equals("claude"); }
     /** Prepare the new session before replacing the chat, serialized with sends and archive actions. */
     public CompletableFuture<JsonObject> selectProvider(String id, String provider) {
