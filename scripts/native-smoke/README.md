@@ -165,3 +165,21 @@ Run `profile-plugin.py --plugin <plugin.zip> --label <name>` after building `nat
 `check-native-refresh.mjs` checks 120 draft changes across four fixture panes. It waits for the latest state and rejects revisions arriving out of order. If the isolated IDEA profile displays its first-run tour, disable `ide.experimental.ui.onboarding` in that test profile.
 
 For project-wide worktree cleanup, set `-Dcodex.smoke.cleanup.check=true` in a disposable IDEA profile with `scripts/fake-codex.py` and an empty fixture project. The check creates two temporary Git repositories and linked worktrees. It verifies the sidebar and chat entry points, clean defaults, dirty-file review and cancellation, closed Codex and Claude chat protection, stale previews, partial failures, background progress, and retained branches and drafts. It writes `cleanup-result.json` and screenshots under the test log directory. Never run it against a real project.
+
+## Claude startup from Windows into WSL
+
+Build `:core:test buildPlugin nativeSmokeClasses`, then run `ClaudeWslSmoke` with
+a Windows JDK 21 or newer. Put `build/classes/java/nativeSmoke`,
+`core/build/libs/core.jar`, and the built plugin's `lib/*` on the Windows Java
+classpath, separated by semicolons. The main class is
+`com.acorn.codextabs.smoke.ClaudeWslSmoke`.
+
+Pass the WSL distribution name, such as `Ubuntu`. An optional second argument,
+such as `claude`, also checks startup with that installed Linux executable.
+The check sends only the startup handshake and does not send a prompt to a model.
+
+The fixture checks the actual Windows-to-WSL process, preserving quotes,
+Markdown separators, shell characters, Unicode, and instructions longer than
+Windows' command-line limit. It also checks that closing a client removes its
+temporary instruction file. An instruction block previously became 225 separate
+arguments in this check, which made Claude report an unknown `---` option.

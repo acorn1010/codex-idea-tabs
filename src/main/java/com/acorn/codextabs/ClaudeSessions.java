@@ -133,8 +133,8 @@ final class ClaudeSessions implements AutoCloseable {
                 session.sessionId = chat.get("threadId").isBlank() ? UUID.randomUUID().toString() : chat.get("threadId");
                 refreshHistory(chat);
                 var shared = guidance.get();
-                var builder = ClaudeClient.process(binary, chat.get("cwd"), distro.get(), session.sessionId, resume, fork, fork ? chat.get("claudeResumeAt") : "", shared.claudeContext());
-                session.client = new ClaudeClient(builder.start(), event -> session.event(event, generation), reason -> {
+                var builder = ClaudeClient.process(binary, chat.get("cwd"), distro.get(), session.sessionId, resume, fork, fork ? chat.get("claudeResumeAt") : "");
+                session.client = ClaudeClient.start(builder, distro.get(), shared.claudeContext(), event -> session.event(event, generation), reason -> {
                     if (session.closed || session.generation.get() != generation) { return; }
                     chat.disconnected(); chat.set("claudeConnection", "disconnected"); chat.loadFailed(reason); changed.accept(chat);
                 });

@@ -13,6 +13,7 @@ import static com.acorn.codextabs.core.Json.*;
 /** Claude Code's stream-json transport. Each process owns one resumable conversation. */
 public final class ClaudeClient implements AutoCloseable {
     private final Process process;
+    private final Path guidanceFile;
     private final BufferedWriter writer;
     private final ConcurrentMap<String, CompletableFuture<JsonObject>> pending = new ConcurrentHashMap<>();
     // Native process pipes can occupy virtual-thread carriers indefinitely, starving sends and reconnects.
@@ -22,8 +23,27 @@ public final class ClaudeClient implements AutoCloseable {
     private final StringBuilder stderr = new StringBuilder();
     private final ArrayBlockingQueue<String> outbound = new ArrayBlockingQueue<>(256);
 
+    /** Keep shared instructions out of Windows command-line parsing and its size limit. */
+    public static ClaudeClient start(ProcessBuilder builder, String distro, String guidance,
+                                     Consumer<JsonObject> events, Consumer<String> disconnected) throws IOException {
+        Path guidanceFile = null;
+        try {
+            if (!guidance.isBlank()) {
+                guidanceFile = Files.createTempFile("codex-tabs-claude-", ".txt");
+                Files.writeString(guidanceFile, guidance, StandardCharsets.UTF_8);
+                builder.command().addAll(List.of("--append-system-prompt-file", distro.isBlank() ? guidanceFile.toString() : Paths.linux(guidanceFile.toString())));
+            }
+            return new ClaudeClient(builder.start(), events, disconnected, guidanceFile);
+        } catch (IOException | RuntimeException error) {
+            removeGuidance(guidanceFile);
+            throw error;
+        }
+    }
     public ClaudeClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected) {
-        this.process = process; this.disconnected = disconnected;
+        this(process, events, disconnected, null);
+    }
+    private ClaudeClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected, Path guidanceFile) {
+        this.process = process; this.disconnected = disconnected; this.guidanceFile = guidanceFile;
         writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
         workers.submit(() -> {
             try (var lines = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
@@ -93,10 +113,15 @@ public final class ClaudeClient implements AutoCloseable {
         pending.values().forEach(future -> future.completeExceptionally(new IOException(reason))); pending.clear();
         outbound.clear();
         CompletableFuture.delayedExecutor(2, TimeUnit.SECONDS).execute(() -> { if (process.isAlive()) { process.destroyForcibly(); } });
-        process.destroy();
+        process.destroy(); removeGuidance(guidanceFile);
         workers.shutdownNow(); disconnected.accept(reason);
     }
     @Override public void close() { fail("Disconnected"); }
+    private static void removeGuidance(Path file) {
+        if (file == null) { return; }
+        try { Files.deleteIfExists(file); }
+        catch (IOException ignored) { file.toFile().deleteOnExit(); }
+    }
 
     /** Find native and npm installations without depending on the desktop IDE's shell PATH. */
     public static String executable(String configured) {
@@ -124,9 +149,9 @@ public final class ClaudeClient implements AutoCloseable {
     }
     /** Arguments remain separate from shell text, including WSL paths and user-selected models. */
     public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork) {
-        return process(binary, cwd, distro, session, resume, fork, "", "");
+        return process(binary, cwd, distro, session, resume, fork, "");
     }
-    public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork, String anchor, String guidance) {
+    public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork, String anchor) {
         UUID.fromString(session);
         if (!resume.isBlank()) { UUID.fromString(resume); }
         var arguments = new ArrayList<>(List.of(binary, "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio"));
@@ -134,7 +159,6 @@ public final class ClaudeClient implements AutoCloseable {
         if (resume.isBlank() || fork) { arguments.add("--session-id=" + session); }
         if (fork) { arguments.add("--fork-session"); }
         if (!anchor.isBlank()) { UUID.fromString(anchor); arguments.add("--resume-session-at=" + anchor); }
-        if (!guidance.isBlank()) { arguments.add("--append-system-prompt"); arguments.add(guidance); }
         ProcessBuilder builder;
         if (!distro.isBlank()) {
             var command = new ArrayList<>(List.of("wsl.exe", "--distribution", distro, "--exec", "/bin/sh", "-lc", "cd -- \"$1\" && shift && exec \"$@\"", "codex-tabs", cwd));

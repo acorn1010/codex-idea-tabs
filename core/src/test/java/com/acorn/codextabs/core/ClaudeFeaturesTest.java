@@ -89,10 +89,9 @@ class ClaudeFeaturesTest {
         protocol.accept(object("type", "system", "subtype", "commands_changed", "commands", values(object("name", "skill"))));
         assertEquals(1, array(chat.snapshot(), "claudeCommands").size());
     }
-    @Test void cutoffAndGuidanceStaySeparateFromShellArguments() {
+    @Test void cutoffStaysSeparateFromShellArguments() {
         String id = UUID.randomUUID().toString(), resume = UUID.randomUUID().toString(), anchor = UUID.randomUUID().toString();
-        var process = ClaudeClient.process("claude", "/project", "Ubuntu", id, resume, true, anchor, "Read /shared/AGENTS.md");
+        var process = ClaudeClient.process("claude", "/project", "Ubuntu", id, resume, true, anchor);
         assertTrue(process.command().contains("--resume-session-at=" + anchor));
-        assertEquals("Read /shared/AGENTS.md", process.command().getLast());
     }
 }
