@@ -84,11 +84,20 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             var heading = plain(new BorderLayout(8, 0));
             title.setFont(title.getFont().deriveFont(Font.BOLD, title.getFont().getSize2D() + 2));
             heading.add(title, BorderLayout.CENTER);
-            heading.add(button("New chat", "plus", true, "New chat (Ctrl+Alt+N)", () -> {
+            var newChatButton = button("New chat", "plus", true, "New chat (Ctrl+Alt+N)", () -> {
                 if (archived || attentionOnly) { showArchive(false); attentionOnly = false; dirty = true; }
                 if (!workspace.isBlank()) { service.createForPathAsync(workspace).thenAccept(chat -> ui(() -> ChatFiles.open(project, chat.id, false))); }
                 else { ChatFiles.open(project, !activeId.isBlank() ? service.createInWorkspace(activeId).id : service.create().id, false); }
-            }), BorderLayout.EAST);
+            });
+            var headingActions = plain(new FlowLayout(FlowLayout.RIGHT, JBUI.scale(4), 0));
+            headingActions.add(newChatButton);
+            var more = button("", "more", false, "Chat actions", () -> {});
+            more.addActionListener(event -> {
+                var menu = new JPopupMenu();
+                menuItem(menu, "Clean up worktrees…", () -> WorktreeCleanupDialog.open(project));
+                menu.show(more, 0, more.getHeight());
+            });
+            headingActions.add(more); heading.add(headingActions, BorderLayout.EAST);
             top.add(heading, BorderLayout.NORTH);
             var find = plain(new BorderLayout(JBUI.scale(4), 0));
             search.getEmptyText().setText("Search chats…");

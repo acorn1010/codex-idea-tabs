@@ -242,6 +242,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             }
             case "new": ui(() -> ChatFiles.open(project, service.createInWorkspace(file.id).id, flag(params, "split"))); return completed(new JsonObject());
             case "workspaces": return service.workspaces(file.id);
+            case "cleanupWorktrees": return uiResult(() -> WorktreeCleanupDialog.open(project));
             case "changeWorkspace": return service.changeWorkspace(file.id, params).thenApply(result -> {
                 if (!text(result, "id").equals(file.id)) { ui(() -> ChatFiles.open(project, text(result, "id"), false)); }
                 return result;

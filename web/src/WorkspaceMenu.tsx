@@ -178,6 +178,7 @@ export function WorkspaceMenu({ chat, label, draft, attachments, onRemoved }: { 
             </div>;
           })}</div>
         </>}
+        <button disabled={busy} onClick={() => void action('cleanupWorktrees')} className={`${rowStyle} text-muted`}><Icon name="trash" size={13} />Clean up worktrees…</button>
         <div className="mt-2 flex flex-wrap gap-1 rounded-lg bg-surface p-1">
           <button disabled={busy || !data?.entries.length} onClick={() => void action('workspaceReview')} className={`${rowStyle} w-auto flex-1 justify-center whitespace-nowrap`}><Icon name="code" size={13} />Review</button>
           <button disabled={busy} onClick={() => void action('workspaceTerminal')} className={`${rowStyle} w-auto flex-1 justify-center whitespace-nowrap`}><Icon name="terminal" size={13} />Terminal</button>

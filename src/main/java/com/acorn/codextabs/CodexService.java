@@ -32,6 +32,7 @@ public final class CodexService implements Disposable {
     private final CompletableFuture<Void> restored;
     private volatile boolean dirty;
     private volatile boolean disposed;
+    private volatile boolean chatRestoreFailed;
     private volatile RpcClient client;
     private CompletableFuture<RpcClient> connection;
     private volatile long connectionGeneration;
@@ -60,7 +61,7 @@ public final class CodexService implements Disposable {
                     chats.compute(chat.id, (id, existing) -> existing == null || (existing.get("threadId").isBlank() && existing.get("draft").isBlank() && existing.items().isEmpty()) ? chat : existing);
                 }
                 changed("");
-            } catch (Exception error) { connectionError = "Saved chat cache could not be read. Codex history is still available."; }
+            } catch (Exception error) { chatRestoreFailed = true; connectionError = "Saved chat cache could not be read. Codex history is still available."; }
         }, io);
         persistence.scheduleWithFixedDelay(this::save, 2, 2, TimeUnit.SECONDS);
         persistence.scheduleWithFixedDelay(this::refreshTabs, 0, 300, TimeUnit.MILLISECONDS);
@@ -416,11 +417,57 @@ public final class CodexService implements Disposable {
                 "chats", affected.size(), "affectedChats", affected);
         }, io);
     }
+    public record CleanupWorktree(String path, String repository, String repositoryPath, String name, String branch, String blocked,
+                                  List<GitWorktrees.RemovalFile> files, long archivedChats) {}
+    public record CleanupScan(List<CleanupWorktree> worktrees, List<String> warnings) {}
+
+    private boolean hasUnarchivedChat(String path) {
+        return chats.values().stream().anyMatch(chat -> !chat.archived() && GitWorktrees.contains(path, chat.get("cwd")));
+    }
+    /** Inspect unused worktrees on demand, including saved chats whose editor tabs are closed. */
+    public CompletableFuture<CleanupScan> cleanupCandidates() {
+        return restored.thenApplyAsync(ignored -> {
+            if (chatRestoreFailed) { throw new IllegalStateException("Saved chats could not be read. Restart IDEA and load them before cleaning up worktrees."); }
+            GitRepositories.Catalog catalog;
+            synchronized (workspaceRefresh) { refreshRepositories(); catalog = repositories; }
+            // Bound Git subprocesses so a project with many worktrees does not overwhelm the IDE.
+            try (var checks = Executors.newFixedThreadPool(4, Thread.ofPlatform().daemon().name("codex-tabs-cleanup-", 0).factory())) {
+                var pending = new ArrayList<CompletableFuture<CleanupWorktree>>();
+                for (var repo : catalog.repositories()) {
+                    for (var tree : repo.workspaces()) {
+                        if (tree.main() || hasUnarchivedChat(tree.path())) { continue; }
+                        pending.add(CompletableFuture.supplyAsync(() -> {
+                            String blocked = activeRemovalBlock(tree.path());
+                            List<GitWorktrees.RemovalFile> files = List.of();
+                            try {
+                                if (blocked.isBlank()) { blocked = gitWorktrees().removalBlock(repo.path(), tree.path(), true); }
+                                if (blocked.isBlank()) { files = gitWorktrees().removalFiles(tree.path()); }
+                            } catch (Exception error) { blocked = message(error); }
+                            long archived = chats.values().stream().filter(chat -> chat.archived() && GitWorktrees.contains(tree.path(), chat.get("cwd"))).count();
+                            return new CleanupWorktree(tree.path(), repositoryName(repo), repo.path(), tree.name(), tree.branch(), blocked, files, archived);
+                        }, checks));
+                    }
+                }
+                var found = pending.stream().map(CompletableFuture::join).filter(tree -> !hasUnarchivedChat(tree.path()))
+                    .sorted(Comparator.comparing(CleanupWorktree::repository).thenComparing(CleanupWorktree::repositoryPath).thenComparing(CleanupWorktree::path)).toList();
+                return new CleanupScan(found, catalog.errors());
+            }
+        }, io);
+    }
+    /** Cleanup must recheck chat ownership at deletion time, rather than trusting the preview. */
+    public CompletableFuture<JsonObject> removeUnusedWorktree(String path, boolean discardChanges) {
+        return restored.thenCompose(ignored -> removeWorktree(path, discardChanges, true));
+    }
     public CompletableFuture<JsonObject> removeWorktree(String path) { return removeWorktree(path, false); }
     public CompletableFuture<JsonObject> removeWorktree(String path, boolean discardChanges) {
+        return removeWorktree(path, discardChanges, false);
+    }
+    private CompletableFuture<JsonObject> removeWorktree(String path, boolean discardChanges, boolean requireUnused) {
         return CompletableFuture.supplyAsync(() -> {
             workspaceLock.writeLock().lock();
             try {
+                if (requireUnused && chatRestoreFailed) { throw new IllegalStateException("Saved chats could not be read. Cleanup is unavailable."); }
+                if (requireUnused && hasUnarchivedChat(path)) { throw new IllegalStateException("An unarchived chat now uses this worktree. Refresh the cleanup list."); }
                 String reason = activeRemovalBlock(path);
                 if (!reason.isBlank()) { throw new IllegalStateException(reason); }
                 // Git rechecks registration, locks and local files in this repository before deleting.
@@ -888,6 +935,7 @@ public final class CodexService implements Disposable {
         sessions.retain(id);
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
             .thenRunAsync(() -> {
+                workspaceLock.readLock().lock();
                 try {
                     if (chat(id) != chat) { throw new IllegalStateException("The provider changed. Try again."); }
                     if (archived && !chat.canArchive()) { throw new IllegalStateException("Finish the active work and answer pending requests before archiving."); }
@@ -903,6 +951,7 @@ public final class CodexService implements Disposable {
                     if (isClaude(id) && !archived) { load(id); }
                     result.complete(new JsonObject());
                 } catch (Exception error) { result.completeExceptionally(error); }
+                finally { workspaceLock.readLock().unlock(); }
             }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
