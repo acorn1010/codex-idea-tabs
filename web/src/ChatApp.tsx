@@ -391,7 +391,7 @@ export function ChatApp() {
       {attentionCount > 0 && <button title="See chats that need you" onClick={() => setPalette(true)} className="rounded bg-attention/10 px-1.5 py-0.5 text-[10px] text-attention hover:bg-attention/20 active:bg-attention/30">{attentionCount} waiting</button>}
       <CopyChatMenu disabled={!chat || (!chat.threadId && !chat.items.length)} onError={setError} />
       {<SmallButton label="Inspect context" icon="layers" onClick={() => { if (isClaude) { setShowStatus(true); } else { setInspectionSearch(''); setInspecting(true); } }} />}
-      {!chat?.archived && <SmallButton label="Archive chat" icon="archive" disabled={archiveBlocked || archivePending} title={archivePending ? 'Archiving chat…' : archiveBlocked ? 'Finish active work, pending requests, and edits before archiving' : 'Archive chat. You can restore it anytime.'} onClick={() => void setArchived(true)} />}
+      <SmallButton label={chat?.archived ? 'Close tab' : 'Archive chat'} icon={chat?.archived ? 'close' : 'archive'} disabled={archivePending || (!chat?.archived && archiveBlocked)} title={chat?.archived ? 'Close tab' : archivePending ? 'Archiving chat…' : archiveBlocked ? 'Finish active work, pending requests, and edits before archiving' : 'Archive chat. You can restore it anytime.'} onClick={() => { if (chat?.archived) { void run('closeTab'); } else { void setArchived(true); } }} />
     </header>
 
     {slash.menu}
@@ -425,7 +425,6 @@ export function ChatApp() {
     </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
       {showStatus && state && (isClaude ? <ClaudeStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} /> : <ChatStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />)}
       {commandPanel && <CommandPanel key={commandPanel} action={commandPanel} working={!!working} options={{ model, effort, permissions, fast: effectiveFast, planMode }} onClose={() => { setCommandPanel(undefined); textarea.current?.focus(); }} />}
-      {chat?.providerNotice && <p role="status" className="text-xs text-muted">{chat.providerNotice}</p>}
       {chat?.workspaceNotice && <div role="status" className="flex items-start gap-2 rounded-lg bg-attention/10 px-3 py-2 text-xs text-attention"><p className="flex-1">{chat.workspaceNotice}</p><SmallButton label="Dismiss workspace notice" icon="close" onClick={() => void run('dismissWorkspaceNotice')} /></div>}
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}

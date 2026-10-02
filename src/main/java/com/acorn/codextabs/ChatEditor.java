@@ -218,6 +218,14 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "stop": return service.stop(file.id);
             case "archive": return service.archive(file.id, true);
             case "restore": return service.archive(file.id, false);
+            case "closeTab": return uiResult(() -> {
+                var manager = com.intellij.openapi.fileEditor.ex.FileEditorManagerEx.getInstanceEx(project);
+                // Close only this tab when the same chat is open in several editor groups.
+                for (var window : manager.getWindows()) {
+                    var composite = window.getComposite(file);
+                    if (composite != null && composite.getAllEditors().contains(this)) { manager.closeFile(file, window); return; }
+                }
+            });
             case "draft": chat.set("draft", text(params, "text")); if (params.has("skills")) { chat.set("draftSkills", array(params, "skills")); } if (params.has("attachments")) { chat.set("draftAttachments", array(params, "attachments")); } service.changed(file.id); return completed(new JsonObject());
             case "older": return service.older(file.id, text(params, "cursor"));
             case "chatTranscript": return service.transcript(file.id);
