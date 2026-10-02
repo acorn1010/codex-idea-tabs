@@ -157,3 +157,9 @@ Set `-Dcodex.smoke.providerPreference.check=true` in the isolated IDEA profile t
 Set `-Dcodex.smoke.providerRecovery.check=true` in a disposable IDEA profile to test recovery after the Claude subprocess exits. Point `codex.smoke.binary` at `scripts/fake-codex.py` and `codex.smoke.claudeBinary` at `scripts/native-smoke/fake-claude.py`. Set `codex.smoke.cwd`, `CLAUDE_CONFIG_DIR`, and `CODEX_SMOKE_ROOT` to separate temporary directories. The check stops only its fixture process, reconnects the same chat, switches to Codex while Claude is disconnected, and verifies the draft survives. Results go to `provider-recovery-result.json`. `check-provider-switch.mjs` also checks the disconnected banner, Reconnect action, and provider menu at 360 and 900 pixels.
 
 Run `check-submit-recovery.mjs` with `CODEX_SMOKE_CHROME` after building the UI. It checks pending-send feedback, failed sends, native bridge errors, timeout recovery, late replies, draft and attachment retention, and an explicit retry for both providers at 360 and 900 pixels. No real messages are sent. The native provider recovery check also stalls Claude's model setup, verifies that no user message reaches the fixture, and retries exactly once after reconnecting.
+
+## Performance
+
+Run `profile-plugin.py --plugin <plugin.zip> --label <name>` after building `nativeSmokePlugin`. It measures a fixed large chat library in a disposable IDEA profile and records CPU time, allocations, elapsed time, output hashes, and JFR samples. Use `--restore <profile-path>` to validate complete history and draft restoration after restarting that profile. See [the measured results](performance-2026-10-01.md) for scope and limitations.
+
+`check-native-refresh.mjs` checks 120 draft changes across four fixture panes. It waits for the latest state and rejects revisions arriving out of order. If the isolated IDEA profile displays its first-run tour, disable `ide.experimental.ui.onboarding` in that test profile.

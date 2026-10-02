@@ -175,8 +175,16 @@ public final class GitWorktrees {
         return child;
     }
     public static boolean same(String left, String right) { return normalized(left).equals(normalized(right)); }
-    public static boolean contains(String root, String path) { return same(root, path) || normalized(path).startsWith(normalized(root) + "/"); }
-    private static String normalized(String path) { return path.replace('\\', '/').replaceAll("/+$", ""); }
+    public static boolean contains(String root, String path) {
+        String parent = normalized(root), child = normalized(path);
+        return child.equals(parent) || child.startsWith(parent + "/");
+    }
+    static String normalized(String path) {
+        String value = path.replace('\\', '/');
+        int end = value.length();
+        while (end > 0 && value.charAt(end - 1) == '/') { end--; }
+        return end == value.length() ? value : value.substring(0, end);
+    }
     private Result git(String cwd, String... args) { return checked(run(cwd, null, args)); }
     private Result checked(Result result) {
         if (result.code != 0) { throw new IllegalStateException(result.error.isBlank() ? result.text() : result.error.strip()); }

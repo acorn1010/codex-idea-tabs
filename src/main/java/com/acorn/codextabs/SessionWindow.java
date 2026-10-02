@@ -1,6 +1,7 @@
 package com.acorn.codextabs;
 
 import com.google.gson.JsonObject;
+import com.google.gson.JsonArray;
 import com.intellij.ide.IdeTooltip;
 import com.intellij.ide.IdeTooltipManager;
 import com.intellij.openapi.ui.popup.Balloon;
@@ -190,7 +191,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                 }
             });
             listener = id -> dirty = true; service.listen(listener);
-            timer = new javax.swing.Timer(200, event -> { if (dirty) { dirty = false; render(); } }); timer.start();
+            timer = new javax.swing.Timer(200, event -> { if (dirty && !rendering) { dirty = false; refreshView(); } }); timer.start();
             refresh(false);
         }
         private void showArchive(boolean value) {
@@ -397,8 +398,22 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             }));
         }
         private void render() {
-            var summaries = service.summaries(archived);
-            int archiveCount = service.summaries(true).size();
+            dirty = true;
+            if (!rendering) { dirty = false; refreshView(); }
+        }
+        private boolean rendering;
+        private record View(JsonArray summaries, int archiveCount) {}
+        private void refreshView() {
+            rendering = true;
+            boolean archiveView = archived;
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> new View(service.summaries(archiveView), service.archiveCount()))
+                .whenComplete((view, error) -> ui(() -> {
+                    rendering = false;
+                    if (error != null || archiveView != archived) { dirty = true; return; }
+                    render(view.summaries(), view.archiveCount());
+                }));
+        }
+        private void render(JsonArray summaries, int archiveCount) {
             String next = summaries.toString() + archived + attentionOnly + search.getText() + service.connectionStatus() + refreshing + cursor + archiveCount + workspace;
             if (next.equals(rendered)) { return; }
             rendered = next;

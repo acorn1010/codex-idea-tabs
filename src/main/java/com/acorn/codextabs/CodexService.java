@@ -28,6 +28,7 @@ public final class CodexService implements Disposable {
     });
     private final ScheduledExecutorService persistence = Executors.newSingleThreadScheduledExecutor();
     private final java.nio.file.Path cache;
+    private final ConversationStore store;
     private final CompletableFuture<Void> restored;
     private volatile boolean dirty;
     private volatile boolean disposed;
@@ -43,6 +44,7 @@ public final class CodexService implements Disposable {
     private final java.util.concurrent.locks.ReentrantReadWriteLock workspaceLock = new java.util.concurrent.locks.ReentrantReadWriteLock();
     private final Object workspaceRefresh = new Object();
     private volatile JsonArray workspaceEntries = new JsonArray();
+    private volatile WorkspaceIndex workspaceIndex = new WorkspaceIndex(new JsonArray());
     private volatile GitRepositories.Catalog repositories = new GitRepositories.Catalog(List.of(), List.of());
     private final Set<String> selectedRepositoryPaths = ConcurrentHashMap.newKeySet();
     private final ConcurrentMap<String, String> tabPresentations = new ConcurrentHashMap<>();
@@ -50,17 +52,14 @@ public final class CodexService implements Disposable {
     public CodexService(Project project) {
         this.project = project;
         cache = java.nio.file.Path.of(PathManager.getConfigPath(), "codex-tabs", project.getLocationHash(), "chats.json");
+        store = new ConversationStore(cache);
         restored = CompletableFuture.runAsync(() -> {
             try {
                 var legacy = java.nio.file.Path.of(PathManager.getSystemPath(), "codex-tabs", project.getLocationHash(), "chats.json");
-                var saved = Files.exists(cache) ? cache : legacy;
-                if (Files.exists(saved)) {
-                    for (var entry : JsonParser.parseString(Files.readString(saved)).getAsJsonArray()) {
-                        var chat = Conversation.restore(entry.getAsJsonObject());
-                        chats.compute(chat.id, (id, existing) -> existing == null || (existing.get("threadId").isBlank() && existing.get("draft").isBlank() && existing.items().isEmpty()) ? chat : existing);
-                    }
-                    changed("");
+                for (var chat : store.load(legacy)) {
+                    chats.compute(chat.id, (id, existing) -> existing == null || (existing.get("threadId").isBlank() && existing.get("draft").isBlank() && existing.items().isEmpty()) ? chat : existing);
                 }
+                changed("");
             } catch (Exception error) { connectionError = "Saved chat cache could not be read. Codex history is still available."; }
         }, io);
         persistence.scheduleWithFixedDelay(this::save, 2, 2, TimeUnit.SECONDS);
@@ -195,6 +194,7 @@ public final class CodexService implements Disposable {
     public JsonArray summaries() {
         return summaries(false);
     }
+    public int archiveCount() { return (int) chats.values().stream().filter(Conversation::archived).count(); }
     public JsonArray summaries(boolean archived) {
         var result = new JsonArray();
         chats.values().stream().filter(chat -> chat.archived() == archived).map(chat -> { var summary = chat.summary(); summary.addProperty("workspaceLabel", workspaceLabel(chat.get("cwd"))); return summary; })
@@ -279,6 +279,7 @@ public final class CodexService implements Disposable {
         }
         repositories = catalog;
         workspaceEntries = entries;
+        workspaceIndex = new WorkspaceIndex(entries);
     }
     private GitRepositories.Repository registeredRepository(String path) {
         return repositories.repositories().stream().filter(repo -> repo.workspaces().stream().anyMatch(tree -> GitWorktrees.same(tree.path(), path)))
@@ -286,8 +287,7 @@ public final class CodexService implements Disposable {
     }
     private GitWorktrees gitWorktrees() { return new GitWorktrees(distro(), SystemInfo.isWindows); }
     private Optional<JsonObject> workspaceFor(String path) {
-        return java.util.stream.StreamSupport.stream(workspaceEntries.spliterator(), false).map(JsonElement::getAsJsonObject)
-            .filter(value -> GitWorktrees.contains(text(value, "path"), path)).max(Comparator.comparingInt(value -> text(value, "path").length()));
+        return workspaceIndex.find(path);
     }
     public String workspaceLabel(String path) {
         return workspaceFor(path).map(value -> (repositories.repositories().size() > 1 ? text(value, "repositoryName") + " · " : "")
@@ -1014,14 +1014,18 @@ public final class CodexService implements Disposable {
     }
     private void refreshTabs() {
         if (disposed || project.isDisposed()) { return; }
+        var presentations = new HashMap<String, String>();
+        for (var id : editors.keySet()) {
+            var chat = chats.get(id);
+            if (chat != null) { presentations.put(id, chat.status() + "\n" + chat.get("title") + "\n" + chat.get("cwd") + "\n" + workspaceLabel(chat.get("cwd"))); }
+        }
         ApplicationManager.getApplication().invokeLater(() -> {
             if (disposed || project.isDisposed()) { return; }
             var manager = com.intellij.openapi.fileEditor.FileEditorManager.getInstance(project);
             for (var file : manager.getOpenFiles()) {
                 if (file instanceof ChatFiles.ChatFile chatFile) {
-                    var chat = chat(chatFile.id);
-                    String presentation = chat.status() + "\n" + chat.get("title") + "\n" + chat.get("cwd") + "\n" + workspaceLabel(chat.get("cwd"));
-                    if (!presentation.equals(tabPresentations.put(chatFile.id, presentation))) { manager.updateFilePresentation(file); }
+                    String presentation = presentations.get(chatFile.id);
+                    if (presentation != null && !presentation.equals(tabPresentations.put(chatFile.id, presentation))) { manager.updateFilePresentation(file); }
                 }
             }
         });
@@ -1030,12 +1034,7 @@ public final class CodexService implements Disposable {
         if (!dirty || !restored.isDone()) { return; }
         dirty = false;
         try {
-            Files.createDirectories(cache.getParent());
-            var state = new JsonArray();
-            chats.values().forEach(chat -> state.add(chat.snapshot()));
-            var temporary = cache.resolveSibling("chats.tmp");
-            Files.writeString(temporary, GSON.toJson(state));
-            Files.move(temporary, cache, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            store.save(chats.values());
         } catch (Exception error) { dirty = true; }
     }
     public static String message(Throwable error) {

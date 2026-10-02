@@ -41,6 +41,8 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     private volatile boolean dirty = true;
     private volatile boolean disposed;
     private long renderedRevision = -1;
+    private boolean publishing;
+    private record Update(long revision, String script) {}
     private final Map<String, java.util.List<Path>> droppedFiles = new ConcurrentHashMap<>();
 
     public ChatEditor(Project project, ChatFiles.ChatFile file) {
@@ -52,7 +54,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         updates = new javax.swing.Timer(100, event -> {
             if (panel.isShowing()) {
                 ensureBrowser();
-                if (ready && dirty) { dirty = false; publish(); }
+                if (ready && dirty && !publishing) { dirty = false; publish(); }
             }
         });
         updates.start();
@@ -342,11 +344,22 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         }));
     }
     private void publish() {
-        var value = service.snapshot(file.id, renderedRevision);
-        renderedRevision = obj(value, "chat").get("revision").getAsLong();
+        publishing = true;
+        long since = renderedRevision;
         var background = panel.getBackground();
-        value.addProperty("theme", (background.getRed() + background.getGreen() + background.getBlue()) < 384 ? "dark" : "light");
-        execute("window.dispatchEvent(new CustomEvent('codex-state',{detail:" + GSON.toJson(value) + "}));");
+        String theme = (background.getRed() + background.getGreen() + background.getBlue()) < 384 ? "dark" : "light";
+        // Only one update may be in flight. Changes received while it runs stay dirty for the next tick.
+        CompletableFuture.supplyAsync(() -> {
+            var value = service.snapshot(file.id, since);
+            value.addProperty("theme", theme);
+            return new Update(obj(value, "chat").get("revision").getAsLong(),
+                "window.dispatchEvent(new CustomEvent('codex-state',{detail:" + GSON.toJson(value) + "}));");
+        }).whenComplete((update, error) -> ui(() -> {
+            publishing = false;
+            if (error != null) { dirty = true; return; }
+            renderedRevision = update.revision();
+            execute(update.script());
+        }));
     }
     private void reply(JsonElement id, JsonObject result, Throwable error) {
         execute("window.dispatchEvent(new CustomEvent('codex-reply',{detail:" + GSON.toJson(object("id", id, "result", result, "error", error == null ? null : CodexService.message(error))) + "}));");

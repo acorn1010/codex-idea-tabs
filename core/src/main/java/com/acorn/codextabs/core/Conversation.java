@@ -21,8 +21,9 @@ public final class Conversation {
     }
     public static Conversation restore(JsonObject saved) {
         var chat = new Conversation(text(saved, "id"), text(saved, "cwd"));
-        for (var entry : saved.entrySet()) { chat.state.add(entry.getKey(), entry.getValue().deepCopy()); }
-        chat.state.remove("items"); chat.state.remove("requests");
+        for (var entry : saved.entrySet()) {
+            if (!entry.getKey().equals("items") && !entry.getKey().equals("requests")) { chat.state.add(entry.getKey(), entry.getValue().deepCopy()); }
+        }
         for (var item : array(saved, "items")) { chat.put(item.getAsJsonObject()); }
         // Cached items predate every live event in this process.
         chat.itemRevisions.clear();
