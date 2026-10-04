@@ -183,3 +183,9 @@ Markdown separators, shell characters, Unicode, and instructions longer than
 Windows' command-line limit. It also checks that closing a client removes its
 temporary instruction file. An instruction block previously became 225 separate
 arguments in this check, which made Claude report an unknown `---` option.
+
+## PR search
+
+Set `-Dcodex.smoke.prSearch.check=true` in an empty disposable IDEA profile using `scripts/fake-codex.py`. The native check covers active and archived chats from both providers, exact PR numbers, repository names, URLs, and restoring an archived result from the regular sidebar. It writes `pr-search-result.json` and a sidebar screenshot. Run `check-pr-search.mjs` with `CODEX_SMOKE_CHROME` after building the UI to check offline search, opening saved archived chats, stale replies, and 360/900-pixel layouts.
+
+Run `./gradlew prSearchBenchmark` to measure repeated lookups across 223 synthetic chats with 47,722 items. Each lookup verifies the exact result and the absence of transcript bodies. On macOS with JDK 21 on October 4, 2026, 2,000 warmed searches averaged 0.0069 ms of thread CPU and allocated 11,504 bytes per search. The serialized PR indexes totaled 13,157 bytes. These are lookup costs, not total IDE memory use or end-to-end UI latency. Index construction and initial cache migration are outside the timed section.

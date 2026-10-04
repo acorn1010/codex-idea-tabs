@@ -29,9 +29,11 @@ public final class ConversationStore {
             for (var value : array(manifest, "files")) {
                 String name = value.getAsString();
                 if (!name.matches("[a-f0-9]{64}\\.json")) { throw new IOException("Invalid chat cache entry"); }
-                Conversation chat;
-                try (var reader = Files.newBufferedReader(directory.resolve(name))) { chat = Conversation.restore(JsonParser.parseReader(reader).getAsJsonObject()); }
-                result.add(chat); files.add(name); saved.put(chat.id, new Saved(chat, chat.revision()));
+                JsonObject snapshot;
+                try (var reader = Files.newBufferedReader(directory.resolve(name))) { snapshot = JsonParser.parseReader(reader).getAsJsonObject(); }
+                var chat = Conversation.restore(snapshot);
+                boolean indexed = text(obj(snapshot, "pullRequestIndex"), "version").equals("1");
+                result.add(chat); files.add(name); saved.put(chat.id, new Saved(chat, indexed ? chat.revision() : -1));
             }
             indexedFiles = List.copyOf(files);
         } else {

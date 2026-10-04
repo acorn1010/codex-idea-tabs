@@ -38,6 +38,7 @@ public final class ProviderHandoff {
             item.remove("questions"); carried.add(item);
         }
         saved.add("items", carried); saved.add("requests", new JsonArray());
+        saved.remove("pullRequestIndex"); // Rebuild for the complete history assembled for this handoff.
         var messages = new ArrayList<JsonObject>();
         int remaining = CONTEXT_LIMIT; boolean truncated = false;
         for (int index = carried.size() - 1; index >= 0; index--) {

@@ -70,6 +70,8 @@ export function ChatApp() {
   const [follow, setFollow] = useState(true);
   const [search, setSearch] = useState('');
   const [history, setHistory] = useState<Json[]>([]);
+  const [searchResults, setSearchResults] = useState<{ query: string; data: (Chat & { matchedPullRequest?: string })[]; pullRequestSearch: boolean }>();
+  const [searchError, setSearchError] = useState('');
   const [editingItemId, setEditingItemId] = useState<string>();
   const onEditing = useCallback((id?: string) => { setEditingItemId(id); if (id) { setFollow(false); } }, []);
   const editMessage = useCallback(async (itemId: string, text: string, images: Json[]) => {
@@ -162,8 +164,15 @@ export function ChatApp() {
   useEffect(() => {
     if (!palette) { return; }
     let canceled = false;
+    setHistory([]); setSearchError('');
     const timer = window.setTimeout(() => {
-      void request<{ data: Json[] }>('history', { search }).then((value) => { if (!canceled) { setHistory(value.data || []); } }).catch((error: Error) => setError(error.message));
+      void request<{ data: (Chat & { matchedPullRequest?: string })[]; pullRequestSearch: boolean }>('searchChats', { search }).then(async (local) => {
+        if (canceled) { return; }
+        setSearchResults({ ...local, query: search });
+        if (local.pullRequestSearch) { return; }
+        const value = await request<{ data: Json[] }>('history', { search });
+        if (!canceled) { setHistory(value.data || []); }
+      }).catch((error: Error) => { if (!canceled) { setSearchError(error.message); } });
     }, 180);
     return () => { canceled = true; window.clearTimeout(timer); };
   }, [palette, search]);
@@ -490,13 +499,15 @@ export function ChatApp() {
     {dragging && <div className="pointer-events-none absolute inset-2 z-40 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-surface/95"><div className="flex flex-col items-center gap-3 text-accent"><Icon name="attach" size={30} /><span>Drop files to add context</span></div></div>}
     {palette && <div role="dialog" aria-modal="true" aria-label="Find a conversation" className="absolute inset-0 z-30 flex items-start justify-center bg-black/40 px-4 pt-12" onClick={() => setPalette(false)}>
       <div className="flex max-h-[75%] w-full max-w-lg flex-col overflow-hidden rounded-xl bg-raised shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center gap-2 px-3"><Icon name="search" /><input autoFocus aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a conversation…" className="min-w-0 flex-1 cursor-text bg-transparent py-3 outline-none" /><SmallButton label="Close search" icon="close" onClick={() => setPalette(false)} /></div>
+        <div className="flex items-center gap-2 px-3"><Icon name="search" /><input autoFocus aria-label="Search conversations" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search chats or PRs…" className="min-w-0 flex-1 cursor-text bg-transparent py-3 outline-none" /><SmallButton label="Close search" icon="close" onClick={() => setPalette(false)} /></div>
         <div className="min-h-0 overflow-y-auto p-1.5">
           <button onClick={() => { void run('new'); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-accent hover:bg-raised active:bg-line"><Icon name="plus" />New chat</button>
-          {state?.sessions.filter((session) => session.title.toLowerCase().includes(search.toLowerCase())).map((session) => <button key={session.id} onClick={() => { void run('openThread', { id: session.id }); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left hover:bg-raised active:bg-line"><span className={`size-1.5 shrink-0 rounded-full ${session.status === 'attention' ? 'bg-attention' : session.status === 'working' ? 'bg-accent' : 'bg-muted/50'}`} /><span className="min-w-0 flex-1 truncate">{session.title}</span><span className="text-[10px] text-muted">{session.status === 'attention' ? 'Needs you' : session.status === 'working' ? 'Working' : ''}</span></button>)}
-          {history.filter((thread) => !state?.sessions.some((session) => session.threadId === thread.id)).map((thread) => <button key={String(thread.id)} onClick={() => { void run('openThread', { thread }); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-muted hover:bg-raised active:bg-line"><Icon name="code" size={12} /><span className="truncate">{String(thread.name || thread.preview || 'Untitled chat')}</span></button>)}
+          {searchResults?.query === search ? searchResults.data.map((session) => <button key={session.id} onClick={() => { void run('openThread', { id: session.id }); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left hover:bg-raised active:bg-line"><span className={`size-1.5 shrink-0 rounded-full ${session.status === 'attention' ? 'bg-attention' : session.status === 'working' ? 'bg-accent' : 'bg-muted/50'}`} /><span className="min-w-0 flex-1"><span className="block truncate">{session.title}</span>{session.matchedPullRequest && <span title={session.matchedPullRequest} className="block truncate text-[11px] text-muted">{session.matchedPullRequest}</span>}</span><span className="shrink-0 text-[10px] text-muted">{session.archived ? 'Archived' : session.status === 'attention' ? 'Needs you' : session.status === 'working' ? 'Working' : ''}</span></button>) : <p role="status" className="px-3 py-2 text-xs text-muted">Searching…</p>}
+          {searchResults?.query === search && searchResults.pullRequestSearch && !searchResults.data.length && <p role="status" className="px-3 py-2 text-xs text-muted">No saved chats mention this PR.</p>}
+          {searchError && <p role="alert" className="px-3 py-2 text-xs text-danger">{searchError}</p>}
+          {history.filter((thread) => !searchResults?.data.some((session) => session.threadId === thread.id)).map((thread) => <button key={String(thread.id)} onClick={() => { void run('openThread', { thread }); setPalette(false); }} className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2.5 text-left text-muted hover:bg-raised active:bg-line"><Icon name="code" size={12} /><span className="truncate">{String(thread.name || thread.preview || 'Untitled chat')}</span></button>)}
         </div>
-        <div className="px-3 py-2 text-[10px] text-muted">Current project · Questions and approvals appear first</div>
+        <div className="px-3 py-2 text-[10px] text-muted">PR URL, owner/repo#123, or #123 · Includes archived PR matches</div>
       </div>
     </div>}
   </div>;

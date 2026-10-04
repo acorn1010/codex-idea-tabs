@@ -196,13 +196,20 @@ public final class CodexService implements Disposable {
         return summaries(false);
     }
     public int archiveCount() { return (int) chats.values().stream().filter(Conversation::archived).count(); }
-    public JsonArray summaries(boolean archived) {
+    public JsonArray summaries(boolean archived) { return summaries(archived, ""); }
+    public JsonArray summaries(boolean archived, String search) {
+        var query = PullRequestIndex.query(search);
         var result = new JsonArray();
-        chats.values().stream().filter(chat -> chat.archived() == archived).map(chat -> { var summary = chat.summary(); summary.addProperty("workspaceLabel", workspaceLabel(chat.get("cwd"))); return summary; })
+        chats.values().stream().filter(chat -> query.isPullRequest() || chat.archived() == archived)
+            .map(chat -> query.text().isEmpty() ? chat.summary() : chat.searchSummary(query)).filter(Objects::nonNull)
+            .map(summary -> { summary.addProperty("workspaceLabel", workspaceLabel(text(summary, "cwd"))); return summary; })
             .sorted(Comparator.<JsonObject>comparingInt(item -> text(item, "status").equals("attention") ? 0 : flag(item, "pinned") ? 1 : text(item, "status").equals("working") ? 2 : 3)
                 .thenComparing(Comparator.comparingLong((JsonObject item) -> item.get("updatedAt").getAsLong()).reversed()))
             .forEach(result::add);
         return result;
+    }
+    public CompletableFuture<JsonObject> searchChats(String search) {
+        return restored.thenApplyAsync(ignored -> object("data", summaries(false, search), "pullRequestSearch", PullRequestIndex.query(search).isPullRequest()), io);
     }
     public JsonObject snapshot(String id) {
         return snapshot(id, -1);

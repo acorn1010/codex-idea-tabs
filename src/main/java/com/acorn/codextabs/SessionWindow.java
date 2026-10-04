@@ -100,7 +100,8 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             headingActions.add(more); heading.add(headingActions, BorderLayout.EAST);
             top.add(heading, BorderLayout.NORTH);
             var find = plain(new BorderLayout(JBUI.scale(4), 0));
-            search.getEmptyText().setText("Search chats…");
+            search.getEmptyText().setText("Search chats or PRs…");
+            search.setToolTipText("Search by title, PR URL, owner/repo#123, or #123. PR searches include archived chats.");
             search.getAccessibleContext().setAccessibleName("Search chats");
             search.setPreferredSize(JBUI.size(150, 30));
             refresh = button("", "refresh", false, "Refresh chats", () -> refresh(false));
@@ -167,7 +168,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                     if (SwingUtilities.isLeftMouseButton(event) && index >= 0 && text(model.get(index).chat(), "id").equals(pressedId) && action == pressedAction) {
                         list.setSelectedIndex(index);
                         var item = model.get(index).chat();
-                        if (action == 1) { archive(text(item, "id"), !archived); }
+                        if (action == 1) { archive(text(item, "id"), !flag(item, "archived")); }
                         else if (action == 2) { menu(index, event.getX(), event.getY()); }
                         else { open(); }
                     }
@@ -187,7 +188,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                 @Override public void componentResized(ComponentEvent event) { hitAreas = null; hideTooltip(); updateHover(); }
             });
             key(KeyEvent.VK_ENTER, 0, "open", this::open);
-            key(KeyEvent.VK_DELETE, 0, "archive", () -> { if (list.getSelectedValue() != null) { archive(text(list.getSelectedValue().chat(), "id"), !archived); } });
+            key(KeyEvent.VK_DELETE, 0, "archive", () -> { if (list.getSelectedValue() != null) { archive(text(list.getSelectedValue().chat(), "id"), !flag(list.getSelectedValue().chat(), "archived")); } });
             key(KeyEvent.VK_F10, InputEvent.SHIFT_DOWN_MASK, "menu", () -> {
                 int index = list.getSelectedIndex();
                 if (index >= 0) { var bounds = list.getCellBounds(index, index); menu(index, JBUI.scale(24), bounds.y + bounds.height); }
@@ -213,6 +214,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private JComponent row(Row value, int index, boolean selected) { return row(value, index, selected, false); }
         private JComponent row(Row value, int index, boolean selected, boolean showActions) {
             var chat = value.chat();
+            boolean archived = flag(chat, "archived");
             boolean hover = index == hoverIndex, pressed = index == pressedIndex;
             boolean active = text(chat, "id").equals(activeId);
             var outer = plain(new BorderLayout());
@@ -248,6 +250,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
                 case "error" -> "Needs a retry";
                 default -> flag(chat, "hasDraft") ? "Draft saved" : text(chat, "preview").isBlank() ? text(chat, "threadId").isBlank() ? "No messages yet" : "Open conversation" : text(chat, "preview");
             };
+            if (!text(chat, "matchedPullRequest").isBlank()) { detail = text(chat, "matchedPullRequest") + (archived ? " · Archived" : ""); }
             detail = (text(chat, "provider").equals("claude") ? "Claude · " : "") + text(chat, "workspaceLabel") + " · " + detail;
             var preview = label(detail, text(chat, "status").equals("attention") ? SessionTheme.ATTENTION : SessionTheme.MUTED);
             preview.setFont(preview.getFont().deriveFont(preview.getFont().getSize2D() - 1)); copy.add(preview, BorderLayout.SOUTH);
@@ -317,7 +320,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             boolean moved = hoverIndex != index || hoverAction != action;
             hoverIndex = index; hoverAction = action;
             list.setCursor(Cursor.getPredefinedCursor(index >= 0 ? Cursor.HAND_CURSOR : Cursor.DEFAULT_CURSOR));
-            String hint = index < 0 || !pressedId.isBlank() ? null : action == 1 ? archived ? "Restore chat" : canArchive(model.get(index).chat()) ? "Archive chat (Delete)" : "Finish the active work and answer requests before archiving"
+            String hint = index < 0 || !pressedId.isBlank() ? null : action == 1 ? flag(model.get(index).chat(), "archived") ? "Restore chat" : canArchive(model.get(index).chat()) ? "Archive chat (Delete)" : "Finish the active work and answer requests before archiving"
                 : action == 2 ? "More chat actions" : text(model.get(index).chat(), "title");
             if (moved || !Objects.equals(list.getToolTipText(), hint) || tooltip == null && hint != null) {
                 hideTooltip(); list.setToolTipText(hint);
@@ -350,6 +353,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private void menu(int index, int x, int y) {
             list.setSelectedIndex(index);
             var item = model.get(index).chat(); String id = text(item, "id");
+            boolean archived = flag(item, "archived");
             var menu = new JPopupMenu();
             menuItem(menu, "Open in tab", () -> ChatFiles.open(project, id, false));
             menuItem(menu, "Open to the side", () -> ChatFiles.open(project, id, true));
@@ -415,10 +419,11 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private void refreshView() {
             rendering = true;
             boolean archiveView = archived;
-            java.util.concurrent.CompletableFuture.supplyAsync(() -> new View(service.summaries(archiveView), service.archiveCount()))
+            String query = search.getText();
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> new View(service.summaries(archiveView, query), service.archiveCount()))
                 .whenComplete((view, error) -> ui(() -> {
                     rendering = false;
-                    if (error != null || archiveView != archived) { dirty = true; return; }
+                    if (error != null || archiveView != archived || !query.equals(search.getText())) { dirty = true; return; }
                     render(view.summaries(), view.archiveCount());
                 }));
         }
@@ -438,14 +443,14 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             connection.setToolTipText(service.distro().isBlank() ? "Local chat backends" : "Chat backends in " + service.distro());
             String selected = list.getSelectedValue() == null ? "" : text(list.getSelectedValue().chat(), "id");
             var groups = new LinkedHashMap<String, List<JsonObject>>();
-            for (String group : archived ? new String[]{"Archived"} : new String[]{"Needs you", "Working", "Pinned", "Recent"}) { groups.put(group, new ArrayList<>()); }
             String query = search.getText().strip().toLowerCase(Locale.ROOT);
+            boolean prSearch = com.acorn.codextabs.core.PullRequestIndex.query(query).isPullRequest();
+            for (String group : archived && !prSearch ? new String[]{"Archived"} : new String[]{"Needs you", "Working", "Pinned", "Recent", "Archived"}) { groups.put(group, new ArrayList<>()); }
             for (var value : summaries) {
                 var item = value.getAsJsonObject(); String status = text(item, "status");
                 if (!workspace.isBlank() && !com.acorn.codextabs.core.GitWorktrees.contains(workspace, text(item, "cwd"))) { continue; }
-                if (attentionOnly && !status.equals("attention")) { continue; }
-                if (!(text(item, "title") + " " + text(item, "preview")).toLowerCase(Locale.ROOT).contains(query)) { continue; }
-                String group = archived ? "Archived" : status.equals("attention") ? "Needs you" : status.equals("working") ? "Working" : flag(item, "pinned") ? "Pinned" : "Recent";
+                if (!prSearch && attentionOnly && !status.equals("attention")) { continue; }
+                String group = flag(item, "archived") ? "Archived" : status.equals("attention") ? "Needs you" : status.equals("working") ? "Working" : flag(item, "pinned") ? "Pinned" : "Recent";
                 groups.get(group).add(item);
             }
             model.clear(); hitAreas = null; pressedIndex = -1;

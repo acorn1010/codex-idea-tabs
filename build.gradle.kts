@@ -62,3 +62,10 @@ tasks.register<JavaExec>("claudeSessionsSmoke") {
     args(layout.projectDirectory.file("scripts/native-smoke/fake-claude.py").asFile.absolutePath)
     environment("CLAUDE_CONFIG_DIR", layout.buildDirectory.dir("claude-smoke-config").get().asFile.absolutePath)
 }
+
+// Measure local PR lookup cost against fixed transcripts without starting an IDE or a model.
+tasks.register<JavaExec>("prSearchBenchmark") {
+    dependsOn(nativeSmoke.classesTaskName)
+    classpath = nativeSmoke.output + sourceSets.main.get().output + configurations.compileClasspath.get()
+    mainClass = "com.acorn.codextabs.smoke.PrSearchBenchmark"
+}

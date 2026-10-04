@@ -11,6 +11,7 @@ public final class Conversation {
     private final LinkedHashMap<String, JsonObject> items = new LinkedHashMap<>();
     private final LinkedHashMap<String, JsonObject> requests = new LinkedHashMap<>();
     private final Map<String, Long> itemRevisions = new HashMap<>();
+    private final PullRequestIndex pullRequests = new PullRequestIndex();
     private long revision;
     private long historyRevision;
     private long runtimeRevision;
@@ -22,9 +23,11 @@ public final class Conversation {
     public static Conversation restore(JsonObject saved) {
         var chat = new Conversation(text(saved, "id"), text(saved, "cwd"));
         for (var entry : saved.entrySet()) {
-            if (!entry.getKey().equals("items") && !entry.getKey().equals("requests")) { chat.state.add(entry.getKey(), entry.getValue().deepCopy()); }
+            if (!Set.of("items", "requests", "pullRequestIndex").contains(entry.getKey())) { chat.state.add(entry.getKey(), entry.getValue().deepCopy()); }
         }
-        for (var item : array(saved, "items")) { chat.put(item.getAsJsonObject()); }
+        boolean indexed = chat.pullRequests.restore(obj(saved, "pullRequestIndex"));
+        for (var item : array(saved, "items")) { chat.put(item.getAsJsonObject()); if (!indexed) { chat.pullRequests.addItem(item.getAsJsonObject()); } }
+        chat.pullRequests.add(chat.get("title")); chat.pullRequests.add(chat.get("preview"));
         // Cached items predate every live event in this process.
         chat.itemRevisions.clear();
         for (var request : array(saved, "requests")) {
@@ -40,6 +43,7 @@ public final class Conversation {
     public synchronized String get(String key) { return text(state, key); }
     public synchronized void set(String key, Object value) {
         state.add(key, GSON.toJsonTree(value));
+        if (key.equals("title") || key.equals("preview")) { pullRequests.add(get(key)); }
         if (key.equals("error")) { state.addProperty("errorKind", "operation"); }
         revision++;
     }
@@ -59,6 +63,7 @@ public final class Conversation {
     public synchronized void replaceClaudeHistory(JsonArray history) {
         if (busy()) { throw new IllegalStateException("Wait for the current turn before refreshing history."); }
         var carried = carriedItems(); items.clear(); items.putAll(carried); itemRevisions.clear(); history.forEach(value -> put(value.getAsJsonObject()));
+        pullRequests.clear(); pullRequests.add(get("title")); items.values().forEach(pullRequests::addItem);
         revision++; historyRevision = revision;
     }
     public synchronized JsonArray items() {
@@ -83,6 +88,7 @@ public final class Conversation {
     public synchronized JsonObject snapshot() {
         var snapshot = state.deepCopy();
         snapshot.add("items", items());
+        snapshot.add("pullRequestIndex", pullRequests.snapshot());
         var pending = new JsonArray();
         requests.values().forEach(request -> pending.add(approvalChoices(request)));
         snapshot.add("requests", pending);
@@ -111,6 +117,17 @@ public final class Conversation {
         result.addProperty("status", status());
         return result;
     }
+    /** Match compact PR references or the existing title and preview search. */
+    public synchronized JsonObject searchSummary(PullRequestIndex.Query query) {
+        String match = "";
+        if (query.isPullRequest()) {
+            match = pullRequests.match(query);
+            if (match.isEmpty()) { return null; }
+        } else if (!(get("title") + " " + get("preview")).toLowerCase(Locale.ROOT).contains(query.text())) { return null; }
+        var result = summary();
+        if (!match.isEmpty()) { result.addProperty("matchedPullRequest", match); }
+        return result;
+    }
     public synchronized void hydrate(JsonObject thread, long startedRevision) {
         boolean firstImport = get("threadId").isBlank();
         state.addProperty("threadId", text(thread, "id", get("threadId")));
@@ -135,6 +152,8 @@ public final class Conversation {
         }
         revision++;
         if (!history.isEmpty()) { historyRevision = revision; }
+        pullRequests.add(get("title")); pullRequests.add(get("preview"));
+        history.values().forEach(pullRequests::addItem);
         items.values().forEach(this::questions);
     }
     /** Apply live resume state without letting a delayed reply replace newer turn events. */
@@ -162,7 +181,7 @@ public final class Conversation {
             var entry = entries.get(i).getAsJsonObject();
             var item = entry.has("item") ? obj(entry, "item") : entry;
             var visible = ProviderHandoff.visibleItem(item, get("providerContext"));
-            if (visible != null) { history.put(text(visible, "id"), visible.deepCopy()); }
+            if (visible != null) { history.put(text(visible, "id"), visible.deepCopy()); pullRequests.addItem(visible); }
         }
         items.forEach((id, item) -> {
             if ((!latest && !history.containsKey(id)) || itemRevisions.getOrDefault(id, 0L) > startedRevision) { history.put(id, item); }
@@ -233,6 +252,7 @@ public final class Conversation {
                     if (!streamed.isBlank()) { item = item.deepCopy(); item.addProperty("text", streamed); }
                 }
                 put(item);
+                if (method.equals("item/completed") || text(item, "type").equals("userMessage")) { pullRequests.addItem(item); }
                 if (method.equals("item/completed") && text(item, "type").equals("agentMessage")) { preview(text(item, "text")); }
             }
             case "item/agentMessage/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/commandExecution/outputDelta" -> {
@@ -258,7 +278,7 @@ public final class Conversation {
             }
             case "serverRequest/resolved" -> requests.remove(params.get("requestId") == null ? "" : params.get("requestId").toString());
             case "item/tool/requestUserInput/answered" -> requests.values().removeIf(request -> text(request, "itemId").equals(text(params, "itemId")));
-            case "thread/name/updated" -> state.addProperty("title", text(params, "threadName", get("title")));
+            case "thread/name/updated" -> { state.addProperty("title", text(params, "threadName", get("title"))); pullRequests.add(get("title")); }
             case "thread/archived" -> { state.addProperty("archived", true); state.addProperty("hidden", false); }
             case "thread/unarchived" -> { state.addProperty("archived", false); state.addProperty("hidden", false); }
             case "thread/status/changed" -> threadStatus(obj(params, "status"));
@@ -298,6 +318,7 @@ public final class Conversation {
     /** Carry earlier provider segments into a same-provider fork without copying its active segment. */
     public synchronized void inheritHandoff(Conversation source) {
         var carried = source.carriedItems(); carried.putAll(items); items.clear(); items.putAll(carried);
+        carried.values().forEach(pullRequests::addItem);
         set("providerContext", source.get("providerContext"));
         historyRevision = ++revision;
     }

@@ -103,7 +103,7 @@ This requires a Codex version that supports `skills/extraRoots/set` and `thread/
 | --- | --- |
 | New chat | `Ctrl+Alt+N` or the Codex sidebar's **New chat** button |
 | New chat beside this one | **Tools → Codex Tabs → New Chat to Side** |
-| Find a chat | `Ctrl+K` inside a chat |
+| Find a chat | `Ctrl+K` or `Cmd+K` inside a chat, or use the sidebar search. Paste a PR URL, `owner/repo#123`, `#123`, or a PR number to search saved chats across both providers, including archived chats |
 | Copy the whole chat | Chat header’s **Copy chat as Markdown** icon opens a menu. **Copy conversation** is first and copies only user messages and Codex replies. **Copy full chat** also includes thinking and tool activity. Both include older messages and work for archived chats |
 | Go to a chat that needs input | `Ctrl+Alt+A` or the sidebar's **Needs you** filter |
 | Add selected code | Select code, then **Codex: Discuss Selected Code** in the editor context menu |
@@ -120,6 +120,10 @@ This requires a Codex version that supports `skills/extraRoots/set` and `thread/
 | More chat actions | Row's **…** button, right-click, or `Shift+F10` |
 
 IDEA's keymap settings can change the native shortcuts. Its normal editor split actions support a four-pane layout or any other arrangement.
+
+PR search finds references in saved messages and tool output, including earlier messages that no longer appear in the preview. Results can include chats that reviewed or mentioned a PR as well as the chat that created it. A full URL or `owner/repo#123` narrows results when repositories share a PR number. Opening an archived result keeps it archived. Search covers history already saved by the plugin. It does not fetch unseen CLI history or query GitHub.
+
+The plugin indexes each completed message once and saves only its PR references. Existing caches are indexed once when loaded, then saved with the index. Typing and repeated searches use the index without reading transcripts or starting a backend process.
 
 The sidebar has one primary **New chat** action. Questions and active work appear above pinned and recent chats. Hover a row for archive and more actions. The **…** menu also offers rename, pin, and open to the side.
 
