@@ -193,3 +193,20 @@ Run `./gradlew prSearchBenchmark` to measure repeated lookups across 223 synthet
 ### Session approval
 
 Set `-Dcodex.smoke.sessionApproval.check=true` in a disposable IDEA profile with the fake Codex backend to check the real service's permission mode, one-off replies, manual questions, disabling, close, reconnect, stale sends, and unchanged defaults. The result is `session-approval-result.json`. Run `./gradlew claudeSessionsSmoke` for the equivalent Claude subprocess checks. Run `check-session-approvals.mjs` with `CODEX_SMOKE_CHROME` for both provider menus, send payloads, expiry, and narrow layouts. No check calls a model or changes real permission rules.
+
+### Chat links
+
+Run `check-chat-links.mjs` with `CODEX_SMOKE_CHROME` to check HTML anchors, source links, failed-link messages, Dismiss, retry, file-change links, retained drafts, and continued sending at 360 and 900 pixels.
+
+Set `-Dcodex.smoke.links.check=true` in a disposable IDEA profile with the fake Codex backend for the real file lookup and editor checks. Configure that profile's default browser as a custom executable that writes its argument list as a JSON array to `<codex.smoke.cwd>/opened-url.json`. This recorder keeps the test out of your real browser. Put this executable in the fixture project folder:
+
+```python
+#!/usr/bin/env python3
+"""Record browser arguments for the isolated chat link check."""
+import json
+import sys
+from pathlib import Path
+Path(__file__).with_name("opened-url.json").write_text(json.dumps(sys.argv[1:]))
+```
+
+The check creates only fixture files and writes `links-result.json` in the profile's log directory. It verifies browser dispatch with an anchor and query, encoded filenames, explicit source opening, line and column navigation, a missing file, and a retained chat connection.

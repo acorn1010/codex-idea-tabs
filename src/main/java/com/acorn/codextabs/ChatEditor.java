@@ -273,7 +273,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
                     return uiResult(() -> com.intellij.openapi.ide.CopyPasteManager.getInstance().setContents(image));
                 } catch (Exception error) { return CompletableFuture.failedFuture(error); }
             }
-            case "openLink": return openLink(text(params, "path"));
+            case "openLink": return openLink(text(params, "path"), flag(params, "source"));
             case "readImage": {
                 String path = com.acorn.codextabs.core.Paths.link(text(params, "path"), chat.get("cwd"));
                 if (!service.distro().isBlank()) { path = com.acorn.codextabs.core.Paths.linux(path); }
@@ -332,24 +332,20 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         });
         return result;
     }
-    private CompletableFuture<JsonObject> openLink(String value) {
+    private CompletableFuture<JsonObject> openLink(String value, boolean source) {
         if (value.startsWith("https://") || value.startsWith("http://")) { return uiResult(() -> BrowserUtil.browse(value)); }
-        String path = com.acorn.codextabs.core.Paths.link(value, service.chat(file.id).get("cwd"));
-        var match = java.util.regex.Pattern.compile("^(.*?)(?::(\\d+)(?::(\\d+))?|#L(\\d+))$").matcher(path);
-        int line = 0, column = 0;
-        if (match.matches()) {
-            path = match.group(1); line = Integer.parseInt(match.group(2) != null ? match.group(2) : match.group(4)) - 1;
-            column = match.group(3) == null ? 0 : Integer.parseInt(match.group(3)) - 1;
-        }
-        String hostPath = com.acorn.codextabs.core.Paths.host(path, service.distro(), SystemInfo.isWindows);
-        int targetLine = line, targetColumn = column;
+        String cwd = service.chat(file.id).get("cwd");
+        var link = source ? new com.acorn.codextabs.core.FileLink(com.acorn.codextabs.core.Paths.link(value, cwd), -1, 0, null, null)
+            : com.acorn.codextabs.core.FileLink.parse(value, cwd);
+        String hostPath = com.acorn.codextabs.core.Paths.host(link.path(), service.distro(), SystemInfo.isWindows);
         // WSL file refresh can block. Only editor navigation belongs on the UI thread.
         return CompletableFuture.supplyAsync(() -> {
             var target = LocalFileSystem.getInstance().refreshAndFindFileByPath(hostPath);
             if (target == null) { throw new IllegalArgumentException("File not found: " + hostPath); }
             return target;
         }).thenCompose(target -> uiResult(() -> {
-            if (targetLine > 0 || targetColumn > 0) { new OpenFileDescriptor(project, target, targetLine, targetColumn).navigate(true); }
+            if (!source && link.preview()) { BrowserUtil.browse(link.browserUrl(target.toNioPath().toUri().toASCIIString())); }
+            else if (link.line() >= 0) { new OpenFileDescriptor(project, target, link.line(), link.column()).navigate(true); }
             else { FileEditorManager.getInstance(project).openFile(target, true); }
         }));
     }

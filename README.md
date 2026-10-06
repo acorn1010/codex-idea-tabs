@@ -14,7 +14,7 @@ This is an independent client for the [Codex app server](https://developers.open
 - Streams Markdown, command output, file changes, plans, and generated images. Each fenced code or Markdown block has its own copy button.
 - Renders Mermaid code blocks and pasted `flowchart` or `graph` diagrams in both providers. Use **Source** to read or copy the definition, scroll wide previews, or expand a diagram to see it at full size. Rendering works offline and follows the IDE theme. Incomplete or invalid diagrams keep their source visible.
 - Supports file drops, pasted images, large text attachments, and native file selection. Attached images show a small thumbnail. Click one to preview it, then press Escape to return to the composer. Right-click a chat image, thumbnail, or expanded preview and choose **Copy image** to copy its full-size pixels to the system clipboard.
-- Opens local file and image links in the IDE, including files inside WSL.
+- Opens source and image links in the IDE, including files inside WSL. HTML chat links open in the browser with their section anchors and query parameters. Failed links show a local error with Dismiss, without asking you to reconnect.
 - Keeps workspace, permissions, model, reasoning effort, and IDE context in a compact composer. Secondary labels shorten in narrow panes to keep the controls on one row.
 - Creates and shares Git worktrees across chat tabs, with branch labels, native diffs and terminals, and explicit cleanup.
 - Handles permission approvals and both blocking and asynchronous questions.

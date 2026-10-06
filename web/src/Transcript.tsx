@@ -2,7 +2,7 @@ import { memo, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Attachment, Item, Json } from './types';
 import { uploadAttachment, uploadDroppedFiles, useNativeFileDrop } from './attachments';
 import { groupTranscript, itemText, toolContent, toolFailed, toolImagePaths, toolLabel } from './format';
-import { Markdown, ImagePreview } from './Markdown';
+import { Markdown, ImagePreview, ChatLink } from './Markdown';
 import { Icon } from './icons';
 import { request } from './bridge';
 
@@ -132,7 +132,7 @@ const Tool = memo(function Tool({ item, contained = false, detailsOnly = false }
       {item.status === 'completed' && !failed && <Icon name="check" size={12} />}
       {failed && <span>Failed</span>}
     </button>}
-    {item.type === 'fileChange' && item.changes?.map((change, index) => <button key={index} className="ml-6 flex max-w-[calc(100%-1.5rem)] items-center gap-2 py-1 text-accent hover:underline active:text-ink" onClick={() => void request('openLink', { path: String(change.path || '') })}><Icon name="file" size={12} /><span className="truncate">{String(change.path || '')}</span></button>)}
+    {item.type === 'fileChange' && item.changes?.map((change, index) => <ChatLink key={index} source path={String(change.path || '')} className="ml-6 flex max-w-[calc(100%-1.5rem)] items-center gap-2 py-1 text-accent hover:underline active:text-ink"><Icon name="file" size={12} /><span className="truncate">{String(change.path || '')}</span></ChatLink>)}
     {toolImagePaths(item).map((path, index) => <ImagePreview key={index} path={path} alt="Generated image" />)}
     {(open || detailsOnly) && (reasoning ? <div className={`mt-1 overflow-auto px-3 py-1 text-xs text-ink ${contained ? '' : 'max-h-60'}`}>
       <Markdown text={content} />

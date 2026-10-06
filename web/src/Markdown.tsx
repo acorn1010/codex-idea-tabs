@@ -31,7 +31,7 @@ export const ImagePreview = memo(function ImagePreview({ path, alt = 'Image', co
     return () => { canceled = true; };
   }, [path]);
   const failed = () => { setUrl(''); setError('This image could not be decoded. Open it in the editor.'); };
-  const openInEditor = () => { void request('openLink', { path }).catch((error: Error) => setError(error.message)); };
+  const openInEditor = () => { void request('openLink', { path, source: true }).catch((error: Error) => setError(error.message)); };
   return <span className={compact ? 'inline-flex min-w-0 max-w-full' : 'my-2 inline-flex max-w-full flex-col gap-1'}>
     {compact ? <button ref={trigger} onContextMenu={imageMenu} type="button" title={`Preview ${alt}`} aria-label={`Preview ${alt}`} onClick={() => setExpanded(true)} className="flex min-w-0 items-center gap-1.5 rounded-md py-1 pr-1.5 pl-1 text-[11px] hover:bg-raised active:bg-line">
       {url ? <img src={url} alt="" onError={failed} className="size-5 shrink-0 rounded-sm bg-composer object-cover" /> : <span className="flex size-5 shrink-0 items-center justify-center text-muted"><Icon name="image" size={14} /></span>}
@@ -96,6 +96,18 @@ function CopyCodeBlock({ text, children }: { text: string; children: ReactNode }
   </div>;
 }
 
+/** File and web link failures stay beside the link and never change the chat connection. */
+export const ChatLink = memo(function ChatLink({ path, children, source = false, className = 'text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent active:bg-accent/15 active:text-ink' }: { path: string; children: ReactNode; source?: boolean; className?: string }) {
+  const [error, setError] = useState('');
+  return <span className="min-w-0">
+    <a href="#" title={path} className={className} onClick={(event) => {
+      event.preventDefault(); setError('');
+      if (path) { void request('openLink', { path, ...(source ? { source: true } : {}) }).catch((error: Error) => setError(error.message)); }
+    }}>{children}</a>
+    {error && <span role="alert" className="mt-1 flex items-start gap-2 text-xs text-danger"><span className="min-w-0 break-words">Could not open link: {error}</span><button type="button" onClick={() => setError('')} className="shrink-0 rounded px-1 hover:bg-danger/10 active:bg-danger/20">Dismiss</button></span>}
+  </span>;
+});
+
 /** Render Markdown without raw HTML. Link clicks are handled by the IDE's file and browser actions. */
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return <ReactMarkdown remarkPlugins={[remarkGfm, remarkMermaid]} urlTransform={(url) => url} components={{
@@ -109,7 +121,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
     blockquote: ({ children }) => <blockquote className="my-3 border-l-2 border-accent/50 pl-3 text-muted">{children}</blockquote>,
     pre: CodeBlock,
     code: ({ children, className }) => <code className={`${className || ''} rounded bg-raised px-1 py-0.5 text-[.92em]`}>{children}</code>,
-    a: ({ href, children }) => <a href="#" className="text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent active:bg-accent/15 active:text-ink" onClick={(event) => { event.preventDefault(); if (href) { void request('openLink', { path: href }); } }}>{children}</a>,
+    a: ({ href, children }) => <ChatLink path={href || ''}>{children}</ChatLink>,
     img: ({ src, alt }) => typeof src === 'string' ? <ImagePreview path={src} alt={alt} /> : null,
     table: ({ children }) => <div className="my-3 overflow-x-auto rounded"><table className="w-full border-collapse text-left text-xs">{children}</table></div>,
     th: ({ children }) => <th className="border-b border-line bg-raised px-3 py-2 font-semibold">{children}</th>,
