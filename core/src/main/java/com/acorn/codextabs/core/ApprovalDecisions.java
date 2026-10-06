@@ -91,6 +91,21 @@ public final class ApprovalDecisions {
         return choices;
     }
 
+    /** Auto-click only an offered one-off approval. Forms and verification still need the user. */
+    public static JsonObject automaticResponse(JsonObject pending) {
+        if (text(pending, "method").equals("mcpServer/elicitation/request")) {
+            var schema = obj(pending, "requestedSchema");
+            if (!java.util.Set.of("form", "openai/form", "openaiForm").contains(text(pending, "mode", "form"))
+                || !text(schema, "type").equals("object")
+                || (schema.has("properties") && !schema.get("properties").equals(new JsonObject()))
+                || (schema.has("required") && !schema.get("required").equals(new JsonArray()))
+                || !java.util.Set.of("type", "properties", "required", "additionalProperties", "title", "description", "$schema").containsAll(schema.keySet())) { return null; }
+        }
+        var once = new JsonPrimitive("accept");
+        boolean offered = choices(pending).asList().stream().anyMatch(choice -> once.equals(choice.getAsJsonObject().get("decision")));
+        return offered ? response(pending, once) : null;
+    }
+
     public static JsonObject response(JsonObject pending, JsonElement decision) {
         return response(pending, decision, new JsonObject());
     }

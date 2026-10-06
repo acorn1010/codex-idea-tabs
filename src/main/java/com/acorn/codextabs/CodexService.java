@@ -124,9 +124,11 @@ public final class CodexService implements Disposable {
     public synchronized void rememberPermissions(String id, JsonObject payload) {
         String permissions = text(payload, "permissions");
         boolean claudeProvider = isClaude(id);
-        if (!(claudeProvider ? Set.of("auto", "ask", "edit", "read") : Set.of("auto", "ask", "read")).contains(permissions)) {
+        if (!(claudeProvider ? Set.of("auto", "ask", "session", "edit", "read") : Set.of("auto", "ask", "session", "read")).contains(permissions)) {
             throw new IllegalArgumentException("Choose a valid permission mode.");
         }
+        chat(id).approvals.select(permissions);
+        if (permissions.equals("session")) { changed(id); return; }
         if (claudeProvider) { settings().claudePermissions = permissions; }
         else { settings().permissions = permissions; }
         changed("");
@@ -214,10 +216,10 @@ public final class CodexService implements Disposable {
     public JsonObject snapshot(String id) {
         return snapshot(id, -1);
     }
-    private JsonObject composerSettings(boolean claudeProvider) {
+    private JsonObject composerSettings(Conversation chat, boolean claudeProvider) {
         var settings = settings();
         return object("model", claudeProvider ? settings.claudeModel : settings.model, "effort", claudeProvider ? settings.claudeEffort : settings.effort,
-            "modelSelectionSaved", claudeProvider || settings.modelSelectionSaved, "permissions", claudeProvider ? settings.claudePermissions : settings.permissions,
+            "modelSelectionSaved", claudeProvider || settings.modelSelectionSaved, "permissions", chat.approvals.mode(claudeProvider ? settings.claudePermissions : settings.permissions), "permissionRevision", chat.approvals.revision(),
             "fast", claudeProvider ? settings.claudeFast : settings.fast, "planMode", !claudeProvider && settings.planMode);
     }
     public JsonObject snapshot(String id, long revision) {
@@ -225,11 +227,11 @@ public final class CodexService implements Disposable {
         var update = chat.changes(revision); update.remove("providerContext");
         if (chat.get("provider").equals("claude")) {
             return object("chat", update, "sessions", summaries(), "models", array(update, "claudeModels"), "account", obj(update, "claudeAccount"),
-                "connection", chat.get("claudeConnection").isBlank() ? "disconnected" : chat.get("claudeConnection"), "error", "", "settings", composerSettings(true),
+                "connection", chat.get("claudeConnection").isBlank() ? "disconnected" : chat.get("claudeConnection"), "error", "", "settings", composerSettings(chat, true),
                 "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
         }
         return object("chat", update, "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
-            "error", connectionError, "settings", composerSettings(false), "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
+            "error", connectionError, "settings", composerSettings(chat, false), "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
     }
     /** Refresh all repository identities together, then return only this chat's Git choices. */
     public CompletableFuture<JsonObject> workspaces(String id) {
@@ -502,9 +504,11 @@ public final class CodexService implements Disposable {
     public void editorClosed(String id) {
         editors.computeIfPresent(id, (key, count) -> count == 1 ? null : count - 1);
         tabPresentations.remove(id);
+        if (!editors.containsKey(id)) { chat(id).approvals.reset(); changed(id); }
         if (!disposed) { sessions.release(id); }
     }
     private CompletableFuture<Void> unsubscribe(String id) {
+        chat(id).approvals.reset(); changed(id);
         if (isClaude(id)) { claude.release(id); return CompletableFuture.completedFuture(null); }
         var rpc = client;
         String threadId = chat(id).get("threadId");
@@ -802,7 +806,7 @@ public final class CodexService implements Disposable {
                     var options = settings();
                     String model = text(payload, "model", options.model);
                     String effort = text(payload, "effort", options.effort);
-                    String permissions = text(payload, "permissions", options.permissions);
+                    String permissions = chat.approvals.resolve(text(payload, "permissions", chat.approvals.mode(options.permissions)));
                     if (chat.get("threadId").isBlank()) {
                         var start = object("cwd", chat.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                         if (!model.isBlank()) { start.addProperty("model", model); }
@@ -828,6 +832,7 @@ public final class CodexService implements Disposable {
                     }
                     var params = object("threadId", chat.get("threadId"), "input", input);
                     String active = chat.get("turnId");
+                    if (active.isBlank()) { chat.approvals.beginTurn(permissions); }
                     if (goalCommand) {
                         result.complete(rpc.request("thread/goal/set", ComposerOptions.goal(payload, chat.get("threadId"))).join());
                     } else if (!active.isBlank()) {
@@ -855,7 +860,7 @@ public final class CodexService implements Disposable {
                     chat.set("error", "");
                     sessions.working(id, chat.busy());
                     changed(id);
-                } catch (Exception error) { chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }
+                } catch (Exception error) { if (!chat.busy()) { chat.approvals.endTurn(); } chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }
                 finally { workspaceLock.readLock().unlock(); }
             }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
@@ -994,6 +999,7 @@ public final class CodexService implements Disposable {
         });
     }
     public CompletableFuture<JsonObject> stop(String id) {
+        chat(id).approvals.endTurn();
         if (isClaude(id)) { return claude.stop(chat(id)); }
         var chat = chat(id);
         return rpc("turn/interrupt", object("threadId", chat.get("threadId"), "turnId", chat.get("turnId")));
@@ -1060,8 +1066,14 @@ public final class CodexService implements Disposable {
         }
         var target = chats.values().stream().filter(chat -> !chat.get("provider").equals("claude") && !threadId.isBlank() && chat.get("threadId").equals(threadId)).findFirst();
         if (target.isPresent()) {
-            var chat = target.get(); chat.event(event); changed(chat.id);
-            if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { sessions.forget(chat.id); }
+            var chat = target.get();
+            if (event.has("id") && chat.approvals.active() && (text(params, "turnId").isBlank() || text(params, "turnId").equals(chat.get("turnId")))) {
+                var pending = params.deepCopy(); pending.addProperty("method", text(event, "method"));
+                var response = ApprovalDecisions.automaticResponse(pending);
+                if (response != null) { client.respond(event.get("id"), response); return; }
+            }
+            chat.event(event); changed(chat.id);
+            if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { chat.approvals.reset(); sessions.forget(chat.id); }
             sessions.working(chat.id, chat.busy());
             if (event.has("id") && !Set.of("item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request").contains(text(event, "method"))) {
                 client.reject(event.get("id"), "This client does not yet support " + text(event, "method"));

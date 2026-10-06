@@ -106,6 +106,7 @@ public final class ClaudeSessionsSmoke {
             check(settings.claudePermissions.equals("auto"), "Per-turn permission modes replaced the saved preference");
             sessions.release(again.id);
             checkRecoveryBoundaries(sessions, original, root);
+            checkSessionApprovals(sessions, settings, root);
             System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
@@ -134,6 +135,36 @@ public final class ClaudeSessionsSmoke {
             check(Files.readAllLines(root.resolve("starts.jsonl")).getLast().contains("--resume=" + saved), "Use the existing transcript ID");
             check(GSON.toJson(onDisk.items()).contains("Already saved by Claude"), "Restore the existing Claude history");
         } finally { sessions.release(onDisk.id); Files.delete(transcript); Files.delete(directory); }
+    }
+    private static void checkSessionApprovals(ClaudeSessions sessions, CodexSettings.State settings, Path root) throws Exception {
+        var chat = new Conversation(UUID.randomUUID().toString(), root.toString()); chat.set("provider", "claude");
+        var options = options(); options.addProperty("permissions", "session");
+        chat.approvals.select("session");
+        int before = wire(root).size();
+        sessions.send(chat, options, input("approval")); await(() -> !chat.busy());
+        check(chat.approvals.mode("auto").equals("session"), "Initial connection must preserve session selection");
+        var frames = wire(root).asList().subList(before, wire(root).size()).stream().map(JsonElement::getAsJsonObject).toList();
+        check(frames.stream().anyMatch(value -> text(obj(value, "request"), "subtype").equals("set_permission_mode") && text(obj(value, "request"), "mode").equals("default")), "Session approval uses Ask me without the classifier");
+        check(frames.stream().filter(value -> text(value, "type").equals("control_response"))
+            .map(value -> obj(obj(value, "response"), "response"))
+            .anyMatch(value -> value.equals(object("behavior", "allow", "updatedInput", object("command", "npm test")))), "Automatic approval must not send persistent rules");
+        check(settings.claudePermissions.equals("auto") && settings.claudeApprovals.isEmpty(), "Session choice must not change saved preferences or approvals");
+        sessions.send(chat, options, input("question")); await(() -> !array(chat.snapshot(), "requests").isEmpty());
+        var question = array(chat.snapshot(), "requests").get(0).getAsJsonObject();
+        check(text(question, "method").equals("item/tool/requestUserInput"), "User questions must remain manual");
+        sessions.answer(chat, object("key", text(question, "key"), "answers", object("0", object("answers", List.of("A"))))); await(() -> !chat.busy());
+        sessions.send(chat, options, input("approval")); await(() -> !chat.busy());
+        chat.approvals.select("ask");
+        sessions.send(chat, options, input("approval")); await(() -> !array(chat.snapshot(), "requests").isEmpty());
+        var request = array(chat.snapshot(), "requests").get(0).getAsJsonObject();
+        sessions.answer(chat, object("key", text(request, "key"), "decision", "decline")); await(() -> !chat.busy());
+        chat.approvals.select("session"); sessions.release(chat.id); sessions.load(chat);
+        check(chat.approvals.mode("auto").equals("ask"), "Reconnect expires session approval");
+        sessions.send(chat, options, input("approval")); await(() -> !array(chat.snapshot(), "requests").isEmpty());
+        request = array(chat.snapshot(), "requests").get(0).getAsJsonObject();
+        sessions.answer(chat, object("key", text(request, "key"), "decision", "decline")); await(() -> !chat.busy());
+        sessions.release(chat.id);
+        System.out.println("Claude session approval: default backend mode, one-off replies, manual questions, repeated turns, disable, reconnect, stale sends, and unchanged defaults passed.");
     }
     private static JsonObject options() { return object("model", "", "permissions", "ask", "effort", "", "fast", false); }
     private static JsonArray input(String text) { return GSON.toJsonTree(List.of(object("type", "text", "text", text))).getAsJsonArray(); }

@@ -7,6 +7,7 @@ import static com.acorn.codextabs.core.Json.*;
 /** View-independent conversation state keeps hidden tabs current without keeping their browser alive. */
 public final class Conversation {
     public final String id;
+    public final SessionApprovals approvals = new SessionApprovals();
     private final JsonObject state;
     private final LinkedHashMap<String, JsonObject> items = new LinkedHashMap<>();
     private final LinkedHashMap<String, JsonObject> requests = new LinkedHashMap<>();
@@ -81,6 +82,7 @@ public final class Conversation {
     public synchronized boolean canArchive() { return !busy() && requests.isEmpty(); }
     public synchronized void archive(boolean archived) {
         if (archived && !canArchive()) { throw new IllegalStateException("Finish the active work and answer pending requests before archiving."); }
+        if (archived) { approvals.reset(); }
         state.addProperty("archived", archived);
         state.addProperty("hidden", false);
         revision++;
@@ -216,6 +218,7 @@ public final class Conversation {
         revision++;
     }
     public synchronized void disconnected() {
+        approvals.reset();
         requests.values().removeIf(request -> request.has("rpcId"));
         state.addProperty("working", false);
         state.addProperty("turnId", "");
@@ -227,6 +230,7 @@ public final class Conversation {
         boolean liveActivity = false;
         switch (method) {
             case "turn/started" -> {
+                approvals.turnStarted();
                 state.addProperty("turnId", text(obj(params, "turn"), "id"));
                 state.addProperty("working", true);
                 state.addProperty("unread", false);
@@ -236,6 +240,7 @@ public final class Conversation {
                 var turn = obj(params, "turn");
                 if (!get("turnId").isBlank() && !get("turnId").equals(text(turn, "id"))) { return; }
                 state.addProperty("working", false);
+                approvals.endTurn();
                 state.addProperty("completedTurnId", text(turn, "id"));
                 state.addProperty("turnId", "");
                 state.addProperty("unread", true);

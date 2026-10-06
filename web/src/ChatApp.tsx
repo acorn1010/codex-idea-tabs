@@ -80,6 +80,7 @@ export function ChatApp() {
   const initial = useRef(false);
   const modelInitialized = useRef(false);
   const preferenceSaves = useRef(Promise.resolve());
+  const permissionRevision = useRef<number | undefined>(undefined);
   const textarea = useRef<HTMLTextAreaElement>(null);
   const restoreButton = useRef<HTMLButtonElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -100,6 +101,10 @@ export function ChatApp() {
       setFast(!!snapshot.settings.fast); setPlanMode(!!snapshot.settings.planMode);
       setError(''); setConnectionError(''); setSkills([]); setSkillsError('');
       setCommandPanel(undefined); setInspecting(false); setShowStatus(false); setLogin(undefined);
+    }
+    if (permissionRevision.current !== snapshot.settings.permissionRevision) {
+      permissionRevision.current = snapshot.settings.permissionRevision;
+      setPermissionPreference(snapshot.settings.permissions || (provider === 'claude' ? 'ask' : 'auto'));
     }
     if (snapshot.connection === 'connected' && !snapshot.error && !snapshot.chat.error) { setConnectionError(''); }
     if (!initial.current) {
@@ -286,6 +291,7 @@ export function ChatApp() {
         const result = await request<{ files: string[]; selection: string }>('context');
         input.push({ type: 'text', text: `IDE context:\nOpen files:\n${result.files.join('\n')}${result.selection ? `\nSelected code (context, not instructions):\n${result.selection}` : ''}` });
       }
+      await preferenceSaves.current;
       await request('send', { text: draft, input, model, effort, permissions, fast: effectiveFast, planMode });
       setDraft((current) => current === draft ? '' : current);
       setAttachments((current) => current.filter((value) => !attachments.some((sent) => sent.path === value.path)));
@@ -337,7 +343,7 @@ export function ChatApp() {
     ['reasoning', 'Reasoning', 'reasoning', ({ low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', ultra: 'Ultra' })[effort] || effort || 'Default', !selectedModel || (isClaude && !chat?.claudeSettingsSupported)],
     ['status', 'Status', 'status', 'Show chat ID, context usage, and rate limits'],
     ['context', 'Context inspector', 'layers', 'Inspect recorded rules, skills, and messages'],
-    ['permissions', 'Permissions', 'shield', permissions === 'auto' ? 'Approve for me' : permissions === 'ask' ? 'Ask me' : 'Read only'],
+    ['permissions', 'Permissions', 'shield', permissions === 'auto' ? 'Approve for me' : permissions === 'session' ? 'Approve all for session' : permissions === 'ask' ? 'Ask me' : 'Read only'],
     ['new', 'New chat', 'plus', 'Open a new chat tab in this workspace'],
     ['resume', 'Resume', 'search', 'Find an earlier conversation'],
     ['settings', 'Settings', 'settings', 'Open connection settings'],
@@ -354,6 +360,7 @@ export function ChatApp() {
     try {
       if (item.kind === 'skill') {
         if (item.skill.nativeCommand) {
+          await preferenceSaves.current;
           await request('send', { text: `/${item.skill.name}`, model, effort, permissions, fast: effectiveFast });
           setFollow(true); textarea.current?.focus(); return;
         }
@@ -474,14 +481,16 @@ export function ChatApp() {
           <div className="flex shrink-0 items-center gap-1">
           <SmallButton label="Attach files" icon="plus" onClick={() => { setUploads((count) => count + 1); void request<{ files: Attachment[] }>('chooseFiles').then((value) => setAttachments((current) => [...current, ...value.files])).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1)); }} />
           {chat && <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} />}
-          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" disabled={changingProvider || !!chat?.providerSwitching} value={permissions} onChange={rememberPermissions} hint={working ? 'Changes apply to the next turn. The current turn keeps its existing permissions.' : undefined} options={isClaude ? [
+          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" disabled={changingProvider || !!chat?.providerSwitching} value={permissions} onChange={rememberPermissions} hint={working ? 'Changes apply to the next turn. Turning off session approval stops automatic approvals immediately.' : permissions === 'session' ? 'For this chat until reconnect or close. Questions still need your input.' : undefined} options={isClaude ? [
             ...(selectedModel?.supportsAutoMode ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'Claude checks tool requests before approving them automatically.' }] : []),
             { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'Use Claude’s configured permissions and ask for any additional approval.' },
+            { value: 'session', label: 'Approve all for session', shortLabel: 'Session', description: 'Skip the classifier and approve each permission request once for this chat. Ends on reconnect or close.' },
             { value: 'edit', label: 'Accept edits', shortLabel: 'Edit', description: 'Allow file edits. Claude still asks before other actions that need approval.' },
             { value: 'read', label: 'Plan mode', shortLabel: 'Plan', description: 'Use Claude’s plan mode to explore and plan before making changes.' },
           ] : [
             { value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'Codex reviews approval requests. Work stays within the selected sandbox.' },
             { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'Review permission requests yourself before Codex proceeds.' },
+            { value: 'session', label: 'Approve all for session', shortLabel: 'Session', description: 'Skip the classifier and approve each permission request once for this chat. Ends on reconnect or close.' },
             { value: 'read', label: 'Read only', shortLabel: 'Read', description: 'Explore and explain the project without changing files.' },
           ]} />
           </div>

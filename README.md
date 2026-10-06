@@ -51,7 +51,7 @@ Send a follow-up while Claude works to queue it for the next turn. Queued messag
 
 Use **Resume** to browse Claude terminal sessions in the project and its known repositories and worktrees. The plugin reads Claude's saved main conversation branch, including attached images, and resumes it through the CLI. Session files and credentials stay in Claude's own store.
 
-Claude's permission menu offers **Ask me**, **Accept edits**, **Plan mode**, and **Approve for me** when the selected model supports it. Existing Claude CLI permission rules still apply. Codex sandbox settings do not apply to Claude chats. Approval cards offer **Decline**, **Allow once**, **Allow for session**, and **Always allow**. When Claude suggests an allow rule, the card shows its scope. Session approval applies that rule to the running session. Always approval saves it through Claude to local project settings, where terminal Claude can also use it. If Claude supplies no suitable rule, approval falls back to the exact tool input in this checkout, saved by the plugin.
+Claude's permission menu offers **Approve all for session**, **Ask me**, **Accept edits**, **Plan mode**, and **Approve for me** when the selected model supports it. Existing Claude CLI permission rules still apply. Codex sandbox settings do not apply to Claude chats. Approval cards offer **Decline**, **Allow once**, **Allow for session**, and **Always allow**. When Claude suggests an allow rule, the card shows its scope. Session approval applies that rule to the running session. Always approval saves it through Claude to local project settings, where terminal Claude can also use it. If Claude supplies no suitable rule, approval falls back to the exact tool input in this checkout, saved by the plugin.
 
 The status panel shows Claude's 5-hour and weekly subscription limits as progress bars with the percentage remaining and reset times. It reads the limits through Claude Code's usage command and shows when limits are unavailable. The panel also shows context breakdown, loaded instruction files, token usage, reported session cost, and rate-limit events. MCP status lists the CLI's configured servers. Effort, Fast mode, and automatic approval follow the model capabilities reported by Claude. Fast mode can incur additional usage charges. New controls were verified against Claude Code **2.1.281**. Older CLIs retain basic chats and show update guidance for unsupported controls. Codex goals and its startup prompt inspector remain Codex-specific.
 
@@ -113,7 +113,7 @@ This requires a Codex version that supports `skills/extraRoots/set` and `thread/
 | Recall a previous message | `↑` in an empty composer, then keep pressing `↑` for older messages. Any other key ends recall |
 | Add a line | `Shift+Enter` |
 | Add files or images | Drop, paste, or use the plus button |
-| Change permissions | Open **Approve for me**, **Ask me**, or **Read only** in the composer |
+| Change permissions | Open the permission menu in the composer |
 | Archive a finished chat | Hover its sidebar row and click the archive icon, or select the row and press `Delete` |
 | Browse archived chats | **Archived** at the bottom of the sidebar |
 | Restore a chat | Hover its archived row and click Restore, or open it and use **Restore chat** |
@@ -147,9 +147,11 @@ Codex owns authentication, thread history, tools, sandboxing, and model executio
 
 **Approve for me** uses Codex's automatic approval review with a workspace-write sandbox. **Ask me** routes approval requests to you. **Read only** uses a read-only sandbox. None of these modes enables unrestricted execution.
 
-Permission choices are saved as soon as you select them, separately for Codex and Claude in each IDEA project. New chats and restored tabs use the saved choice after an IDEA restart. Claude uses **Ask me** for models that do not support automatic approval without replacing your saved choice.
+**Approve all for session** uses the **Ask me** backend mode for either provider and automatically answers each permission request with **Allow once**. It skips the automatic approval classifier and does not save permission rules. Questions, forms with fields, sign-in, and verification still need your input. A request without a one-off approval choice also stays manual. This choice applies only to the current chat until reconnect, closing its last tab, archiving, or switching providers. It is not copied to new chats or saved across IDE restarts. When it expires, that chat returns to **Ask me**. Enabling it during a turn applies to the next turn. Turning it off stops future automatic replies immediately. A permission already granted for the current turn stays in effect until that turn ends.
 
-Model, reasoning, and permission changes apply to the next turn. A follow-up sent while Codex is working steers the existing turn with its current settings.
+Other permission choices are saved as soon as you select them, separately for Codex and Claude in each IDEA project. New chats and restored tabs use the saved choice after an IDEA restart. Claude uses **Ask me** for models that do not support automatic approval without replacing your saved choice.
+
+Model, reasoning, and other permission changes apply to the next turn. A follow-up sent while Codex is working steers the existing turn with its current settings.
 
 The web UI is bundled in the plugin. It has no development server or remote CDN dependency. Markdown raw HTML is disabled, and local images are read through the native bridge.
 

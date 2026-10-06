@@ -28,6 +28,7 @@ thread_cwds = json.loads(cwd_file.read_text()) if cwd_file.exists() else {}
 last_turn_params = {}
 last_fork_params = {}
 last_list_params = {}
+approval_replies = []
 goals = {}
 
 
@@ -181,7 +182,7 @@ def respond(request):
         event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "fixture/stats":
-        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params}
+        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies}
     elif method == "fixture/event":
         notification = params["event"]
         thread_id = notification["params"]["threadId"]
@@ -252,6 +253,11 @@ def respond(request):
             failed_sends.add(thread_id)
             raise RuntimeError("Fixture send failed once. Your edited message is ready to retry.")
         turn = {"id": "turn-" + str(time.time_ns()), "status": "inProgress"}
+        if any(part.get("text") == "FIXTURE_HOLD_APPROVALS" for part in params["input"]):
+            statuses[thread_id] = "active"
+            event("turn/started", thread_id, turn=turn)
+            emit({"id": request["id"], "result": {"turn": turn}})
+            return
         user = {"id": turn["id"] + "-user", "type": "userMessage", "content": params["input"]}
         answer = {"id": turn["id"] + "-reply", "type": "agentMessage", "text": "Message received in this conversation. The other tabs are unchanged."}
         turns(thread_id).append({**turn, "status": "completed", "items": [user, answer]})
@@ -283,6 +289,9 @@ for line in sys.stdin:
     request = {}
     try:
         request = json.loads(line)
+        if "method" not in request and "id" in request:
+            approval_replies.append(request)
+            continue
         respond(request)
     except Exception as error:
         emit({"id": request.get("id"), "error": {"code": -32000, "message": str(error)}})
