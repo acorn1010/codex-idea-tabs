@@ -481,17 +481,12 @@ export function ChatApp() {
           <div className="flex shrink-0 items-center gap-1">
           <SmallButton label="Attach files" icon="plus" onClick={() => { setUploads((count) => count + 1); void request<{ files: Attachment[] }>('chooseFiles').then((value) => setAttachments((current) => [...current, ...value.files])).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1)); }} />
           {chat && <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} />}
-          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" disabled={changingProvider || !!chat?.providerSwitching} value={permissions} onChange={rememberPermissions} hint={working ? 'Changes apply to the next turn. Turning off session approval stops automatic approvals immediately.' : permissions === 'session' ? 'For this chat until reconnect or close. Questions still need your input.' : undefined} options={isClaude ? [
-            ...(selectedModel?.supportsAutoMode ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'Claude checks tool requests before approving them automatically.' }] : []),
-            { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'Use Claude’s configured permissions and ask for any additional approval.' },
-            { value: 'session', label: 'Approve all for session', shortLabel: 'Session', description: 'Skip the classifier and approve each permission request once for this chat. Ends on reconnect or close.' },
-            { value: 'edit', label: 'Accept edits', shortLabel: 'Edit', description: 'Allow file edits. Claude still asks before other actions that need approval.' },
-            { value: 'read', label: 'Plan mode', shortLabel: 'Plan', description: 'Use Claude’s plan mode to explore and plan before making changes.' },
-          ] : [
-            { value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'Codex reviews approval requests. Work stays within the selected sandbox.' },
-            { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'Review permission requests yourself before Codex proceeds.' },
-            { value: 'session', label: 'Approve all for session', shortLabel: 'Session', description: 'Skip the classifier and approve each permission request once for this chat. Ends on reconnect or close.' },
-            { value: 'read', label: 'Read only', shortLabel: 'Read', description: 'Explore and explain the project without changing files.' },
+          <ChoiceMenu openRequest={permissionMenuRequest} label="Permission mode" icon="shield" menuWidth={300} disabled={changingProvider || !!chat?.providerSwitching} value={permissions} onChange={rememberPermissions} hint={working ? 'Changes apply next turn. Turning off session approval is immediate.' : undefined} options={[
+            { value: 'read', label: isClaude ? 'Plan mode' : 'Read only', shortLabel: isClaude ? 'Plan' : 'Read', description: isClaude ? 'Explore and plan' : 'No file changes', tone: 'success', icon: <Icon name="search" size={16} /> },
+            { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'You review requests', tone: 'accent', icon: <Icon name="shield" size={16} /> },
+            ...(isClaude ? [{ value: 'edit', label: 'Accept edits', shortLabel: 'Edit', description: 'File edits without asking', tone: 'attention' as const, icon: <Icon name="edit" size={16} /> }] : []),
+            ...(!isClaude || selectedModel?.supportsAutoMode ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'AI reviews requests', tone: 'warning' as const, icon: <Icon name="reasoning" size={16} /> }] : []),
+            { value: 'session', label: 'Approve all for session', shortLabel: 'Session', description: 'No review until reconnect or close', tone: 'danger', icon: <Icon name="bolt" size={16} /> },
           ]} />
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1">

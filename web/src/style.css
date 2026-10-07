@@ -18,6 +18,7 @@
   --color-attention-selected: var(--attention-selected);
   --color-attention-input: var(--attention-input);
   --color-success: var(--success);
+  --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-danger-surface: var(--danger-surface);
   --color-danger-border: var(--danger-border);
@@ -42,6 +43,7 @@
   --attention-selected: #4b381b;
   --attention-input: #282116;
   --success: #35d99b;
+  --warning: #ff9d5c;
   --danger: #ff7185;
   --danger-surface: #351e29;
   --danger-border: #a53c56;
@@ -69,6 +71,7 @@
   --attention-selected: #ffe3a0;
   --attention-input: #fffcf2;
   --success: #087b55;
+  --warning: #a9460e;
   --danger: #bb2145;
   --danger-surface: #fff0f3;
   --danger-border: #efa1b1;

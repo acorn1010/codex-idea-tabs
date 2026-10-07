@@ -53,7 +53,6 @@ try {
       assert.equal(await page.evaluate(() => window.__calls.find(call => call.method === 'send').params.permissions), 'session');
       assert.equal(await page.evaluate(() => window.__saved), 'ask', 'Session approval must not change the saved default');
       await page.getByRole('button', { name: 'Permission mode: Approve all for session', exact: true }).click();
-      await page.getByText('For this chat until reconnect or close. Questions still need your input.', { exact: true }).waitFor();
       await option.scrollIntoViewIfNeeded(); await page.screenshot({ path: `${output}/session-approvals-${provider}-${width}.png` });
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       await page.keyboard.press('Escape'); await page.evaluate(() => window.__expire());
