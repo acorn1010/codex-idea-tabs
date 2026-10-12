@@ -44,7 +44,7 @@ final class ClaudeSessions implements AutoCloseable {
         var frames = frames(chat);
         if (frames.isEmpty()) { return; }
         var restored = new Conversation(chat.id, chat.get("cwd"));
-        var protocol = new ClaudeProtocol(restored);
+        var protocol = new ClaudeProtocol(restored, false);
         frames.forEach(value -> protocol.accept(value.getAsJsonObject()));
         chat.replaceClaudeHistory(restored.items());
     }

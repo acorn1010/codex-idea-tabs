@@ -43,6 +43,17 @@ def release(token):
             return
         time.sleep(0.01)
 
+def background_work(token):
+    global active
+    while not (root / "release-background").exists():
+        time.sleep(0.01)
+    emit({"type": "system", "subtype": "task_notification", "task_id": "build", "status": "completed"})
+    active = token
+    emit({"type": "stream_event", "session_id": session_id, "event": {"type": "message_start", "message": {"id": token}}})
+    while not (root / "release-resumed").exists():
+        time.sleep(0.01)
+    finish(token)
+
 for line in sys.stdin:
     frame = json.loads(line)
     with (root / "wire.jsonl").open("a") as output:
@@ -77,7 +88,12 @@ for line in sys.stdin:
         active = frame["uuid"]
         content = frame["message"]["content"]
         prompt = " ".join(part.get("text", "") for part in content)
-        if prompt == "background-approval":
+        if prompt == "background-activity":
+            token = active
+            emit({"type": "system", "subtype": "task_started", "task_id": "build", "description": "Build images"})
+            finish(token)
+            threading.Thread(target=background_work, args=("resumed-" + token,), daemon=True).start()
+        elif prompt == "background-approval":
             finish(active)
             active = "background-" + frame["uuid"]
             pending = active

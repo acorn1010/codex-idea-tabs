@@ -35,6 +35,7 @@ public final class Conversation {
             var value = request.getAsJsonObject();
             if (!value.has("rpcId")) { chat.requests.put(text(value, "key"), value.deepCopy()); }
         }
+        chat.state.remove("claudeActivity");
         chat.state.addProperty("claudeConnection", "disconnected");
         chat.state.addProperty("providerSwitching", false);
         chat.state.addProperty("working", false);
@@ -54,6 +55,11 @@ public final class Conversation {
     }
     public synchronized void loaded() { clearRecoverableError(); revision++; }
     public synchronized boolean busy() { return flag(state, "providerSwitching") || flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
+    /** Keep background work visible and its CLI alive without blocking new foreground messages. */
+    public synchronized boolean hasBackgroundWork() {
+        var activity = obj(state, "claudeActivity");
+        return !array(activity, "tasks").isEmpty() || !obj(activity, "wakeup").isEmpty();
+    }
     private void clearRecoverableError() {
         if (Set.of("connection", "retry").contains(get("errorKind"))) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
     }
@@ -74,7 +80,7 @@ public final class Conversation {
     }
     public synchronized String status() {
         if (!requests.isEmpty()) { return "attention"; }
-        if (flag(state, "working")) { return "working"; }
+        if (flag(state, "working") || hasBackgroundWork()) { return "working"; }
         if (!text(state, "error").isEmpty()) { return "error"; }
         return flag(state, "unread") ? "complete" : "idle";
     }
@@ -220,6 +226,7 @@ public final class Conversation {
         revision++;
     }
     public synchronized void disconnected() {
+        state.add("claudeActivity", new JsonObject());
         approvals.reset();
         requests.values().removeIf(request -> request.has("rpcId"));
         state.addProperty("working", false);

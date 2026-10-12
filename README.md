@@ -47,6 +47,8 @@ Choose a model in the dropdown at the bottom right of the composer. Models come 
 
 Claude chats support streamed replies and tool activity, attachments, questions with multiple selections, stop, archive and restore, both Markdown copy modes, session history, and continuation in another worktree. Shared project guidance is supplied as additional system instructions when the CLI starts, with links to the original `.agents/skills` files. Native `CLAUDE.md` instructions remain active. The command picker includes commands reported by Claude and shared project skills.
 
+Claude shows active background tasks and scheduled wakeups above the input, even after its latest reply ends. Expand **View tasks** to see what is running. These indicators use live CLI events, not transcript scans or process polling. Automatic follow-up replies return the chat to **Working**.
+
 Send a follow-up while Claude works to queue it for the next turn. Queued messages keep their selected model, effort, and permissions. A current **Approve all for session** choice also applies to queued turns, except explicit read-only turns. Stop, a failed turn, or reconnect pauses the queue. Use **Send queued** to continue, or remove individual prompts. Editing an earlier message opens a new chat from the point before that message and leaves the source chat intact. This does not undo file changes.
 
 Use **Resume** to browse Claude terminal sessions in the project and its known repositories and worktrees. The plugin reads Claude's saved main conversation branch, including attached images, and resumes it through the CLI. Session files and credentials stay in Claude's own store.

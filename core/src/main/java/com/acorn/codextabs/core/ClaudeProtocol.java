@@ -15,7 +15,12 @@ public final class ClaudeProtocol {
     private final Map<String, Integer> completedFrameOffsets = new HashMap<>();
     private String messageId = "";
     private String turnId = "";
-    public ClaudeProtocol(Conversation chat) { this.chat = chat; }
+    private final ClaudeActivity activity;
+    public ClaudeProtocol(Conversation chat) { this(chat, true); }
+    public ClaudeProtocol(Conversation chat, boolean live) { this(chat, live, System::currentTimeMillis); }
+    ClaudeProtocol(Conversation chat, boolean live, java.util.function.LongSupplier clock) {
+        this.chat = chat; activity = live ? new ClaudeActivity(chat, clock) : null;
+    }
 
     public synchronized void start(String turn, JsonArray input) {
         turnId = turn; blocks.clear();
@@ -23,6 +28,7 @@ public final class ClaudeProtocol {
         item(object("id", turn, "type", "userMessage", "content", input), true);
     }
     public synchronized void accept(JsonObject frame) {
+        if (activity != null && text(frame, "type").equals("system")) { activity.system(frame); }
         // Nested agents have their own message streams. Their parent's tool result carries the result.
         if (!text(frame, "parent_tool_use_id").isBlank()) { return; }
         String type = text(frame, "type"), session = text(frame, "session_id");
@@ -57,6 +63,7 @@ public final class ClaudeProtocol {
                     completed.addProperty("status", flag(result, "is_error") ? "failed" : "completed");
                     if (text(tool, "type").equals("commandExecution")) { completed.addProperty("aggregatedOutput", contentText(result.get("content"))); }
                     else { completed.add("result", object("content", result.get("content"), "isError", flag(result, "is_error"))); }
+                    if (activity != null && text(tool, "status").equals("inProgress")) { activity.result(tool, frame, result, text(tool, "tool").equals("ScheduleWakeup") ? contentText(result.get("content")) : ""); }
                     tools.put(text(result, "tool_use_id"), completed); item(completed, true);
                 }
             }
@@ -76,6 +83,7 @@ public final class ClaudeProtocol {
                 String error = "";
                 if (flag(frame, "is_error")) { error = contentText(frame.get("errors")); if (error.isBlank()) { error = text(frame, "result", "Claude could not finish this turn."); } }
                 event("turn/completed", object("turn", object("id", turnId, "status", error.isBlank() ? "completed" : "failed", "error", error.isBlank() ? null : object("message", error))));
+                turnId = "";
             }
             default -> {}
         }
@@ -83,7 +91,15 @@ public final class ClaudeProtocol {
     private void stream(JsonObject event) {
         int index = event.has("index") ? event.get("index").getAsInt() : 0;
         switch (text(event, "type")) {
-            case "message_start" -> { messageId = text(obj(event, "message"), "id"); blocks.clear(); }
+            case "message_start" -> {
+                messageId = text(obj(event, "message"), "id"); blocks.clear();
+                if (activity != null && turnId.isBlank()) {
+                    // Background completions and wakeups can start a reply without a composer send.
+                    turnId = UUID.randomUUID().toString();
+                    event("turn/started", object("turn", object("id", turnId)));
+                    activity.resumed();
+                }
+            }
             case "content_block_start" -> {
                 var content = obj(event, "content_block").deepCopy(); blocks.put(index, content);
                 block(messageId + ":" + index, content, false);

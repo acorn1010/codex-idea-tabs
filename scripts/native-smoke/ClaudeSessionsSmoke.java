@@ -108,10 +108,25 @@ public final class ClaudeSessionsSmoke {
             checkRecoveryBoundaries(sessions, original, root);
             checkSessionApprovals(sessions, settings, root);
             checkSessionApprovalLifetime(sessions, root);
+            checkBackgroundActivity(sessions, root);
             System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
         }
+    }
+    private static void checkBackgroundActivity(ClaudeSessions sessions, Path root) throws Exception {
+        var chat = new Conversation(UUID.randomUUID().toString(), root.toString()); chat.set("provider", "claude");
+        sessions.load(chat); sessions.send(chat, options(), input("background-activity"));
+        await(() -> !chat.busy() && chat.hasBackgroundWork());
+        check(chat.status().equals("working"), "A finished reply keeps background tasks visible");
+        Files.writeString(root.resolve("release-background"), "done");
+        await(() -> chat.busy() && !chat.hasBackgroundWork());
+        check(!chat.get("turnId").isBlank(), "An automatic follow-up has an active turn");
+        Files.writeString(root.resolve("release-resumed"), "done");
+        await(() -> !chat.busy());
+        sessions.release(chat.id);
+        check(!chat.hasBackgroundWork(), "Disconnect clears live task state");
+        System.out.println("Claude background activity: tasks survive the foreground result and autonomous replies become working.");
     }
     private static void checkRecoveryBoundaries(ClaudeSessions sessions, Conversation original, Path root) throws Exception {
         var withMessages = ProviderHandoff.prepare(original.snapshot(), original.items(), "claude");

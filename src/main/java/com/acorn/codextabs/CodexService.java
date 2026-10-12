@@ -72,7 +72,7 @@ public final class CodexService implements Disposable {
         if (chats.get(chat.id) != chat) { return; }
         // A completed load belongs to the process that just exited, not its replacement.
         if (chat.get("claudeConnection").equals("disconnected")) { sessions.forget(chat.id); }
-        sessions.working(chat.id, chat.busy()); changed(chat.id);
+        sessions.working(chat.id, chat.busy() || chat.hasBackgroundWork()); changed(chat.id);
     }
     public boolean isClaude(String id) { return chat(id).get("provider").equals("claude"); }
     /** Prepare the new session before replacing the chat, serialized with sends and archive actions. */
@@ -738,7 +738,7 @@ public final class CodexService implements Disposable {
                 if (chat(id) != chat) { throw new CancellationException("Provider was changed"); }
                 chat.resumed(obj(result, "thread"), revision);
                 refreshGuidance(rpc, chat);
-                sessions.working(id, chat.busy());
+                sessions.working(id, chat.busy() || chat.hasBackgroundWork());
                 return older(id, "", rpc).thenAccept(ignored -> {
                     if (client == rpc && rpc.isAlive()) { chat.loaded(); changed(id); }
                 });
@@ -809,7 +809,7 @@ public final class CodexService implements Disposable {
                         if (chat.get("title").equals("New chat")) { chat.set("title", prompt.lines().findFirst().orElse("Claude chat").substring(0, Math.min(prompt.lines().findFirst().orElse("Claude chat").length(), 80))); }
                         if (chat.get("draft").equals(prompt)) { chat.set("draft", ""); }
                         chat.set("draftInput", new JsonArray());
-                        sessions.working(id, chat.busy()); changed(id); result.complete(response); return;
+                        sessions.working(id, chat.busy() || chat.hasBackgroundWork()); changed(id); result.complete(response); return;
                     }
                     var rpc = connect().join();
                     var options = settings();
@@ -867,7 +867,7 @@ public final class CodexService implements Disposable {
                     if (chat.get("draft").equals(prompt)) { chat.set("draft", ""); }
                     if (!goalCommand && !reviewCommand) { chat.set("draftInput", new JsonArray()); }
                     chat.set("error", "");
-                    sessions.working(id, chat.busy());
+                    sessions.working(id, chat.busy() || chat.hasBackgroundWork());
                     changed(id);
                 } catch (Exception error) { if (!chat.busy()) { chat.approvals.endTurn(); } chat.set("error", message(error)); changed(id); result.completeExceptionally(error); }
                 finally { workspaceLock.readLock().unlock(); }
@@ -986,7 +986,7 @@ public final class CodexService implements Disposable {
         String key = text(payload, "key");
         var pending = chat.request(key);
         if (!pending.has("rpcId")) {
-            if (flag(payload, "dismiss")) { chat.resolve(key); sessions.working(id, chat.busy()); changed(id); return CompletableFuture.completedFuture(new JsonObject()); }
+            if (flag(payload, "dismiss")) { chat.resolve(key); sessions.working(id, chat.busy() || chat.hasBackgroundWork()); changed(id); return CompletableFuture.completedFuture(new JsonObject()); }
             var answers = obj(payload, "answers");
             var reply = new StringBuilder();
             for (var q : array(pending, "questions")) {
@@ -1007,7 +1007,7 @@ public final class CodexService implements Disposable {
                 chat.resolve(key);
             }
             changed(id);
-            sessions.working(id, chat.busy());
+            sessions.working(id, chat.busy() || chat.hasBackgroundWork());
             return new JsonObject();
         });
     }
@@ -1097,7 +1097,7 @@ public final class CodexService implements Disposable {
             }
             changed(chat.id);
             if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { chat.approvals.reset(); sessions.forget(chat.id); }
-            sessions.working(chat.id, chat.busy());
+            sessions.working(chat.id, chat.busy() || chat.hasBackgroundWork());
             if (event.has("id") && !Set.of("item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request").contains(text(event, "method"))) {
                 client.reject(event.get("id"), "This client does not yet support " + text(event, "method"));
             }

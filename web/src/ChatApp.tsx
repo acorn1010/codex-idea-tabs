@@ -18,6 +18,7 @@ import { useSlashCommands, slashQuery } from './SlashCommands';
 import type { SlashItem, Skill, CommandName } from './SlashCommands';
 import { CommandPanel } from './CommandPanel';
 import type { PanelAction } from './CommandPanel';
+import { ClaudeActivity } from './ClaudeActivity';
 import { uploadAttachment, uploadDroppedFiles, useNativeFileDrop } from './attachments';
 
 type RecallSession = { messages: string[]; seen: Set<string>; index: number; cursor: string; pending: boolean; error?: string };
@@ -318,9 +319,10 @@ export function ChatApp() {
     finally { setArchivePending(false); }
   };
   const needsLogin = state?.account.requiresOpenaiAuth && !state.account.account;
-  const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? 'Ready' : 'Disconnected';
+  const backgroundStatus = isClaude && chat?.claudeActivity?.tasks?.length ? 'Background work' : isClaude && chat?.claudeActivity?.wakeup?.scheduledFor !== undefined ? 'Wakeup scheduled' : '';
+  const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? backgroundStatus || 'Ready' : 'Disconnected';
   const alert = error || chat?.error || state?.error || connectionError || (chat && !chat.archived && state?.connection === 'disconnected' ? `${providerName} is disconnected. Reconnect to continue.` : '');
-  const statusColor = status === 'Archived' ? 'text-muted' : status === 'Needs your input' || status === 'Connecting' ? 'text-attention' : status === 'Working' ? 'text-accent' : status === 'Ready' ? 'text-success' : 'text-danger';
+  const statusColor = status === 'Archived' ? 'text-muted' : status === 'Needs your input' || status === 'Connecting' ? 'text-attention' : ['Working', 'Background work', 'Wakeup scheduled'].includes(status) ? 'text-accent' : status === 'Ready' ? 'text-success' : 'text-danger';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
   const fastTier = selectedModel?.serviceTiers?.find((tier) => tier.name.toLowerCase() === 'fast' || ['fast', 'priority'].includes(tier.id));
   const supportsFast = (!isClaude || !!chat?.claudeSettingsSupported) && (!!fastTier || !!selectedModel?.additionalSpeedTiers?.some((tier) => ['fast', 'priority'].includes(tier)));
@@ -444,6 +446,7 @@ export function ChatApp() {
       {chat?.workspaceNotice && <div role="status" className="flex items-start gap-2 rounded-lg bg-attention/10 px-3 py-2 text-xs text-attention"><p className="flex-1">{chat.workspaceNotice}</p><SmallButton label="Dismiss workspace notice" icon="close" onClick={() => void run('dismissWorkspaceNotice')} /></div>}
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
+      {isClaude && <ClaudeActivity activity={chat?.claudeActivity} />}
       <div className="@container/composer cursor-text overflow-hidden rounded-xl bg-input shadow-input focus-within:shadow-input-focus">
         {isClaude && chat?.claudeNotice && <p role="status" className="px-3 py-2 text-xs text-muted">{chat.claudeNotice}</p>}
         {isClaude && !!chat?.claudeQueue?.length && <section aria-label="Queued messages" className="max-h-36 space-y-1 overflow-y-auto border-b border-line px-3 py-2 text-xs">
