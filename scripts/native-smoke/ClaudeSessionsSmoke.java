@@ -107,6 +107,7 @@ public final class ClaudeSessionsSmoke {
             sessions.release(again.id);
             checkRecoveryBoundaries(sessions, original, root);
             checkSessionApprovals(sessions, settings, root);
+            checkSessionApprovalLifetime(sessions, root);
             System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
@@ -158,13 +159,78 @@ public final class ClaudeSessionsSmoke {
         sessions.send(chat, options, input("approval")); await(() -> !array(chat.snapshot(), "requests").isEmpty());
         var request = array(chat.snapshot(), "requests").get(0).getAsJsonObject();
         sessions.answer(chat, object("key", text(request, "key"), "decision", "decline")); await(() -> !chat.busy());
+        int beforePending = wire(root).size();
+        sessions.send(chat, options(), input("approval")); await(() -> !chat.pendingRequests().isEmpty());
+        chat.approvals.select("session"); sessions.approvePending(chat); await(() -> !chat.busy());
+        var pendingReplies = wire(root).asList().subList(beforePending, wire(root).size()).stream().map(JsonElement::getAsJsonObject)
+            .filter(value -> text(value, "type").equals("control_response")).toList();
+        check(pendingReplies.size() == 1, "Selecting session during a turn must answer its pending permission exactly once");
+        check(obj(obj(pendingReplies.get(0), "response"), "response").equals(object("behavior", "allow", "updatedInput", object("command", "npm test"))), "Pending permission must use a one-off grant");
+        sessions.approvePending(chat);
+        check(settings.claudeApprovals.isEmpty(), "Draining pending approvals must not save rules");
+        chat.approvals.select("ask");
+        sessions.send(chat, options(), input("question")); await(() -> !chat.pendingRequests().isEmpty());
+        chat.approvals.select("session"); sessions.approvePending(chat);
+        check(chat.pendingRequests().size() == 1, "Selecting session must leave an existing user question unanswered");
+        question = chat.pendingRequests().get(0);
+        sessions.answer(chat, object("key", text(question, "key"), "answers", object("0", object("answers", List.of("A"))))); await(() -> !chat.busy());
         chat.approvals.select("session"); sessions.release(chat.id); sessions.load(chat);
         check(chat.approvals.mode("auto").equals("ask"), "Reconnect expires session approval");
         sessions.send(chat, options, input("approval")); await(() -> !array(chat.snapshot(), "requests").isEmpty());
         request = array(chat.snapshot(), "requests").get(0).getAsJsonObject();
         sessions.answer(chat, object("key", text(request, "key"), "decision", "decline")); await(() -> !chat.busy());
         sessions.release(chat.id);
-        System.out.println("Claude session approval: default backend mode, one-off replies, manual questions, repeated turns, disable, reconnect, stale sends, and unchanged defaults passed.");
+        System.out.println("Claude session approval: default backend mode, one-off replies, manual questions, pending approvals, repeated turns, disable, reconnect, stale sends, and unchanged defaults passed.");
+    }
+    private static void checkSessionApprovalLifetime(ClaudeSessions sessions, Path root) throws Exception {
+        var chat = new Conversation(UUID.randomUUID().toString(), root.toString()); chat.set("provider", "claude");
+        var sessionOptions = options(); sessionOptions.addProperty("permissions", "session");
+        chat.approvals.select("session");
+        int before = wire(root).size();
+        sessions.send(chat, sessionOptions, input("background-approval"));
+        await(() -> approvalReplies(root, before).size() == 1);
+        check(chat.pendingRequests().isEmpty(), "A Bash request after the foreground result must still use session approval");
+        check(obj(obj(approvalReplies(root, before).get(0), "response"), "response").equals(object("behavior", "allow", "updatedInput", object("command", "echo background"))), "Background approval must be one-off");
+        await(() -> !chat.busy());
+
+        chat.approvals.select("ask");
+        sessions.send(chat, options(), input("background-approval")); await(() -> !chat.pendingRequests().isEmpty());
+        check(!flag(chat.snapshot(), "working"), "Fixture must request permission after the foreground turn finishes");
+        chat.approvals.select("session"); sessions.approvePending(chat);
+        check(chat.pendingRequests().isEmpty(), "Enabling session approval must clear a waiting background request");
+        await(() -> !chat.busy());
+
+        chat.approvals.select("ask");
+        sessions.send(chat, options(), input("hold before queued approval"));
+        sessions.send(chat, options(), input("approval"));
+        chat.approvals.select("session"); sessions.approvePending(chat);
+        int beforeQueue = wire(root).size();
+        Files.writeString(root.resolve("release-turn"), "go");
+        await(() -> approvalReplies(root, beforeQueue).size() == 1);
+        await(() -> !chat.busy() && !new ClaudeQueue(chat).hasNext());
+        check(chat.pendingRequests().isEmpty(), "An older queued Ask me choice must not disable the current session grant");
+        Files.delete(root.resolve("release-turn"));
+
+        chat.approvals.select("ask");
+        Files.writeString(root.resolve("hold-model"), "wait");
+        var preparing = CompletableFuture.supplyAsync(() -> sessions.send(chat, options(), input("approval")));
+        await(() -> Files.exists(root.resolve("model-waiting")));
+        chat.approvals.select("session");
+        int beforePreparation = wire(root).size();
+        Files.delete(root.resolve("hold-model"));
+        preparing.get(5, TimeUnit.SECONDS);
+        await(() -> approvalReplies(root, beforePreparation).size() == 1);
+        await(() -> !chat.busy());
+        check(chat.pendingRequests().isEmpty(), "A mode captured before message preparation must not replace the live grant");
+        Files.delete(root.resolve("model-waiting"));
+        sessions.release(chat.id);
+        System.out.println("Claude session grant survives foreground completion, waiting background permissions, queued settings, and slow turn preparation.");
+    }
+    private static List<JsonObject> approvalReplies(Path root, int offset) {
+        try {
+            var frames = wire(root).asList();
+            return frames.subList(offset, frames.size()).stream().map(JsonElement::getAsJsonObject).filter(value -> text(value, "type").equals("control_response")).toList();
+        } catch (Exception error) { throw new RuntimeException(error); }
     }
     private static JsonObject options() { return object("model", "", "permissions", "ask", "effort", "", "fast", false); }
     private static JsonArray input(String text) { return GSON.toJsonTree(List.of(object("type", "text", "text", text))).getAsJsonArray(); }

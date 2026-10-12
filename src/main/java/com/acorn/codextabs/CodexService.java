@@ -120,14 +120,23 @@ public final class CodexService implements Disposable {
             }, io).whenComplete((value, error) -> sessions.release(id)));
         return result;
     }
-    /** Save a deliberate permission choice without changing the running turn. */
+    /** Session approval changes apply immediately, including prompts already waiting. */
     public synchronized void rememberPermissions(String id, JsonObject payload) {
         String permissions = text(payload, "permissions");
         boolean claudeProvider = isClaude(id);
         if (!(claudeProvider ? Set.of("auto", "ask", "session", "edit", "read") : Set.of("auto", "ask", "session", "read")).contains(permissions)) {
             throw new IllegalArgumentException("Choose a valid permission mode.");
         }
-        chat(id).approvals.select(permissions);
+        var chat = chat(id);
+        synchronized (chat) {
+            chat.approvals.select(permissions);
+            if (claudeProvider) { claude.approvePending(chat); }
+            else {
+                for (var pending : chat.pendingRequests()) {
+                    if (pending.has("rpcId") && autoApprove(chat, pending, pending.get("rpcId"))) { chat.resolve(text(pending, "key")); }
+                }
+            }
+        }
         if (permissions.equals("session")) { changed(id); return; }
         if (claudeProvider) { settings().claudePermissions = permissions; }
         else { settings().permissions = permissions; }
@@ -988,18 +997,22 @@ public final class CodexService implements Disposable {
             return send(id, object("text", reply.toString())).thenApply(result -> { chat.resolve(key); changed(id); return result; });
         }
         return connect().thenApply(rpc -> {
-            String method = text(pending, "method");
-            JsonObject response;
-            if (method.equals("item/tool/requestUserInput")) { response = object("answers", obj(payload, "answers")); }
-            else { response = ApprovalDecisions.response(pending, payload.has("decision") ? payload.get("decision") : new JsonPrimitive("decline"), obj(payload, "content")); }
-            rpc.respond(pending.get("rpcId"), response);
-            chat.resolve(key); changed(id);
+            synchronized (chat) {
+                var current = chat.request(key);
+                String method = text(current, "method");
+                JsonObject response;
+                if (method.equals("item/tool/requestUserInput")) { response = object("answers", obj(payload, "answers")); }
+                else { response = ApprovalDecisions.response(current, payload.has("decision") ? payload.get("decision") : new JsonPrimitive("decline"), obj(payload, "content")); }
+                rpc.respond(current.get("rpcId"), response);
+                chat.resolve(key);
+            }
+            changed(id);
             sessions.working(id, chat.busy());
             return new JsonObject();
         });
     }
     public CompletableFuture<JsonObject> stop(String id) {
-        chat(id).approvals.endTurn();
+        chat(id).approvals.stopTurn();
         if (isClaude(id)) { return claude.stop(chat(id)); }
         var chat = chat(id);
         return rpc("turn/interrupt", object("threadId", chat.get("threadId"), "turnId", chat.get("turnId")));
@@ -1058,6 +1071,14 @@ public final class CodexService implements Disposable {
         attachmentRoot = home.replace('\\', '/') + "/.codex/codex-idea-tabs/attachments";
         return attachmentRoot;
     }
+    private boolean autoApprove(Conversation chat, JsonObject pending, JsonElement rpcId) {
+        var rpc = client;
+        if (rpc == null || !rpc.isAlive() || !chat.approvals.active()
+            || (!text(pending, "turnId").isBlank() && !text(pending, "turnId").equals(chat.get("turnId")))) { return false; }
+        var response = ApprovalDecisions.automaticResponse(pending);
+        if (response == null) { return false; }
+        rpc.respond(rpcId, response); return true;
+    }
     private void event(JsonObject event) {
         var params = obj(event, "params");
         String threadId = text(params, "threadId", text(obj(params, "thread"), "id"));
@@ -1067,12 +1088,14 @@ public final class CodexService implements Disposable {
         var target = chats.values().stream().filter(chat -> !chat.get("provider").equals("claude") && !threadId.isBlank() && chat.get("threadId").equals(threadId)).findFirst();
         if (target.isPresent()) {
             var chat = target.get();
-            if (event.has("id") && chat.approvals.active() && (text(params, "turnId").isBlank() || text(params, "turnId").equals(chat.get("turnId")))) {
-                var pending = params.deepCopy(); pending.addProperty("method", text(event, "method"));
-                var response = ApprovalDecisions.automaticResponse(pending);
-                if (response != null) { client.respond(event.get("id"), response); return; }
+            synchronized (chat) {
+                if (event.has("id")) {
+                    var pending = params.deepCopy(); pending.addProperty("method", text(event, "method"));
+                    if (autoApprove(chat, pending, event.get("id"))) { return; }
+                }
+                chat.event(event);
             }
-            chat.event(event); changed(chat.id);
+            changed(chat.id);
             if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { chat.approvals.reset(); sessions.forget(chat.id); }
             sessions.working(chat.id, chat.busy());
             if (event.has("id") && !Set.of("item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request").contains(text(event, "method"))) {

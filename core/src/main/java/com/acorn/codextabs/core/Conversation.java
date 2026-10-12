@@ -203,6 +203,8 @@ public final class Conversation {
         }
         return copy;
     }
+    /** Read pending requests without copying the full conversation history. */
+    public synchronized List<JsonObject> pendingRequests() { return requests.values().stream().map(JsonObject::deepCopy).toList(); }
     public synchronized JsonObject request(String key) {
         var value = requests.get(key);
         if (value == null) { throw new IllegalArgumentException("This request has already been answered."); }

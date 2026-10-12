@@ -192,17 +192,22 @@ final class ClaudeSessions implements AutoCloseable {
     }
     private JsonObject start(Session session, JsonObject payload, JsonArray input) {
         var chat = session.chat;
-        String permissions = payload.has("reviewTarget") ? "read" : chat.approvals.resolve(text(payload, "permissions", chat.approvals.mode(settings.get().claudePermissions)));
-        String mode = switch (permissions) { case "ask", "session" -> "default"; case "edit" -> "acceptEdits"; case "read" -> "plan"; case "auto" -> "auto"; default -> throw new IllegalArgumentException("Choose a Claude permission mode."); };
+        String requestedPermissions = payload.has("reviewTarget") ? "read" : text(payload, "permissions", chat.approvals.mode(settings.get().claudePermissions));
+        String permissions;
         String model = text(payload, "model", settings.get().claudeModel);
         var client = session.client;
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TURN_SETUP_SECONDS);
         try {
             configure(client, object("subtype", "set_model", "model", model.isBlank() ? null : model), deadline);
-            configure(client, object("subtype", "set_permission_mode", "mode", mode), deadline);
             if (flag(chat.snapshot(), "claudeSettingsSupported")) {
                 configure(client, object("subtype", "apply_flag_settings", "settings", object("effortLevel", text(payload, "effort").isBlank() ? null : text(payload, "effort"), "fastMode", flag(payload, "fast"))), deadline);
             }
+            // Setup can take seconds. Honor a session grant selected while those requests were pending.
+            do {
+                permissions = chat.approvals.resolve(requestedPermissions);
+                String mode = switch (permissions) { case "ask", "session" -> "default"; case "edit" -> "acceptEdits"; case "read" -> "plan"; case "auto" -> "auto"; default -> throw new IllegalArgumentException("Choose a Claude permission mode."); };
+                configure(client, object("subtype", "set_permission_mode", "mode", mode), deadline);
+            } while (!permissions.equals(chat.approvals.resolve(requestedPermissions)));
         } catch (TimeoutException error) {
             // End preparation before enabling retry. A late settings reply must never submit the old draft.
             session.close(); changed.accept(chat);
@@ -256,21 +261,37 @@ final class ClaudeSessions implements AutoCloseable {
         }
         return result;
     }
+    /** Clear permission prompts when the user enables session approval during a turn. */
+    void approvePending(Conversation chat) {
+        synchronized (chat) {
+            var session = sessions.get(chat.id);
+            if (session == null || session.closed || !session.initialized || !session.client.isAlive() || !chat.approvals.permitsRequests()) { return; }
+            for (var pending : chat.pendingRequests()) {
+                if (!pending.has("rpcId") || !text(pending, "method").equals("claude/toolApproval")
+                    || !text(pending, "turnId").equals(chat.get("turnId"))) { continue; }
+                session.client.respond(text(pending, "rpcId"), object("behavior", "allow", "updatedInput", obj(obj(pending, "claudeRequest"), "input")));
+                chat.resolve(text(pending, "key"));
+            }
+        }
+    }
     JsonObject answer(Conversation chat, JsonObject payload) {
         var session = sessions.get(chat.id);
         if (session == null || !session.initialized || !session.client.isAlive()) { throw new IllegalStateException("Claude disconnected. Reconnect before answering."); }
-        var pending = chat.request(text(payload, "key"));
-        var request = obj(pending, "claudeRequest");
-        var response = ClaudeProtocol.approvalResponse(request, payload);
-        String decision = text(payload, "decision", "decline");
-        String key = ClaudeProtocol.approvalKey(chat.get("cwd"), request);
-        if (decision.equals("session") && !response.has("updatedPermissions")) { session.allowed.add(key); }
-        if (decision.equals("always") && !response.has("updatedPermissions")) { synchronized (settings.get()) { if (!settings.get().claudeApprovals.contains(key)) { settings.get().claudeApprovals.add(key); } } }
-        session.client.respond(text(pending, "rpcId"), response);
-        chat.resolve(text(payload, "key")); changed.accept(chat); return new JsonObject();
+        synchronized (chat) {
+            var pending = chat.request(text(payload, "key"));
+            var request = obj(pending, "claudeRequest");
+            var response = ClaudeProtocol.approvalResponse(request, payload);
+            String decision = text(payload, "decision", "decline");
+            String key = ClaudeProtocol.approvalKey(chat.get("cwd"), request);
+            if (decision.equals("session") && !response.has("updatedPermissions")) { session.allowed.add(key); }
+            if (decision.equals("always") && !response.has("updatedPermissions")) { synchronized (settings.get()) { if (!settings.get().claudeApprovals.contains(key)) { settings.get().claudeApprovals.add(key); } } }
+            session.client.respond(text(pending, "rpcId"), response);
+            chat.resolve(text(payload, "key"));
+        }
+        changed.accept(chat); return new JsonObject();
     }
     CompletableFuture<JsonObject> stop(Conversation chat) {
-        chat.approvals.endTurn();
+        chat.approvals.stopTurn();
         var session = sessions.get(chat.id);
         if (session == null) { return CompletableFuture.completedFuture(new JsonObject()); }
         session.paused = true;
@@ -320,30 +341,32 @@ final class ClaudeSessions implements AutoCloseable {
             if (type.equals("control_request")) {
                 var request = obj(event, "request"); String id = text(event, "request_id");
                 if (!text(request, "subtype").equals("can_use_tool")) { client.reject(id, "Unsupported Claude control request: " + text(request, "subtype")); return; }
-                String name = text(request, "tool_name");
-                String approval = ClaudeProtocol.approvalKey(chat.get("cwd"), request);
-                boolean remembered;
-                synchronized (settings.get()) { remembered = settings.get().claudeApprovals.contains(approval); }
-                if (!name.equals("AskUserQuestion") && (chat.approvals.active() || allowed.contains(approval) || remembered)) { client.respond(id, object("behavior", "allow", "updatedInput", obj(request, "input"))); return; }
-                var params = object("turnId", chat.get("turnId"), "claudeRequest", request);
-                boolean nativeRules = !name.equals("AskUserQuestion") && ClaudeProtocol.approvalResponse(request, object("decision", "always")).has("updatedPermissions");
-                String rules = ClaudeProtocol.permissionDescription(request);
-                if (name.equals("AskUserQuestion")) {
-                    var questions = new JsonArray();
-                    for (var entry : array(obj(request, "input"), "questions")) {
-                        var question = entry.getAsJsonObject().deepCopy(); question.addProperty("id", Integer.toString(questions.size())); questions.add(question);
+                synchronized (chat) {
+                    String name = text(request, "tool_name");
+                    String approval = ClaudeProtocol.approvalKey(chat.get("cwd"), request);
+                    boolean remembered;
+                    synchronized (settings.get()) { remembered = settings.get().claudeApprovals.contains(approval); }
+                    if (!name.equals("AskUserQuestion") && (chat.approvals.permitsRequests() || allowed.contains(approval) || remembered)) { client.respond(id, object("behavior", "allow", "updatedInput", obj(request, "input"))); return; }
+                    var params = object("turnId", chat.get("turnId"), "claudeRequest", request);
+                    boolean nativeRules = !name.equals("AskUserQuestion") && ClaudeProtocol.approvalResponse(request, object("decision", "always")).has("updatedPermissions");
+                    String rules = ClaudeProtocol.permissionDescription(request);
+                    if (name.equals("AskUserQuestion")) {
+                        var questions = new JsonArray();
+                        for (var entry : array(obj(request, "input"), "questions")) {
+                            var question = entry.getAsJsonObject().deepCopy(); question.addProperty("id", Integer.toString(questions.size())); questions.add(question);
+                        }
+                        params.add("questions", questions);
+                        chat.event(object("id", id, "method", "item/tool/requestUserInput", "params", params));
+                    } else {
+                        params.addProperty("reason", "Allow Claude to use " + name + "?");
+                        params.addProperty("command", GSON.toJson(obj(request, "input")));
+                        params.add("approvalChoices", GSON.toJsonTree(List.of(
+                            object("decision", "decline", "label", "Decline", "description", "Decline this action and let Claude continue."),
+                            object("decision", "session", "label", "Allow for session", "description", nativeRules ? "Allow the suggested rule for this Claude session: " + rules : "Allow this exact tool and input until this chat reconnects."),
+                            object("decision", "always", "label", "Always allow", "scope", "always", "description", nativeRules ? "Save this Claude permission rule in local project settings: " + rules : "Remember this exact " + name + " request in this checkout. Other tool inputs still need approval."),
+                            object("decision", "accept", "label", "Allow once", "description", "Allow this action once."))));
+                        chat.event(object("id", id, "method", "claude/toolApproval", "params", params));
                     }
-                    params.add("questions", questions);
-                    chat.event(object("id", id, "method", "item/tool/requestUserInput", "params", params));
-                } else {
-                    params.addProperty("reason", "Allow Claude to use " + name + "?");
-                    params.addProperty("command", GSON.toJson(obj(request, "input")));
-                    params.add("approvalChoices", GSON.toJsonTree(List.of(
-                        object("decision", "decline", "label", "Decline", "description", "Decline this action and let Claude continue."),
-                        object("decision", "session", "label", "Allow for session", "description", nativeRules ? "Allow the suggested rule for this Claude session: " + rules : "Allow this exact tool and input until this chat reconnects."),
-                        object("decision", "always", "label", "Always allow", "scope", "always", "description", nativeRules ? "Save this Claude permission rule in local project settings: " + rules : "Remember this exact " + name + " request in this checkout. Other tool inputs still need approval."),
-                        object("decision", "accept", "label", "Allow once", "description", "Allow this action once."))));
-                    chat.event(object("id", id, "method", "claude/toolApproval", "params", params));
                 }
             } else if (type.equals("control_cancel_request")) { chat.resolve(new JsonPrimitive(text(event, "request_id")).toString()); }
             else { protocol.accept(event); }

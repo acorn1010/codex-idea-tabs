@@ -50,8 +50,28 @@ final class SessionApprovalSmoke {
         service.rememberPermissions(chat.id, object("permissions", "ask"));
         check(!chat.approvals.active(), "Turning off must take effect immediately");
         request(service, chat, "disabled", "item/commandExecution/requestApproval", object()); decline(service, chat);
+        request(service, chat, "waiting-command", "item/commandExecution/requestApproval", object());
+        request(service, chat, "waiting-files", "item/fileChange/requestApproval", object());
+        request(service, chat, "waiting-permissions", "item/permissions/requestApproval", object("permissions", object("network", object("enabled", true))));
+        request(service, chat, "waiting-connector", "mcpServer/elicitation/request", object("mode", "form", "requestedSchema", object("type", "object", "properties", object())));
+        request(service, chat, "waiting-question", "item/tool/requestUserInput", object("questions", List.of(object("id", "q", "question", "Which?"))));
+        request(service, chat, "waiting-form", "mcpServer/elicitation/request", object("mode", "form", "requestedSchema", object("type", "object", "properties", object("name", object("type", "string")))));
+        await(() -> chat.pendingRequests().size() == 6);
+        int repliesBeforeSelection = array(stats(service), "approvalReplies").size();
         service.rememberPermissions(chat.id, object("permissions", "session"));
-        check(!chat.approvals.active(), "Enabling during a turn must wait for the next turn");
+        check(chat.approvals.active(), "Enabling during a turn must take effect immediately");
+        await(() -> array(stats(service), "approvalReplies").size() == repliesBeforeSelection + 4);
+        check(chat.pendingRequests().size() == 2, "Only questions and forms with fields should stay pending");
+        for (var pending : chat.pendingRequests()) {
+            String method = text(pending, "method");
+            check(List.of("item/tool/requestUserInput", "mcpServer/elicitation/request").contains(method), "Permission prompt was not approved");
+            service.answer(chat.id, object("key", text(pending, "key"), "decision", "decline", "answers", object())).get(5, TimeUnit.SECONDS);
+        }
+        request(service, chat, "after-selection", "item/commandExecution/requestApproval", object());
+        await(() -> array(stats(service), "approvalReplies").size() == repliesBeforeSelection + 7);
+        check(chat.pendingRequests().isEmpty(), "Later requests in the same turn must also auto-approve");
+        service.rememberPermissions(chat.id, object("permissions", "session"));
+        check(array(stats(service), "approvalReplies").size() == repliesBeforeSelection + 7, "Selecting again must not send duplicate replies");
         service.stop(chat.id).get(5, TimeUnit.SECONDS); await(() -> !chat.busy());
         start(service, chat); check(chat.approvals.active(), "Next turn must activate the selected mode");
         service.editorClosed(chat.id); check(chat.approvals.active(), "Closing one of two editors must preserve the grant");
@@ -62,7 +82,7 @@ final class SessionApprovalSmoke {
         start(service, chat); check(!chat.approvals.active(), "A stale composer must not restore an expired grant");
         request(service, chat, "reconnected", "item/commandExecution/requestApproval", object()); decline(service, chat);
         service.stop(chat.id).get(5, TimeUnit.SECONDS); await(() -> !chat.busy()); service.editorClosed(chat.id);
-        Files.writeString(output.resolve("session-approval-result.json"), GSON.toJson(object("askBackend", true, "oneOffReplies", true, "goalContinuation", true, "manualQuestionsAndForms", true, "disableImmediate", true, "enableNextTurn", true, "lastEditorClose", true, "reconnectExpiry", true, "staleSend", true, "unchangedDefaults", true)));
+        Files.writeString(output.resolve("session-approval-result.json"), GSON.toJson(object("askBackend", true, "oneOffReplies", true, "goalContinuation", true, "manualQuestionsAndForms", true, "disableImmediate", true, "enableImmediate", true, "pendingPermissions", true, "lastEditorClose", true, "reconnectExpiry", true, "staleSend", true, "unchangedDefaults", true)));
     }
     private static String mode(CodexService service, Conversation chat) { return text(obj(service.snapshot(chat.id), "settings"), "permissions"); }
     private static JsonObject stats(CodexService service) { return service.rpc("fixture/stats", object()).join(); }

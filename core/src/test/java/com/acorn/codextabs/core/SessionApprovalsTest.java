@@ -7,9 +7,11 @@ import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class SessionApprovalsTest {
-    @Test void selectionAppliesToNextTurnAndCanBeDisabledImmediately() {
+    @Test void selectionAppliesToTheRunningTurnAndCanBeDisabledImmediately() {
         var mode = new SessionApprovals(); mode.beginTurn("ask"); mode.select("session");
-        assertEquals("session", mode.mode("auto")); assertFalse(mode.active());
+        assertEquals("session", mode.mode("auto")); assertTrue(mode.active(), "Selecting session must release a running turn from manual approvals");
+        mode.beginTurn("session"); assertTrue(mode.active());
+        mode.endTurn(); mode.select("session"); assertFalse(mode.active(), "Codex still requires an active turn");
         mode.beginTurn("session"); assertTrue(mode.active());
         mode.select("ask"); assertFalse(mode.active());
         assertEquals("ask", mode.resolve("session"), "A stale UI value must not re-enable session approval");
@@ -23,16 +25,34 @@ class SessionApprovalsTest {
         assertFalse(chat.approvals.active()); assertEquals("ask", chat.approvals.mode("auto"));
         chat.approvals.beginTurn("session"); assertFalse(chat.approvals.active());
     }
-    @Test void goalContinuationKeepsTheGrantOnlyWhileTheBackendStillUsesSessionMode() {
+    @Test void goalContinuationKeepsTheCurrentGrantUntilReconnect() {
         var chat = new Conversation("chat", "/repo"); chat.approvals.select("session"); chat.approvals.beginTurn("session");
         chat.event(object("method", "turn/completed", "params", object("turn", object("id", "first"))));
         chat.event(object("method", "turn/started", "params", object("turn", object("id", "continued"))));
         assertTrue(chat.approvals.active());
         chat.approvals.select("ask"); chat.approvals.turnStarted(); assertFalse(chat.approvals.active());
         chat.approvals.beginTurn("read"); chat.approvals.select("session"); chat.approvals.turnStarted();
-        assertFalse(chat.approvals.active(), "Selecting session cannot change an existing read-only turn");
-        chat.disconnected(); chat.approvals.select("session"); chat.approvals.turnStarted();
+        assertTrue(chat.approvals.active(), "An explicit selection during a turn must take effect immediately");
+        chat.disconnected(); chat.approvals.turnStarted();
         assertFalse(chat.approvals.active(), "Reconnected turns must not inherit the old backend mode");
+    }
+    @Test void sessionGrantSurvivesCompletionAndStaleQueuedSettings() {
+        var mode = new SessionApprovals(); mode.select("session"); mode.beginTurn("session");
+        mode.endTurn();
+        assertFalse(mode.active());
+        assertTrue(mode.permitsRequests(), "Foreground completion must not disable Claude background approvals");
+        assertEquals("session", mode.resolve("ask"));
+        assertEquals("session", mode.resolve("auto"));
+        mode.beginTurn("ask"); assertTrue(mode.permitsRequests(), "Captured settings must not erase a live grant");
+        assertEquals("read", mode.resolve("read"));
+        mode.beginTurn("read"); assertFalse(mode.permitsRequests(), "Explicit read-only reviews remain read-only");
+        mode.select("session"); assertTrue(mode.permitsRequests());
+        mode.stopTurn(); assertFalse(mode.permitsRequests(), "Stop must suspend late tool approvals");
+        mode.beginTurn("session"); assertTrue(mode.permitsRequests());
+        mode.reset(); assertFalse(mode.permitsRequests());
+        assertEquals("ask", mode.resolve("session"));
+        mode.select("session"); assertTrue(mode.permitsRequests(), "A fresh explicit choice can approve an idle background request");
+        mode.select("ask"); assertFalse(mode.permitsRequests());
     }
     @Test void restartHandoffAndOtherChatsDoNotInheritTheGrant() {
         var chat = new Conversation("chat", "/repo"); chat.approvals.select("session"); chat.approvals.beginTurn("session");

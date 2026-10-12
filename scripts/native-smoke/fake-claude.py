@@ -77,7 +77,12 @@ for line in sys.stdin:
         active = frame["uuid"]
         content = frame["message"]["content"]
         prompt = " ".join(part.get("text", "") for part in content)
-        if prompt == "approval":
+        if prompt == "background-approval":
+            finish(active)
+            active = "background-" + frame["uuid"]
+            pending = active
+            emit({"type": "control_request", "request_id": "background-approval", "request": {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo background"}}})
+        elif prompt == "approval":
             pending = active
             emit({"type": "control_request", "request_id": "approval", "request": {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "npm test"}, "permission_suggestions": [{"type": "addRules", "behavior": "allow", "rules": [{"toolName": "Bash", "ruleContent": "npm test"}]}]}})
         elif prompt == "question":
