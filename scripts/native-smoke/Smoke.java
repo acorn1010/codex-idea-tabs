@@ -35,6 +35,12 @@ public final class Smoke implements StartupActivity.DumbAware {
                 if (Boolean.getBoolean("codex.smoke.prSearch.check")) {
                     PrSearchSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }
+                if (Boolean.getBoolean("codex.smoke.modelSwitch.check")) {
+                    ModelSwitchSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
+                }
+                if (Boolean.getBoolean("codex.smoke.localModel.check")) {
+                    LocalModelSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
+                }
                 if (Boolean.getBoolean("codex.smoke.cleanup.check")) {
                     WorktreeCleanupSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }

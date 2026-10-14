@@ -41,6 +41,7 @@ export function ChatApp() {
   const [effort, setEffort] = useState('');
   const [permissionPreference, setPermissionPreference] = useState('auto');
   const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
+  const isLocal = !!selectedModel?.isLocal;
   // An unsupported model uses Ask me without forgetting the user's saved choice.
   const permissions = isClaude && permissionPreference === 'auto' && !selectedModel?.supportsAutoMode ? 'ask' : permissionPreference;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -318,7 +319,7 @@ export function ChatApp() {
     } catch (error) { setError((error as Error).message); }
     finally { setArchivePending(false); }
   };
-  const needsLogin = state?.account.requiresOpenaiAuth && !state.account.account;
+  const needsLogin = !isLocal && state?.account.requiresOpenaiAuth && !state.account.account;
   const backgroundStatus = isClaude && chat?.claudeActivity?.tasks?.length ? 'Background work' : isClaude && chat?.claudeActivity?.wakeup?.scheduledFor !== undefined ? 'Wakeup scheduled' : '';
   const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? backgroundStatus || 'Ready' : 'Disconnected';
   const alert = error || chat?.error || state?.error || connectionError || (chat && !chat.archived && state?.connection === 'disconnected' ? `${providerName} is disconnected. Reconnect to continue.` : '');
@@ -342,7 +343,7 @@ export function ChatApp() {
     ['memories', 'Memories', 'layers', 'Inspect memory instructions in context'],
     ['model', 'Model', 'code', selectedModel?.displayName || model || `${providerName} default`],
     ['plan', 'Plan mode', 'plan', `Turn plan mode ${(isClaude ? permissions === 'read' : planMode) ? 'off' : 'on'}`],
-    ['reasoning', 'Reasoning', 'reasoning', ({ low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', ultra: 'Ultra' })[effort] || effort || 'Default', !selectedModel || (isClaude && !chat?.claudeSettingsSupported)],
+    ['reasoning', 'Reasoning', 'reasoning', ({ low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High', ultra: 'Ultra' })[effort] || effort || 'Default', !selectedModel || isLocal || (isClaude && !chat?.claudeSettingsSupported)],
     ['status', 'Status', 'status', 'Show chat ID, context usage, and rate limits'],
     ['context', 'Context inspector', 'layers', 'Inspect recorded rules, skills, and messages'],
     ['permissions', 'Permissions', 'shield', permissions === 'auto' ? 'Approve for me' : permissions === 'session' ? 'Approve all for session' : permissions === 'ask' ? 'Ask me' : 'Read only'],
@@ -441,7 +442,7 @@ export function ChatApp() {
       <WorkspaceMenu chat={chat} label={state?.workspaceLabel} draft={draft} attachments={attachments} onRemoved={() => restoreButton.current?.focus()} />
       <button ref={restoreButton} disabled={archivePending} onClick={() => void setArchived(false)} className="shrink-0 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-composer enabled:hover:brightness-110 enabled:active:translate-y-px enabled:active:brightness-90 disabled:opacity-40">Restore chat</button>
     </footer> : <footer className="shrink-0 space-y-2 px-3 pt-2 pb-3">
-      {showStatus && state && (isClaude ? <ClaudeStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} /> : <ChatStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />)}
+      {showStatus && state && (isClaude ? <ClaudeStatus state={state} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} /> : <ChatStatus state={state} local={isLocal} onClose={() => { setShowStatus(false); textarea.current?.focus(); }} />)}
       {commandPanel && <CommandPanel key={commandPanel} action={commandPanel} working={!!working} options={{ model, effort, permissions, fast: effectiveFast, planMode }} onClose={() => { setCommandPanel(undefined); textarea.current?.focus(); }} />}
       {chat?.workspaceNotice && <div role="status" className="flex items-start gap-2 rounded-lg bg-attention/10 px-3 py-2 text-xs text-attention"><p className="flex-1">{chat.workspaceNotice}</p><SmallButton label="Dismiss workspace notice" icon="close" onClick={() => void run('dismissWorkspaceNotice')} /></div>}
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
@@ -494,7 +495,7 @@ export function ChatApp() {
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <ChoiceMenu openRequest={modelMenuRequest} label="Model" disabled={changingProvider || !!chat?.providerSwitching} value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: `${providerName} default` }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).filter((value) => value.model !== '').map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
-          {selectedModel && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
+          {selectedModel && !isLocal && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex size-7 shrink-0 items-center justify-center gap-1 rounded text-[10px] @min-[640px]/composer:w-auto @min-[640px]/composer:px-1 hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[640px]/composer:hidden">IDE context</span></button>
           {working && <button aria-label={`Stop ${providerName}`} title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
           {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? isClaude ? 'Queue for the next turn'  : 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={changingProvider || !!chat?.providerSwitching || archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}

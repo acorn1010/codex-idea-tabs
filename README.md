@@ -206,3 +206,14 @@ Codex loads the selected checkout's own instructions and skills. Codex Tabs also
 ### Remembering approvals
 
 Approval cards show **Always allow** when Codex offers a saved command-prefix or network-host rule. The card shows the rule before you select it. **Allow for session** remembers a command or file approval, or keeps the requested permissions for later turns in that session. **Allow once** and **Decline** remain separate choices. Computer Use, Browser Use, and other MCP connectors also get **Allow for session** and **Always allow** when they offer those durations. The selected duration is sent back to that connector with your form answers. Available buttons follow the choices supported by the current Codex request.
+
+## Local GLM
+
+Enable local GLM in Settings > Tools > Codex Tabs and set its local API URL, such as
+`http://127.0.0.1:30001/v1`. Select GLM 5.3 Flash (local) under the Codex provider.
+The model server runs separately. On Windows with WSL, the plugin connects through
+Windows curl and a private loopback relay. Python 3 must be available in WSL.
+
+Local chats use a 128K context window, compact at 98,304 tokens, and keep their
+saved history when resumed. Their compaction prompt produces a text checkpoint
+with verified progress and the next step. Cloud model settings stay separate.

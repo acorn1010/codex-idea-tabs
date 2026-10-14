@@ -19,6 +19,8 @@ public final class CodexSettings implements PersistentStateComponent<CodexSettin
         public String cwd = "";
         public boolean sharedGuidanceEnabled = true;
         public String sharedGuidanceFolder = "";
+        public boolean localModelEnabled;
+        public String localModelUrl = "http://127.0.0.1:30001/v1";
         public String model = "";
         public String effort = "";
         public boolean modelSelectionSaved;

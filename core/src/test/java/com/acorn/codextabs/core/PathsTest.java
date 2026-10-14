@@ -22,4 +22,14 @@ class PathsTest {
         assertEquals("/home/a b/$(echo secret)/codex", args.getLast());
         assertFalse(args.get(6).contains("secret"));
     }
+    @Test void providerOverridesStaySeparateFromTheShellProgram() {
+        var options = LocalModel.overrides("http://127.0.0.1:30001/v1");
+        var wsl = Paths.command("/home/a b/codex", "Ubuntu", true, options);
+        assertEquals(options, wsl.subList(wsl.size() - options.size(), wsl.size()));
+        assertEquals("/home/a b/codex", wsl.get(wsl.size() - options.size() - 1));
+        assertFalse(wsl.get(6).contains("base_url"));
+        var nativeArgs = Paths.command("C:/CLI/codex.exe", "", true, options);
+        assertEquals("app-server", nativeArgs.getLast());
+        assertEquals(options, nativeArgs.subList(1, nativeArgs.size() - 1));
+    }
 }

@@ -30,6 +30,22 @@ last_fork_params = {}
 last_list_params = {}
 approval_replies = []
 goals = {}
+model_switch = os.environ.get("CODEX_SMOKE_MODEL_SWITCH") == "1"
+model_file = root / "model-states.json"
+model_states = json.loads(model_file.read_text()) if model_file.exists() else {}
+last_resume_params = {}
+
+
+def model_reply(thread_id, params):
+    """Loaded threads ignore model overrides, as the real Codex app-server does."""
+    state = model_states.setdefault(thread_id, {"modelProvider": "openai", "model": "gpt-6-astra", "origin": params.get("modelProvider", "openai")})
+    if thread_id not in subscriptions:
+        state["modelProvider"] = params.get("modelProvider", state["modelProvider"])
+        state["model"] = params.get("model", state["model"])
+        state["config"] = params.get("config", {})
+        model_file.write_text(json.dumps(model_states))
+    return {"modelProvider": state["modelProvider"], "model": state["model"]}
+
 
 
 def emit(value):
@@ -71,7 +87,7 @@ def context_record(thread_id):
 
 
 def thread(thread_id):
-    return {"path": str(context_record(thread_id)) if thread_id.startswith("context-") else None, "id": thread_id, "name": titles.get(thread_id, "New task"), "preview": "", "cwd": thread_cwds.get(thread_id, str(root)), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1, "status": {"type": statuses.get(thread_id, "idle")}}
+    return {"path": str(context_record(thread_id)) if thread_id.startswith("context-") else None, "id": thread_id, **({"modelProvider": model_states.get(thread_id, {}).get("origin", "openai")} if model_switch else {}), "name": titles.get(thread_id, "New task"), "preview": "", "cwd": thread_cwds.get(thread_id, str(root)), "turns": turns(thread_id), "createdAt": 1, "updatedAt": 1, "status": {"type": statuses.get(thread_id, "idle")}}
 
 
 def items(thread_id):
@@ -128,7 +144,7 @@ def attention(thread_id):
 
 
 def respond(request):
-    global last_turn_params, last_fork_params, last_list_params
+    global last_turn_params, last_fork_params, last_list_params, last_resume_params
     method, params = request.get("method"), request.get("params", {})
     result = {}
     if method == "initialize":
@@ -157,6 +173,8 @@ def respond(request):
         turn = {"id": "fixture-review-" + str(time.time_ns()), "status": "inProgress", "items": []}
         event("turn/started", params["threadId"], turn=turn)
         result = {"reviewThreadId": params["threadId"], "turn": turn}
+    elif method == "config/read" and model_switch:
+        result = {"config": {"model": "gpt-6-astra", "model_provider": "openai"}}
     elif method == "account/read":
         result = {"account": {"type": "chatgpt", "planType": "pro"}, "requiresOpenaiAuth": True}
     elif method == "model/list":
@@ -182,7 +200,7 @@ def respond(request):
         event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "fixture/stats":
-        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies}
+        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params}
     elif method == "fixture/event":
         notification = params["event"]
         thread_id = notification["params"]["threadId"]
@@ -201,6 +219,8 @@ def respond(request):
         resumes[thread_id] = resumes.get(thread_id, 0) + 1
         if thread_id.startswith("lifecycle-retry-") and resumes[thread_id] == 1:
             raise RuntimeError("Fixture resume needs a retry")
+        last_resume_params = params
+        metadata = model_reply(thread_id, params) if model_switch else {}
         subscriptions.add(thread_id)
         if params.get("cwd"):
             thread_cwds[thread_id] = params["cwd"]
@@ -208,7 +228,7 @@ def respond(request):
         resumed = thread(thread_id)
         if params.get("excludeTurns"):
             resumed["turns"] = []
-        result = {"thread": resumed}
+        result = {"thread": resumed, **metadata}
         threading.Thread(target=attention, args=(params["threadId"],), daemon=True).start()
     elif method == "thread/read":
         result = {"thread": thread(params["threadId"])}
@@ -238,7 +258,8 @@ def respond(request):
     elif method == "thread/start":
         new_id = "new-" + str(time.time_ns())
         thread_cwds[new_id] = params.get("cwd", str(root))
-        result = {"thread": thread(new_id)}
+        metadata = model_reply(new_id, params) if model_switch else {}
+        result = {"thread": thread(new_id), **metadata}
         subscriptions.add(new_id)
         save_history()
     elif method == "turn/steer" and params["threadId"].startswith("steer-"):

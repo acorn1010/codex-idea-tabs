@@ -45,11 +45,17 @@ public final class Paths {
         return result;
     }
     public static List<String> command(String binary, String distro, boolean windows) {
+        return command(binary, distro, windows, List.of());
+    }
+    /** Pass provider configuration as individual arguments, including inside WSL. */
+    public static List<String> command(String binary, String distro, boolean windows, List<String> options) {
         if (binary.isBlank()) { binary = "codex"; }
         if (windows && !distro.isBlank()) {
             // Positional arguments keep spaces and shell metacharacters out of executable shell text.
-            return List.of("wsl.exe", "--distribution", distro, "--exec", "/bin/sh", "-lc", "exec \"$1\" app-server", "codex-tabs", binary);
+            var args = new ArrayList<>(List.of("wsl.exe", "--distribution", distro, "--exec", "/bin/sh", "-lc", "exec \"$@\" app-server", "codex-tabs", binary));
+            args.addAll(options); return args;
         }
-        return List.of(binary, "app-server");
+        var args = new ArrayList<>(List.of(binary));
+        args.addAll(options); args.add("app-server"); return args;
     }
 }
