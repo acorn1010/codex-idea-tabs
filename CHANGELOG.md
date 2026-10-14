@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.17
+
+- Lower local GLM to 96K context and compact at 73,728 tokens to leave more system RAM available.
+- Preserve the local GLM prompt prefix during compaction so the server can reuse its cached context. Keep tool calls disabled while summarizing.
+
 ## 1.0.11
 
 - Copy the whole chat as Markdown, including older messages, tool activity, and image references. Works with archived chats and preserves the visible history and draft.

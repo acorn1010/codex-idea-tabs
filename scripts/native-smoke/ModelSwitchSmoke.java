@@ -50,7 +50,7 @@ final class ModelSwitchSmoke {
         if (local != config.has("model_context_window")) { throw new AssertionError("Local context settings leaked across model switching"); }
         if (local != config.has("compact_prompt")) { throw new AssertionError("Compaction prompt leaked across model switching"); }
         if (local && !text(config, "compact_prompt").contains("Do not call tools")) { throw new AssertionError("Local compaction prompt was not forwarded"); }
-        if (local && config.get("model_context_window").getAsInt() != 131072) { throw new AssertionError("Wrong local context window"); }
+        if (local && config.get("model_context_window").getAsInt() != 98304) { throw new AssertionError("Wrong local context window"); }
         if (!chat.get("error").isBlank()) { throw new AssertionError(chat.get("error")); }
     }
     private ModelSwitchSmoke() {}

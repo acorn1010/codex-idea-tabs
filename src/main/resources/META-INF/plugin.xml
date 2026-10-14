@@ -16,6 +16,13 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI, Anthropic, or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
+        <p>1.0.17 adds local GLM and keeps its prompt cache available during compaction.</p>
+        <ul>
+            <li>Use a 96K context window and compact at 73,728 tokens to leave more system RAM available.</li>
+            <li>Keep the prior tool definitions during compaction with tool calls disabled.</li>
+            <li>Connect WSL Codex to the Windows model API through a private relay and keep saved chat history.</li>
+        </ul>
+        <p>Previous improvements:</p>
         <p>1.0.12 adds Claude Code, provider switching, and Mermaid diagrams.</p>
         <ul>
             <li>Use Claude Code with streamed replies, tools, approvals, models, effort controls, session history, and shared project guidance.</li>

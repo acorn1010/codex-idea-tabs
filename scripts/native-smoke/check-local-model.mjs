@@ -16,7 +16,7 @@ const browser = await chromium.launch({ executablePath: process.env.CODEX_SMOKE_
 try {
   const page = await browser.newPage(); const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
-    const chat = { id: 'local', provider: 'codex', threadId: '', title: 'Local GLM', cwd: '/project', draft: '', items: [], requests: [], status: 'idle', working: false, unread: false, pinned: false, revision: 1, tokenUsage: { last: { totalTokens: 9000 }, modelContextWindow: 124518 } };
+    const chat = { id: 'local', provider: 'codex', threadId: '', title: 'Local GLM', cwd: '/project', draft: '', items: [], requests: [], status: 'idle', working: false, unread: false, pinned: false, revision: 1, tokenUsage: { last: { totalTokens: 9000 }, modelContextWindow: 93388 } };
     const snapshot = { connection: 'connected', error: '', project: 'Project', cwd: '/project', settings: { model: 'glm-flash-uncensored', effort: '', modelSelectionSaved: true, permissions: 'ask', permissionRevision: 0, fast: true },
       models: [{ id: 'glm-flash-uncensored', model: 'glm-flash-uncensored', displayName: 'GLM 5.3 Flash (local)', isLocal: true, supportedReasoningEfforts: [] }, { id: 'cloud', model: 'cloud', displayName: 'Cloud model', isDefault: true, defaultReasoningEffort: 'high', supportedReasoningEfforts: [{ reasoningEffort: 'high', description: 'Think deeply' }], additionalSpeedTiers: ['fast'] }],
       account: { requiresOpenaiAuth: true }, sessions: [], chat };
@@ -52,7 +52,7 @@ try {
     await field.fill('/status'); await page.getByRole('option', { name: /^Status/ }).click();
     const status = page.getByRole('region', { name: 'Session status' });
     await status.getByText('Local GLM uses your computer. No account quota applies.', { exact: true }).waitFor();
-    assert.ok((await status.textContent()).includes('/ 124,518'), 'The status panel must use the 128K harness allowance');
+    assert.ok((await status.textContent()).includes('/ 93,388'), 'The status panel must use the 96K harness allowance');
     assert.equal(await page.evaluate(() => window.__requests.filter(call => call.method === 'accountLimits').length), 0);
     assert.ok(await status.evaluate(element => element.scrollWidth <= element.clientWidth));
     await page.screenshot({ path: `${output}/local-glm-${theme}-${width}.png` });

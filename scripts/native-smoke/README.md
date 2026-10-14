@@ -210,3 +210,24 @@ Path(__file__).with_name("opened-url.json").write_text(json.dumps(sys.argv[1:]))
 ```
 
 The check creates only fixture files and writes `links-result.json` in the profile's log directory. It verifies browser dispatch with an anchor and query, encoded filenames, explicit source opening, line and column navigation, a missing file, and a retained chat connection.
+
+## Local GLM
+
+Run `check-local-model.mjs` after building the UI with `CODEX_SMOKE_CHROME` set. It checks the GLM picker entry, the upstream permission menu, automatic review selection and send settings, hidden cloud controls, local status, narrow layouts and switching back to cloud controls. It makes no model calls.
+
+For a live check, launch a disposable Windows IDEA profile with the smoke plugin and `-Dcodex.smoke.localModel.check=true`. Set `codex.smoke.binary` to the WSL Codex executable, `codex.smoke.distro` to the distribution, `codex.smoke.cwd` to a disposable fixture directory as seen from WSL, and `codex.smoke.localModel.fixture` to that same directory as seen from Windows. The optional `codex.smoke.localModel.url` defaults to `http://127.0.0.1:30001/v1`.
+
+The live check sends a real local model turn. It creates only `input.txt` and `output.txt` in the fixture, accepts its shell tool requests, checks the 96K server window with Codex’s 5% reserve and saved provider, reconnects the actual plugin service, and writes `logs/local-model-result.json`. Keep the running GLM server available. Never point this test at a real project or run it in the daily IDEA profile.
+
+Set `-Dcodex.smoke.modelSwitch.check=true` with `scripts/fake-codex.py` and `CODEX_SMOKE_MODEL_SWITCH=1` for the fixture check. On Windows, forward `CODEX_SMOKE_ROOT` and `CODEX_SMOKE_MODEL_SWITCH` through `WSLENV`. It checks local to cloud switching, cloud to local switching, Codex default, cleared local context settings, history retention and reconnect. The fixture ignores overrides on loaded threads and returns the original provider in historical thread metadata, matching the behavior found in the real app-server. Results go to `logs/model-switch-result.json`. It makes no model calls.
+
+### GLM compaction cache
+
+Run `python3 core/src/test/python/test_wsl_model_relay.py` to exercise the relay with
+real HTTP requests and curl processes. These checks also run with `:core:test`.
+
+On Windows with GLM running, run `check-compaction-cache.py --output <result.json>`
+with Python. It uses the installed WSL Codex app-server and Windows curl against an
+isolated Responses fixture, then checks the prompt prefix with GLM's template API.
+The check does not generate tokens or replace the live GPU cache. Timing the next
+real compaction remains a separate production check.

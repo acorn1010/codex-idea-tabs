@@ -1,5 +1,7 @@
 """Let a WSL harness reach a Windows-local model through Windows curl and pipes."""
 import http.server
+import json
+from collections import OrderedDict
 import subprocess
 import sys
 import threading
@@ -9,6 +11,44 @@ UPSTREAM = urllib.parse.urlsplit(sys.argv[1])
 CURL = sys.argv[2]
 ACTIVE = set()
 LOCK = threading.Lock()
+MAX_CACHED_TOOL_SETS = 128
+TOOL_SETS = OrderedDict()
+
+
+def compaction_body(body):
+    """Keep the prompt prefix for known Codex compactions without enabling tool calls."""
+    try:
+        request = json.loads(body)
+        if not isinstance(request, dict):
+            return body
+        metadata = request.get('client_metadata', {})
+        if not isinstance(metadata, dict):
+            return body
+        turn = json.loads(metadata.get('x-codex-turn-metadata', '{}'))
+        if not isinstance(turn, dict):
+            return body
+    except (ValueError, TypeError):
+        return body
+    identity = (request.get('model'), request.get('prompt_cache_key'), request.get('instructions', ''))
+    if not all(isinstance(value, str) for value in identity) or not identity[0] or not identity[1]:
+        return body
+    tools = request.get('tools', [])
+    if not isinstance(tools, list):
+        return body
+    with LOCK:
+        if turn.get('request_kind') != 'compaction':
+            TOOL_SETS.pop(identity, None)
+            if tools:
+                TOOL_SETS[identity] = tools
+                if len(TOOL_SETS) > MAX_CACHED_TOOL_SETS:
+                    TOOL_SETS.popitem(last=False)
+            return body
+        saved = TOOL_SETS.get(identity)
+        if tools or not saved:
+            return body
+        request['tools'] = saved
+        request['tool_choice'] = 'none'
+    return json.dumps(request, ensure_ascii=False).encode('utf-8')
 
 
 class Relay(http.server.BaseHTTPRequestHandler):
@@ -28,6 +68,8 @@ class Relay(http.server.BaseHTTPRequestHandler):
             self.send_error(404, 'Only model API requests are supported.')
             return
         body = self.rfile.read(int(self.headers.get('Content-Length', '0')))
+        if self.command == 'POST' and urllib.parse.urlsplit(self.path).path == '/v1/responses':
+            body = compaction_body(body)
         url = urllib.parse.urlunsplit((UPSTREAM.scheme, UPSTREAM.netloc, '', '', '')) + self.path
         command = [CURL, '--silent', '--show-error', '--no-buffer', '--noproxy', '*', '--max-time', '3600', '--dump-header', '-', '--request', self.command, '--header', 'Content-Type: application/json', '--header', 'Expect:', '--url', url]
         if self.command == 'POST':

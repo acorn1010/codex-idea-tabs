@@ -32,12 +32,12 @@ final class LocalModelSmoke {
         if (!Files.readString(fixture.resolve("output.txt")).strip().equals("PLUM-HARBOR-7286")) { throw new AssertionError("The model did not read and write the marker"); }
         if (!chat.get("modelProvider").equals(LocalModel.PROVIDER)) { throw new AssertionError("The local thread provider was not saved"); }
         var usage = obj(chat.snapshot(), "tokenUsage");
-        if (usage.get("modelContextWindow").getAsLong() != 131072L * 95 / 100) { throw new AssertionError("The harness used the wrong context limit"); }
+        if (usage.get("modelContextWindow").getAsLong() != 98304L * 95 / 100) { throw new AssertionError("The harness used the wrong context limit"); }
         service.reconnect();
         service.load(chat.id).get(90, TimeUnit.SECONDS);
         if (!chat.get("modelProvider").equals(LocalModel.PROVIDER)) { throw new AssertionError("Reconnect changed the local provider"); }
         Files.writeString(output.resolve("local-model-result.json"), GSON.toJson(object("toolLoop", true, "picker", true,
-            "serverContext", 131072, "harnessUsableContext", usage.get("modelContextWindow"), "provider", chat.get("modelProvider"), "reconnect", true, "thread", chat.get("threadId"))));
+            "serverContext", 98304, "harnessUsableContext", usage.get("modelContextWindow"), "provider", chat.get("modelProvider"), "reconnect", true, "thread", chat.get("threadId"))));
     }
     private static void waitForTurn(CodexService service, String id) throws Exception {
         long deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(15);

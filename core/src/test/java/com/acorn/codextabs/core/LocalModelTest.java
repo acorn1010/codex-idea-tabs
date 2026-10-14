@@ -10,8 +10,8 @@ class LocalModelTest {
         LocalModel.apply(params, LocalModel.MODEL);
         assertEquals("local_glm", text(params, "modelProvider"));
         var config = obj(params, "config");
-        assertEquals(131072, config.get("model_context_window").getAsInt());
-        assertEquals(98304, config.get("model_auto_compact_token_limit").getAsInt());
+        assertEquals(98304, config.get("model_context_window").getAsInt());
+        assertEquals(73728, config.get("model_auto_compact_token_limit").getAsInt());
         assertEquals("none", text(config, "model_reasoning_summary"));
         assertEquals("none", text(config, "model_reasoning_effort"));
         assertFalse(config.get("features.unified_exec").getAsBoolean());

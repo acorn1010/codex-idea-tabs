@@ -59,14 +59,14 @@ public final class LocalModel {
         values.forEach((key, value) -> { args.add("-c"); args.add("model_providers." + PROVIDER + "." + key + "=" + GSON.toJson(value)); });
         return args;
     }
-    /** Use the 128K server limit and JSON function tools for local threads. */
+    /** Use the 96K server limit and JSON function tools for local threads. */
     public static void apply(JsonObject params, String model) {
         if (!selected(model)) { return; }
         params.addProperty("modelProvider", PROVIDER);
         var config = obj(params, "config").deepCopy();
         config.addProperty("model_reasoning_effort", "none");
-        config.addProperty("model_context_window", 131072);
-        config.addProperty("model_auto_compact_token_limit", 98304);
+        config.addProperty("model_context_window", 98304);
+        config.addProperty("model_auto_compact_token_limit", 73728);
         config.addProperty("compact_prompt", COMPACT_PROMPT);
         config.addProperty("model_reasoning_summary", "none");
         config.addProperty("model_supports_reasoning_summaries", false);

@@ -214,6 +214,10 @@ Enable local GLM in Settings > Tools > Codex Tabs and set its local API URL, suc
 The model server runs separately. On Windows with WSL, the plugin connects through
 Windows curl and a private loopback relay. Python 3 must be available in WSL.
 
-Local chats use a 128K context window, compact at 98,304 tokens, and keep their
+Local chats use a 96K context window, compact at 73,728 tokens, and keep their
 saved history when resumed. Their compaction prompt produces a text checkpoint
 with verified progress and the next step. Cloud model settings stay separate.
+
+The relay keeps the preceding tool definitions on Codex compaction requests and
+disables tool calls. This keeps GLM's prompt prefix eligible for cache reuse.
+Reuse still depends on the history currently held in the server slot.
