@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.18
+
+- Show current context usage as a small ring beside the model, with exact token counts and percentage on hover.
+
 ## 1.0.17
 
 - Lower local GLM to 96K context and compact at 73,728 tokens to leave more system RAM available.

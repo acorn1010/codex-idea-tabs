@@ -231,3 +231,10 @@ with Python. It uses the installed WSL Codex app-server and Windows curl against
 isolated Responses fixture, then checks the prompt prefix with GLM's template API.
 The check does not generate tokens or replace the live GPU cache. Timing the next
 real compaction remains a separate production check.
+
+### Composer context ring
+
+Run `check-context-usage.mjs` with `CODEX_SMOKE_CHROME` set after building the UI.
+It checks exact token counts and percentages, live usage updates after compaction,
+unknown usage, keyboard focus, and local and cloud layouts at 320, 360 and 900
+pixels in both themes. It uses chat snapshots and makes no model calls.

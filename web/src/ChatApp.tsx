@@ -23,6 +23,27 @@ import { uploadAttachment, uploadDroppedFiles, useNativeFileDrop } from './attac
 
 type RecallSession = { messages: string[]; seen: Set<string>; index: number; cursor: string; pending: boolean; error?: string };
 
+const contextTokens = new Intl.NumberFormat('en');
+const contextPercent = new Intl.NumberFormat('en', { maximumFractionDigits: 1 });
+
+function ContextUsage({ usage }: { usage?: Json }) {
+  // The latest count describes the current context. The lifetime total survives compaction.
+  const last = usage?.last as { totalTokens?: number } | undefined;
+  const used = typeof last?.totalTokens === 'number' && Number.isFinite(last.totalTokens) && last.totalTokens >= 0 ? last.totalTokens : undefined;
+  const capacity = typeof usage?.modelContextWindow === 'number' && Number.isFinite(usage.modelContextWindow) && usage.modelContextWindow > 0 ? usage.modelContextWindow : undefined;
+  const percent = used !== undefined && capacity !== undefined ? used / capacity * 100 : undefined;
+  const filled = percent === undefined ? undefined : Math.min(100, percent);
+  const description = used === undefined ? 'Context usage not reported yet'
+    : capacity === undefined ? `Context usage: ${contextTokens.format(used)} tokens (limit not reported)`
+    : `Context usage: ${contextTokens.format(used)} / ${contextTokens.format(capacity)} tokens (${contextPercent.format(percent!)}% used)`;
+  return <span role="progressbar" aria-label="Context usage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={filled} aria-valuetext={description} title={description} tabIndex={0} className="flex size-7 shrink-0 cursor-default items-center justify-center rounded-md focus-visible:outline-1 focus-visible:outline-accent">
+    <svg viewBox="0 0 20 20" fill="none" strokeWidth={2} aria-hidden className="size-4.5 -rotate-90">
+      <circle cx={10} cy={10} r={8} className="stroke-muted/35" />
+      {filled !== undefined && filled > 0 && <circle cx={10} cy={10} r={8} pathLength={100} stroke="currentColor" strokeDasharray={`${filled} 100`} className="text-accent" />}
+    </svg>
+  </span>;
+}
+
 function SmallButton({ label, title = label, icon, disabled, onClick }: { label: string; title?: string; icon: Parameters<typeof Icon>[0]['name']; disabled?: boolean; onClick: () => void }) {
   return <button title={title} aria-label={label} disabled={disabled} onClick={onClick} className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted enabled:hover:bg-raised enabled:active:bg-line enabled:hover:text-ink enabled:active:text-accent disabled:opacity-40"><Icon name={icon} /></button>;
 }
@@ -495,6 +516,7 @@ export function ChatApp() {
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <ChoiceMenu openRequest={modelMenuRequest} label="Model" disabled={changingProvider || !!chat?.providerSwitching} value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: `${providerName} default` }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).filter((value) => value.model !== '').map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
+          <ContextUsage usage={chat?.tokenUsage} />
           {selectedModel && !isLocal && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex size-7 shrink-0 items-center justify-center gap-1 rounded text-[10px] @min-[640px]/composer:w-auto @min-[640px]/composer:px-1 hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[640px]/composer:hidden">IDE context</span></button>
           {working && <button aria-label={`Stop ${providerName}`} title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
