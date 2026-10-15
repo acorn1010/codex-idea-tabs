@@ -38,6 +38,9 @@ public final class Smoke implements StartupActivity.DumbAware {
                 if (Boolean.getBoolean("codex.smoke.modelSwitch.check")) {
                     ModelSwitchSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }
+                if (Boolean.getBoolean("codex.smoke.readiness.check")) {
+                    ReadinessSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
+                }
                 if (Boolean.getBoolean("codex.smoke.loopGuard.check")) {
                     LoopGuardSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }

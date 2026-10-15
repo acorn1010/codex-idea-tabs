@@ -33,7 +33,11 @@ public final class LocalLoopGuard {
             }
             case "mcpToolCall" -> {
                 String tool = text(item, "tool");
-                if (tool.matches("(?i)(?:.*[._/])?(?:wait(?:_.*)?|poll(?:_.*)?|get_status|check_status|watch(?:_.*)?)")) { return object(); }
+                boolean readiness = text(item, "server").equals("codex_tabs_readiness") && tool.equals("wait_http");
+                if (readiness) {
+                    // Internal probes are bounded. Count failed waits so retrying a timeout cannot loop forever.
+                    if (text(item, "status").equals("completed") && flag(obj(obj(item, "result"), "structuredContent"), "ready")) { return object(); }
+                } else if (tool.matches("(?i)(?:.*[._/])?(?:wait(?:_.*)?|poll(?:_.*)?|get_status|check_status|watch(?:_.*)?)")) { return object(); }
                 input = object("type", "mcp", "server", text(item, "server"), "tool", tool, "arguments", item.get("arguments"));
                 result = object("status", text(item, "status"), "result", item.get("result"), "error", item.get("error"));
             }

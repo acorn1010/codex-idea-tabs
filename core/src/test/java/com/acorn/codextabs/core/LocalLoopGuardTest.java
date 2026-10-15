@@ -107,6 +107,20 @@ class LocalLoopGuardTest {
         }
         assertTrue(flag(memory(chat), "stopped"));
     }
+    @Test void readinessSuccessIsExemptButRepeatedTimeoutsStillStopTheTurn() {
+        var chat = local();
+        for (int i = 0; i < 6; i++) { readiness(chat, "ready-" + i, true); }
+        assertTrue(memory(chat).isEmpty());
+        for (int i = 0; i < 5; i++) { readiness(chat, "timeout-" + i, false); }
+        assertTrue(flag(memory(chat), "stopped"));
+    }
+    private static void readiness(Conversation chat, String id, boolean ready) {
+        var value = object("ready", ready, "reason", ready ? "ready" : "timeout", "http_status", ready ? 200 : 503);
+        chat.event(object("method", "item/completed", "params", object("turnId", "turn", "item", object("id", id,
+            "type", "mcpToolCall", "server", "codex_tabs_readiness", "tool", "wait_http",
+            "arguments", object("url", "http://127.0.0.1:3000/health", "timeout_seconds", 60), "status", "completed",
+            "result", object("structuredContent", value, "isError", !ready)))));
+    }
     private static Conversation local() {
         var chat = new Conversation("local", "/fixture");
         chat.set("modelProvider", LocalModel.PROVIDER);

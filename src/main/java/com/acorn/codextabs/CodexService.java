@@ -35,7 +35,7 @@ public final class CodexService implements Disposable {
     private volatile boolean chatRestoreFailed;
     private volatile RpcClient client;
     private CompletableFuture<RpcClient> connection;
-    private volatile WslModelRelay localRelay;
+    private volatile LocalModelRelay localRelay;
     private volatile String defaultModelProvider = "openai";
     private volatile String defaultModel = "";
     private volatile long connectionGeneration;
@@ -379,7 +379,7 @@ public final class CodexService implements Disposable {
                         } else {
                             var rpc = connect().join();
                             var params = object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true);
-                            if (source.get("modelProvider").equals(LocalModel.PROVIDER)) { requireLocalModel(); LocalModel.apply(params, LocalModel.MODEL); }
+                            if (source.get("modelProvider").equals(LocalModel.PROVIDER)) { requireLocalModel(); applyLocalModel(params, LocalModel.MODEL); }
                             var fork = rpc.request("thread/fork", params).join();
                             target = importThread(obj(fork, "thread"));
                             target.set("modelProvider", text(fork, "modelProvider", target.get("modelProvider")));
@@ -542,6 +542,12 @@ public final class CodexService implements Disposable {
         dirty = true;
         for (var listener : listeners) { listener.accept(id); }
     }
+    private void applyLocalModel(JsonObject params, String model) {
+        LocalModel.apply(params, model);
+        if (LocalModel.selected(model)) {
+            obj(params, "config").add("mcp_servers.codex_tabs_readiness", ReadinessTool.config(distro(), SystemInfo.isWindows));
+        }
+    }
     public synchronized CompletableFuture<RpcClient> connect() {
         if (disposed) { return CompletableFuture.failedFuture(new IllegalStateException("Project is closed")); }
         if (connection != null && !connection.isCompletedExceptionally() && (client == null || client.isAlive())) { return connection; }
@@ -550,16 +556,14 @@ public final class CodexService implements Disposable {
         changed("");
         long generation = ++connectionGeneration;
         connection = CompletableFuture.supplyAsync(() -> {
-            WslModelRelay relay = null;
+            LocalModelRelay relay = null;
             try {
                 var arguments = List.<String>of();
                 if (settings().localModelEnabled) {
                     String url = settings().localModelUrl;
                     LocalModel.validateUrl(url);
-                    if (SystemInfo.isWindows && !distro().isBlank()) {
-                        relay = new WslModelRelay(distro(), url, Objects.toString(System.getenv("SystemRoot"), "C:\\Windows"));
-                        url = relay.baseUrl();
-                    }
+                    relay = new LocalModelRelay(distro(), url, Objects.toString(System.getenv("SystemRoot"), "C:\\Windows"), SystemInfo.isWindows);
+                    url = relay.baseUrl();
                     arguments = LocalModel.overrides(url);
                 }
                 synchronized (this) {
@@ -765,7 +769,7 @@ public final class CodexService implements Disposable {
             if (!chat.get("modelProvider").isBlank()) { resume.addProperty("modelProvider", chat.get("modelProvider")); }
             if (!chat.get("model").isBlank()) { resume.addProperty("model", chat.get("model")); }
             if (chat.get("modelProvider").equals(LocalModel.PROVIDER)) {
-                requireLocalModel(); LocalModel.apply(resume, LocalModel.MODEL); resume.addProperty("model", LocalModel.MODEL);
+                requireLocalModel(); applyLocalModel(resume, LocalModel.MODEL); resume.addProperty("model", LocalModel.MODEL);
             }
             return rpc.request("thread/resume", resume).thenComposeAsync(result -> {
                 if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
@@ -861,7 +865,7 @@ public final class CodexService implements Disposable {
                         var start = object("cwd", chat.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                         if (!model.isBlank()) { start.addProperty("model", model); }
                         start.add("config", ComposerOptions.threadConfig(effort));
-                        LocalModel.apply(start, model);
+                        applyLocalModel(start, model);
                         var started = rpc.request("thread/start", start).join();
                         chat.hydrate(obj(started, "thread"), chat.revision());
                         chat.set("modelProvider", text(started, "modelProvider", chat.get("modelProvider")));
@@ -878,7 +882,7 @@ public final class CodexService implements Disposable {
                             resume.add("config", ComposerOptions.threadConfig(effort));
                             resume.addProperty("modelProvider", local ? LocalModel.PROVIDER : defaultModelProvider);
                             if (model.isBlank() && !defaultModel.isBlank()) { resume.addProperty("model", defaultModel); }
-                            LocalModel.apply(resume, model);
+                            applyLocalModel(resume, model);
                             // A loaded thread ignores resume overrides. Release it before choosing a different provider or thread settings.
                             rpc.request("thread/unsubscribe", object("threadId", chat.get("threadId"))).join();
                             sessions.forget(id);
@@ -974,7 +978,7 @@ public final class CodexService implements Disposable {
                 params.addProperty("excludeTurns", true);
             }
             String model = text(payload, "model", settings().model);
-            if (LocalModel.selected(model)) { requireLocalModel(); LocalModel.apply(params, model); }
+            if (LocalModel.selected(model)) { requireLocalModel(); applyLocalModel(params, model); }
             var branch = rpc.request(method, params).join();
             var revised = importThread(obj(branch, "thread"));
             revised.set("modelProvider", text(branch, "modelProvider", revised.get("modelProvider")));

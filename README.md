@@ -229,3 +229,23 @@ chat and goal, and does not count running processes or MCP status and wait polls
 The plugin requests low reasoning effort. Set a bounded thinking budget in the
 model server, such as `--reasoning-budget 1024`, to allow thinking without an
 unlimited delay.
+
+### Waiting for a local server
+
+For local GLM chats, Codex Tabs supplies the `wait_http` MCP tool
+through the bundled `codex_tabs_readiness` server. It uses Python and curl in the
+Codex environment. Start the server once, then wait for its health URL with one
+call. The defaults are HTTP 200, a 60 second deadline, and a 2 second interval.
+The deadline can be set from 1 to 300 seconds and the interval from 1 to 30 seconds.
+Use `environment: "windows"` for a Windows localhost server when Codex runs in WSL.
+Use `current` for a server in the Codex environment. Native Windows Codex requires
+`python` and `curl` on PATH. WSL, Linux and macOS require `python3` and `curl`.
+
+The tool makes HTTP GET requests to loopback addresses and does not follow
+redirects. It checks the status code, so choose a health endpoint that reports
+readiness. It returns one result and stops at the deadline, on cancellation, or
+when Codex disconnects. A timeout is a failed check. Inspect the server logs or
+fix startup before trying again. Successful readiness checks do not count toward
+the loop guard. Repeating the same wait with unchanged timeout results still
+warns after three calls and stops after five. Ordinary repeated shell commands
+such as `curl localhost:3000/health` still count as repeated tool calls.

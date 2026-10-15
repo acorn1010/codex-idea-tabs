@@ -12,4 +12,7 @@ java { toolchain { languageVersion = JavaLanguageVersion.of(21) } }
 val testModelRelay by tasks.registering(Exec::class) {
     commandLine("python3", layout.projectDirectory.file("src/test/python/test_wsl_model_relay.py").asFile.absolutePath)
 }
-tasks.test { useJUnitPlatform(); dependsOn(testModelRelay) }
+val testReadiness by tasks.registering(Exec::class) {
+    commandLine("python3", layout.projectDirectory.file("src/test/python/test_readiness_mcp.py").asFile.absolutePath)
+}
+tasks.test { useJUnitPlatform(); dependsOn(testModelRelay, testReadiness) }

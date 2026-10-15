@@ -17,6 +17,17 @@ class Upstream(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         """Echo request JSON without executing tools or calling a model."""
         body = self.rfile.read(int(self.headers["Content-Length"]))
+        value = json.loads(body)
+        if value.get("fixture_stream"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.end_headers()
+            item = {"type": "function_call", "name": "mcp__codex_tabs_readiness__wait_http", "arguments": "{}", "call_id": "wait-1"}
+            for event in [{"type": "response.output_item.added", "item": item}, {"type": "response.output_item.done", "item": item},
+                    {"type": "response.completed", "response": {"output": [item]}}]:
+                self.wfile.write(("data: " + json.dumps(event) + "\n\n").encode())
+                self.wfile.flush()
+            return
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
@@ -75,6 +86,41 @@ class RelayTest(unittest.TestCase):
         value["client_metadata"]["x-codex-turn-metadata"] = json.dumps({"request_kind": "compaction"})
         value["input"].append({"role": "user", "content": "Create a checkpoint."})
         return value
+
+    def readiness(self):
+        """Use Codex's namespace shape, which the local server does not support."""
+        value = self.normal("readiness")
+        value["tools"] = [{"type": "namespace", "name": "mcp__codex_tabs_readiness", "tools": [
+            {"type": "function", "name": "wait_http", "parameters": {"type": "object"}}]}]
+        value["input"].append({"type": "function_call", "namespace": "mcp__codex_tabs_readiness", "name": "wait_http", "call_id": "old", "arguments": "{}"})
+        return value
+
+    def test_flattens_only_readiness_and_keeps_compaction_prefix(self):
+        """Expose a plain function while preserving unrelated namespaces and history."""
+        value = self.readiness()
+        other = {"type": "namespace", "name": "unrelated", "tools": []}
+        value["tools"].append(other)
+        forwarded = self.request(value)
+        self.assertEqual("function", forwarded["tools"][0]["type"])
+        self.assertEqual("mcp__codex_tabs_readiness__wait_http", forwarded["tools"][0]["name"])
+        self.assertEqual(other, forwarded["tools"][1])
+        self.assertNotIn("namespace", forwarded["input"][-1])
+        self.assertEqual(forwarded["tools"][0]["name"], forwarded["input"][-1]["name"])
+        compacted = self.request(self.compact(value))
+        self.assertEqual(forwarded["tools"], compacted["tools"])
+        self.assertEqual("none", compacted["tool_choice"])
+
+    def test_restores_namespace_on_streamed_function_calls(self):
+        """Codex must receive its original function name and namespace on every event."""
+        value = self.readiness()
+        value["fixture_stream"] = True
+        request = urllib.request.Request(self.url + "/responses", data=json.dumps(value).encode(), headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(request, timeout=10) as response:
+            events = [json.loads(line[6:]) for line in response if line.startswith(b"data: ")]
+        items = [events[0]["item"], events[1]["item"], events[2]["response"]["output"][0]]
+        for item in items:
+            self.assertEqual("mcp__codex_tabs_readiness", item["namespace"])
+            self.assertEqual("wait_http", item["name"])
 
     def test_restores_tools_only_for_compaction_and_disables_tool_calls(self):
         """The changed request keeps history and instructions byte-for-byte as JSON values."""

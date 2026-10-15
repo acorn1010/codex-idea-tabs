@@ -51,6 +51,56 @@ def compaction_body(body):
     return json.dumps(request, ensure_ascii=False).encode('utf-8')
 
 
+READINESS_NAMESPACE = 'mcp__codex_tabs_readiness'
+READINESS_FUNCTION = READINESS_NAMESPACE + '__wait_http'
+
+
+def readiness_body(body):
+    """Translate only the bundled readiness namespace into a llama.cpp function."""
+    try:
+        request = json.loads(body)
+        if not isinstance(request, dict) or not isinstance(request.get('tools'), list):
+            return body, False
+        tools = []
+        changed = False
+        for tool in request['tools']:
+            if isinstance(tool, dict) and tool.get('type') == 'namespace' and tool.get('name') == READINESS_NAMESPACE:
+                for function in tool.get('tools', []):
+                    if function.get('type') == 'function' and function.get('name') == 'wait_http':
+                        tools.append({**function, 'name': READINESS_FUNCTION})
+                        changed = True
+            else:
+                tools.append(tool)
+        if not changed:
+            return body, False
+        request['tools'] = tools
+        for item in request.get('input', []):
+            if isinstance(item, dict) and item.get('type') == 'function_call' and item.get('namespace') == READINESS_NAMESPACE and item.get('name') == 'wait_http':
+                item.pop('namespace')
+                item['name'] = READINESS_FUNCTION
+        return json.dumps(request, ensure_ascii=False).encode('utf-8'), True
+    except (ValueError, TypeError, AttributeError):
+        return body, False
+
+
+def readiness_event(line):
+    """Restore the Codex namespace on streamed tool items without changing text."""
+    if not line.startswith(b'data: '):
+        return line
+    try:
+        event = json.loads(line[6:])
+        items = [event.get('item')] + event.get('response', {}).get('output', [])
+        changed = False
+        for item in items:
+            if isinstance(item, dict) and item.get('type') == 'function_call' and item.get('name') == READINESS_FUNCTION:
+                item['namespace'] = READINESS_NAMESPACE
+                item['name'] = 'wait_http'
+                changed = True
+        return b'data: ' + json.dumps(event, ensure_ascii=False).encode('utf-8') + b'\n' if changed else line
+    except (ValueError, TypeError, AttributeError):
+        return line
+
+
 class Relay(http.server.BaseHTTPRequestHandler):
     """Forward inference requests without exposing the Windows server to a network."""
 
@@ -68,8 +118,9 @@ class Relay(http.server.BaseHTTPRequestHandler):
             self.send_error(404, 'Only model API requests are supported.')
             return
         body = self.rfile.read(int(self.headers.get('Content-Length', '0')))
+        readiness = False
         if self.command == 'POST' and urllib.parse.urlsplit(self.path).path == '/v1/responses':
-            body = compaction_body(body)
+            body, readiness = readiness_body(compaction_body(body))
         url = urllib.parse.urlunsplit((UPSTREAM.scheme, UPSTREAM.netloc, '', '', '')) + self.path
         command = [CURL, '--silent', '--show-error', '--no-buffer', '--noproxy', '*', '--max-time', '3600', '--dump-header', '-', '--request', self.command, '--header', 'Content-Type: application/json', '--header', 'Expect:', '--url', url]
         if self.command == 'POST':
@@ -87,17 +138,23 @@ class Relay(http.server.BaseHTTPRequestHandler):
                 self.send_error(502, 'Could not reach the Windows model server. Start the model and retry. ' + error.strip())
                 return
             self.send_response(int(status.split()[1]))
+            content_type = ''
             while True:
                 line = process.stdout.readline().decode('latin-1').strip()
                 if not line:
                     break
                 name, value = line.split(':', 1)
-                if name.lower() in ('content-type', 'content-length'):
+                if name.lower() == 'content-type':
+                    content_type = value.strip()
+                if name.lower() == 'content-type' or (name.lower() == 'content-length' and not readiness):
                     self.send_header(name, value.strip())
             self.send_header('Connection', 'close')
             self.end_headers()
             while True:
-                chunk = process.stdout.read1(8192)
+                streamed_readiness = readiness and content_type.startswith('text/event-stream')
+                chunk = process.stdout.readline() if streamed_readiness else process.stdout.read1(8192)
+                if streamed_readiness:
+                    chunk = readiness_event(chunk)
                 if not chunk:
                     break
                 self.wfile.write(chunk)

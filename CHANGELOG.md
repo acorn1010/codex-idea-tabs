@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.20
+
+- Add a bundled HTTP readiness tool. It polls inside one call, stops at a deadline, supports WSL and Windows localhost servers, and cancels on disconnect.
+- Keep successful readiness checks out of loop history. Count repeated readiness timeouts so waiting cannot become an endless retry loop.
+
 ## 1.0.19
 
 - Warn local GLM after three unchanged tool results and stop the turn after five. Keep loop history across compaction and reconnect, preserve goals, and let a new user instruction reset the guard.

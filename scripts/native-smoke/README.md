@@ -252,3 +252,17 @@ Run `check-native-loop-guard.mjs` against that profile to check the notice and
 manual recovery in the composer. No model calls are made.
 Run `check-loop-guard.mjs` with `CODEX_SMOKE_CHROME` set to check the distinction
 between loop stops and connection errors in the bundled UI.
+
+### Bounded readiness waits
+
+Run the native smoke plugin with `-Dcodex.smoke.readiness.check=true` and the real
+Codex CLI, using an isolated `CODEX_HOME`. No inference is required. The fixture
+starts a Windows health server and calls the bundled MCP tool through the plugin
+service and WSL Codex. It checks six unchanged startup probes, a deadline,
+reconnect, and loop detection using the actual serialized MCP timeout results.
+The result is saved as `readiness-result.json` in the test IDE log directory.
+
+`:core:test` also runs `test_readiness_mcp.py` through its stdio entry point. It
+checks startup, deadlines, a stalled server, redirects, input limits, cancellation
+and disconnect. `ReadinessToolTest` checks process configuration and
+`LocalLoopGuardTest` checks successful readiness and repeated timeouts.
