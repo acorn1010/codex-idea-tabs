@@ -894,6 +894,7 @@ public final class CodexService implements Disposable {
                         rpc.request("thread/inject_items", ProviderHandoff.injection(chat)).join();
                         chat.set("providerContextPending", false);
                     }
+                    chat.resetLocalLoopGuard();
                     var params = object("threadId", chat.get("threadId"), "input", input);
                     String active = chat.get("turnId");
                     if (active.isBlank()) { chat.approvals.beginTurn(permissions); }
@@ -1153,6 +1154,7 @@ public final class CodexService implements Disposable {
                     if (autoApprove(chat, pending, event.get("id"))) { return; }
                 }
                 chat.event(event);
+                applyLocalLoopGuard(chat);
             }
             changed(chat.id);
             if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { chat.approvals.reset(); sessions.forget(chat.id); }
@@ -1161,6 +1163,24 @@ public final class CodexService implements Disposable {
                 client.reject(event.get("id"), "This client does not yet support " + text(event, "method"));
             }
         } else if (event.has("id") && client != null) { client.reject(event.get("id"), "No open conversation owns this request."); }
+    }
+    private void applyLocalLoopGuard(Conversation chat) {
+        var action = chat.takeLocalLoopAction();
+        String turn = chat.get("turnId");
+        if (action.isEmpty() || turn.isBlank()) { return; }
+        boolean stop = flag(action, "stop");
+        if (stop) { chat.approvals.stopTurn(); }
+        var params = object("threadId", chat.get("threadId"));
+        if (stop) { params.addProperty("turnId", turn); }
+        else {
+            params.addProperty("expectedTurnId", turn);
+            params.add("input", GSON.toJsonTree(new Object[]{object("type", "text", "text", text(action, "message"))}));
+        }
+        client.request(stop ? "turn/interrupt" : "turn/steer", params).exceptionally(error -> {
+            chat.set("error", text(action, "message") + " Could not " + (stop ? "interrupt" : "steer") + " the turn: " + message(error));
+            changed(chat.id);
+            return null;
+        });
     }
     private void refreshTabs() {
         if (disposed || project.isDisposed()) { return; }

@@ -16,6 +16,7 @@
         <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI, Anthropic, or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
+        <p>1.0.19 adds a local GLM loop guard. It steers after three unchanged tool results and stops after five, while keeping the chat and goal. Local GLM now requests low reasoning effort.</p>
         <p>1.0.18 adds a context usage ring beside the model. Hover to see exact token counts and percentage.</p>
         <p>1.0.17 adds local GLM and keeps its prompt cache available during compaction.</p>
         <ul>

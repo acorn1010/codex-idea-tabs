@@ -16,6 +16,7 @@ public final class Conversation {
     private long revision;
     private long historyRevision;
     private long runtimeRevision;
+    private JsonObject localLoopAction = new JsonObject();
 
     public Conversation(String id, String cwd) {
         this.id = id;
@@ -233,6 +234,34 @@ public final class Conversation {
         state.addProperty("turnId", "");
         revision++;
     }
+    /** Clear no-progress history only when the user explicitly sends a new instruction. */
+    public synchronized void resetLocalLoopGuard() {
+        if (!state.has("localLoopGuard")) { return; }
+        state.remove("localLoopGuard");
+        localLoopAction = new JsonObject();
+        if (get("error").startsWith("Loop guard")) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
+        revision++;
+    }
+    /** Consume one guard action without copying the transcript or saved comparison history. */
+    public synchronized JsonObject takeLocalLoopAction() {
+        var action = localLoopAction;
+        localLoopAction = new JsonObject();
+        return action;
+    }
+    private void observeLocalLoop(JsonObject params, JsonObject item) {
+        if (!get("modelProvider").equals(LocalModel.PROVIDER) || get("turnId").isBlank()
+            || !text(params, "turnId", get("turnId")).equals(get("turnId"))) { return; }
+        if (!Set.of("commandExecution", "mcpToolCall").contains(text(item, "type"))) { return; }
+        var memory = obj(state, "localLoopGuard");
+        var action = LocalLoopGuard.observe(memory, item);
+        if (!memory.isEmpty()) { state.add("localLoopGuard", memory); }
+        if (!action.isEmpty()) { localLoopAction(action); }
+    }
+    private void localLoopAction(JsonObject action) {
+        localLoopAction = action;
+        state.addProperty("error", text(action, "message"));
+        state.addProperty("errorKind", flag(action, "stop") ? "loopGuardStopped" : "loopGuard");
+    }
     public synchronized void event(JsonObject event) {
         String method = text(event, "method");
         var params = obj(event, "params");
@@ -244,6 +273,7 @@ public final class Conversation {
                 state.addProperty("working", true);
                 state.addProperty("unread", false);
                 state.addProperty("error", "");
+                if (get("modelProvider").equals(LocalModel.PROVIDER) && flag(obj(state, "localLoopGuard"), "stopped")) { localLoopAction(LocalLoopGuard.stopped()); }
             }
             case "turn/completed" -> {
                 var turn = obj(params, "turn");
@@ -254,7 +284,7 @@ public final class Conversation {
                 state.addProperty("turnId", "");
                 state.addProperty("unread", true);
                 if (turn.has("error") && turn.get("error").isJsonObject()) { state.addProperty("error", text(obj(turn, "error"), "message")); state.addProperty("errorKind", "turn"); }
-                else if (text(turn, "status").equals("completed") && !get("errorKind").equals("operation")) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
+                else if (text(turn, "status").equals("completed") && !Set.of("operation", "loopGuardStopped").contains(get("errorKind"))) { state.addProperty("error", ""); state.addProperty("errorKind", ""); }
                 requests.values().removeIf(request -> request.has("rpcId") && text(request, "turnId").equals(text(turn, "id")));
             }
             case "item/started", "item/completed" -> {
@@ -266,6 +296,7 @@ public final class Conversation {
                     if (!streamed.isBlank()) { item = item.deepCopy(); item.addProperty("text", streamed); }
                 }
                 put(item);
+                if (method.equals("item/completed")) { observeLocalLoop(params, item); }
                 if (method.equals("item/completed") || text(item, "type").equals("userMessage")) { pullRequests.addItem(item); }
                 if (method.equals("item/completed") && text(item, "type").equals("agentMessage")) { preview(text(item, "text")); }
             }

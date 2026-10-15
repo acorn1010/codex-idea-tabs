@@ -238,3 +238,17 @@ Run `check-context-usage.mjs` with `CODEX_SMOKE_CHROME` set after building the U
 It checks exact token counts and percentages, live usage updates after compaction,
 unknown usage, keyboard focus, and local and cloud layouts at 320, 360 and 900
 pixels in both themes. It uses chat snapshots and makes no model calls.
+
+### Local GLM loop guard
+
+Run `:core:test` for repeated command and MCP calls, alternating loops, timing
+noise, changing results, polling, saved state and warning recovery. For the native
+check, use a disposable profile with `-Dcodex.smoke.loopGuard.check=true`, the
+model-switch fixture and `CODEX_SMOKE_LOOP_GUARD=1` forwarded through `WSLENV`.
+It checks steering and interruption through the real service, retained counts
+after compaction and reconnect, an unchanged goal, blocked automatic retries,
+and recovery through a new user instruction. Results use `loop-guard-result.json`.
+Run `check-native-loop-guard.mjs` against that profile to check the notice and
+manual recovery in the composer. No model calls are made.
+Run `check-loop-guard.mjs` with `CODEX_SMOKE_CHROME` set to check the distinction
+between loop stops and connection errors in the bundled UI.

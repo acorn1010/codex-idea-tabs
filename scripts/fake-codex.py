@@ -8,6 +8,7 @@ import sys
 import threading
 import time
 
+loop_guard_actions = []
 lock = threading.Lock()
 root = pathlib.Path(os.environ.get("CODEX_SMOKE_ROOT", "/tmp/codex-idea-smoke-project"))
 root.mkdir(parents=True, exist_ok=True)
@@ -200,7 +201,7 @@ def respond(request):
         event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "fixture/stats":
-        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params}
+        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params, "loopGuardActions": loop_guard_actions}
     elif method == "fixture/event":
         notification = params["event"]
         thread_id = notification["params"]["threadId"]
@@ -267,6 +268,9 @@ def respond(request):
             raise RuntimeError("Steer must target the current fixture turn")
         result = {"turnId": "fixture-build"}
         event("item/completed", params["threadId"], turnId="fixture-build", item={"id": "steer-" + str(time.time_ns()), "type": "userMessage", "content": params["input"]})
+    elif method == "turn/steer" and os.environ.get("CODEX_SMOKE_LOOP_GUARD") == "1":
+        loop_guard_actions.append({"method": method, "params": params})
+        result = {"turnId": params.get("expectedTurnId")}
     elif method in ("turn/start", "turn/steer"):
         last_turn_params = params
         thread_id = params["threadId"]
@@ -289,6 +293,9 @@ def respond(request):
         event("turn/completed", thread_id, turn={**turn, "status": "completed"})
         result = {"turn": turn}
     elif method == "turn/interrupt":
+        if os.environ.get("CODEX_SMOKE_LOOP_GUARD") == "1":
+            loop_guard_actions.append({"method": method, "params": params})
+            statuses[params["threadId"]] = "idle"
         event("turn/completed", params["threadId"], turn={"id": params["turnId"], "status": "interrupted"})
     elif method == "fs/readFile":
         result = {"dataBase64": base64.b64encode(pathlib.Path(params["path"]).read_bytes()).decode()}

@@ -64,7 +64,7 @@ public final class LocalModel {
         if (!selected(model)) { return; }
         params.addProperty("modelProvider", PROVIDER);
         var config = obj(params, "config").deepCopy();
-        config.addProperty("model_reasoning_effort", "none");
+        config.addProperty("model_reasoning_effort", "low");
         config.addProperty("model_context_window", 98304);
         config.addProperty("model_auto_compact_token_limit", 73728);
         config.addProperty("compact_prompt", COMPACT_PROMPT);

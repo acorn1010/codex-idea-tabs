@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.19
+
+- Warn local GLM after three unchanged tool results and stop the turn after five. Keep loop history across compaction and reconnect, preserve goals, and let a new user instruction reset the guard.
+- Request low reasoning effort for local GLM instead of disabling thinking. The model server controls its thinking token budget.
+
 ## 1.0.18
 
 - Show current context usage as a small ring beside the model, with exact token counts and percentage on hover.

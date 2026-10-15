@@ -13,7 +13,7 @@ class LocalModelTest {
         assertEquals(98304, config.get("model_context_window").getAsInt());
         assertEquals(73728, config.get("model_auto_compact_token_limit").getAsInt());
         assertEquals("none", text(config, "model_reasoning_summary"));
-        assertEquals("none", text(config, "model_reasoning_effort"));
+        assertEquals("low", text(config, "model_reasoning_effort"));
         assertFalse(config.get("features.unified_exec").getAsBoolean());
         assertFalse(config.get("features.apply_patch_freeform").getAsBoolean());
     }

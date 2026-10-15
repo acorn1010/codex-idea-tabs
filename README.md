@@ -221,3 +221,11 @@ with verified progress and the next step. Cloud model settings stay separate.
 The relay keeps the preceding tool definitions on Codex compaction requests and
 disables tool calls. This keeps GLM's prompt prefix eligible for cache reuse.
 Reuse still depends on the history currently held in the server slot.
+
+Local GLM has a loop guard. Three matching calls with unchanged results trigger a
+request to change approach. Five stop the turn. Comparison history survives
+compaction and reconnect. A new user instruction resets it. The guard keeps the
+chat and goal, and does not count running processes or MCP status and wait polls.
+The plugin requests low reasoning effort. Set a bounded thinking budget in the
+model server, such as `--reasoning-budget 1024`, to allow thinking without an
+unlimited delay.
