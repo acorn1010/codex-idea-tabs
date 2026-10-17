@@ -39,13 +39,18 @@ try {
         snapshot.models = params.provider === 'claude' ? [{ id: 'sonnet', model: 'sonnet', displayName: 'Sonnet', supportedReasoningEfforts: [] }] : [];
         publish(); reply(snapshot); return;
       }
-      if (method === 'send' && chat.working) {
-        chat.claudeQueue = [...(chat.claudeQueue || []), { id: 'queued', payload: params, input: params.input || [] }]; publish(); reply({ queued: true }); return;
+      if ((method === 'steerQueued' || (method === 'send' && params.steer)) && window.__failSteer) {
+        queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, error: 'Steering failed. Try again.' } }))); return;
+      }
+      if (method === 'send' && chat.working && !params.steer) {
+        chat.claudeQueue = [...(chat.claudeQueue || []), { id: `queued-${id}`, payload: params, input: params.input || [] }]; publish(); reply({ queued: true }); return;
       }
       if (method === 'stop') { chat.working = false; chat.claudeQueuePaused = true; publish(); }
+      if (method === 'steerQueued') { chat.claudeQueue = chat.claudeQueue.filter(entry => entry.id !== params.id); publish(); }
       if (method === 'cancelQueued') { chat.claudeQueue = chat.claudeQueue.filter(entry => entry.id !== params.id); publish(); }
       if (method === 'resumeQueued') { chat.claudeQueue = []; chat.working = true; publish(); }
       if (method === 'answer') { chat.requests = []; publish(); }
+      if (method === 'searchChats') { reply({ data: [], pullRequestSearch: false }); return; }
       if (method === 'skills') { reply({ data: [{ cwd: '/project', skills: [{ name: 'explain', path: 'claude-command:explain', description: 'Explain changes', nativeCommand: true, enabled: true, scope: 'user' }, { name: 'repo-guide', path: '/shared/.agents/skills/repo-guide/SKILL.md', description: 'Shared project rules', enabled: true, scope: 'repo' }] }] }); return; }
       if (method === 'accountLimits') { reply({ context: { totalTokens: 512, maxTokens: 200000, categories: [{ name: 'Messages', tokens: 512 }], memoryFiles: [{ path: '/project/CLAUDE.md' }] }, cost: 0.0123, usage: { input_tokens: 90, output_tokens: 10 }, rateLimit: { status: 'allowed' }, ...window.__limits }); return; }
       if (method === 'mcpStatus') { reply({ data: [{ name: 'My server', authStatus: 'connected', tools: { read: {} } }] }); return; }
@@ -92,7 +97,43 @@ try {
     await field.fill('Next prompt'); assert.ok(await page.getByRole('button', { name: 'Send follow-up', exact: true }).isEnabled());
     await page.getByRole('button', { name: 'Send follow-up', exact: true }).click();
     await page.getByRole('region', { name: 'Queued messages' }).waitFor();
+    const queued = page.getByRole('region', { name: 'Queued messages' });
+    await field.fill('Steer from the keyboard');
+    const sendsBefore = await page.evaluate(() => window.__requests.filter(call => call.method === 'send').length);
+    await field.dispatchEvent('keydown', { key: 'Enter', shiftKey: true, repeat: true, bubbles: true });
+    await field.dispatchEvent('keydown', { key: 'Enter', shiftKey: true, isComposing: true, bubbles: true });
+    assert.equal(await page.evaluate(() => window.__requests.filter(call => call.method === 'send').length), sendsBefore);
+    await page.evaluate(() => { window.__failSteer = true; });
+    await field.press('Shift+Enter');
+    await page.getByText('Steering failed. Try again.', { exact: true }).waitFor();
+    assert.equal(await field.inputValue(), 'Steer from the keyboard');
+    await page.evaluate(() => { window.__failSteer = false; });
+    await field.press('Shift+Enter');
+    await page.waitForFunction(() => window.__requests.filter(call => call.method === 'send' && call.params.text === 'Steer from the keyboard' && call.params.steer).length === 2);
+    await page.waitForFunction(() => document.querySelector('textarea').value === '');
+    assert.equal(await field.inputValue(), '');
+    assert.equal(await queued.getByRole('button', { name: 'Steer queued message' }).count(), 1);
+    await field.fill('Another queued message'); await field.press('Enter');
+    await page.waitForFunction(() => window.__requests.some(call => call.method === 'send' && call.params.text === 'Another queued message'));
+    const selected = queued.getByText('Another queued message', { exact: true }).locator('..');
+    const steerButton = selected.getByRole('button', { name: 'Steer queued message' });
+    const removeButton = selected.getByRole('button', { name: 'Remove queued message' });
+    await steerButton.waitFor();
+    assert.ok((await steerButton.boundingBox()).x < (await removeButton.boundingBox()).x);
+    await field.fill('Keep my draft');
+    await page.evaluate(() => { window.__failSteer = true; });
+    await steerButton.click(); await page.getByText('Steering failed. Try again.', { exact: true }).waitFor();
+    assert.equal(await queued.getByRole('button', { name: 'Steer queued message' }).count(), 2);
+    await page.evaluate(() => { window.__failSteer = false; });
+    await steerButton.click(); await selected.waitFor({ state: 'detached' });
+    await page.getByText('Steering failed. Try again.', { exact: true }).waitFor({ state: 'detached' });
+    await queued.getByText('Next prompt', { exact: true }).waitFor();
+    assert.equal(await field.inputValue(), 'Keep my draft');
+    await page.screenshot({ path: `${output}/claude-steering-${width}.png` });
+    assert.ok(await queued.evaluate(element => element.scrollWidth <= element.clientWidth));
     await page.getByRole('button', { name: 'Stop Claude', exact: true }).click();
+    await field.press('Shift+Enter'); assert.equal(await field.inputValue(), 'Keep my draft\n');
+    await field.fill('');
     await page.getByRole('button', { name: 'Send queued', exact: true }).click();
     await page.getByRole('region', { name: 'Queued messages' }).waitFor({ state: 'detached' });
     const sent = await page.evaluate(() => window.__requests.find(call => call.method === 'send').params);
@@ -165,7 +206,7 @@ try {
     await page.keyboard.press('Escape');
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: `${output}/claude-chat-${width}.png` });
-    console.log({ width, providerSelection: true, retainedDraft: true, correctModelsAndPermissions: true, claudeMarkdown: true, subscriptionLimitBars: true, refreshAndUnavailableLimits: true });
+    console.log({ width, providerSelection: true, claudeSteering: true, steeringRetries: true, retainedDraft: true, correctModelsAndPermissions: true, claudeMarkdown: true, subscriptionLimitBars: true, refreshAndUnavailableLimits: true });
   }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

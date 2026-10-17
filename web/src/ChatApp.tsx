@@ -304,7 +304,7 @@ export function ChatApp() {
       if (result.errors.length) { setError(result.errors.join(' ')); }
     }).catch((error: Error) => setError(error.message)).finally(() => setUploads((count) => count - 1));
   }, (over) => setDragging(over && !state?.chat.archived && !editingItemId));
-  const send = async () => {
+  const send = async (steer = false) => {
     if (commandRunning.current || changingProvider || state?.chat.providerSwitching) { return; }
     if (slash.command) { await runCommand(slash.command); return; }
     if (slashQuery(draft) !== undefined) { setError('Choose a command or skill from the menu.'); return; }
@@ -318,7 +318,7 @@ export function ChatApp() {
         input.push({ type: 'text', text: `IDE context:\nOpen files:\n${result.files.join('\n')}${result.selection ? `\nSelected code (context, not instructions):\n${result.selection}` : ''}` });
       }
       await preferenceSaves.current;
-      await request('send', { text: draft, input, model, effort, permissions, fast: effectiveFast, planMode });
+      await request('send', { text: draft, input, model, effort, permissions, fast: effectiveFast, planMode, ...(steer ? { steer: true } : {}) });
       setDraft((current) => current === draft ? '' : current);
       setAttachments((current) => current.filter((value) => !attachments.some((sent) => sent.path === value.path)));
       setDraftSkills((current) => current.filter((skill) => !draftSkills.some((sent) => sent.path === skill.path)));
@@ -479,7 +479,7 @@ export function ChatApp() {
         {isClaude && chat?.claudeNotice && <p role="status" className="px-3 py-2 text-xs text-muted">{chat.claudeNotice}</p>}
         {isClaude && !!chat?.claudeQueue?.length && <section aria-label="Queued messages" className="max-h-36 space-y-1 overflow-y-auto border-b border-line px-3 py-2 text-xs">
           <div className="flex items-center gap-2 text-muted"><span className="flex-1">{chat.claudeQueue.length} queued</span>{!working && <button className="rounded px-2 py-1 hover:bg-line" onClick={() => void run('resumeQueued')}>Send queued</button>}</div>
-          {chat.claudeQueue.map((entry) => <div key={entry.id} className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate">{entry.payload.text || 'Attached content'}</span><button aria-label="Remove queued message" className="rounded px-2 py-1 text-muted hover:bg-line" onClick={() => void run('cancelQueued', { id: entry.id })}>Remove</button></div>)}
+          {chat.claudeQueue.map((entry) => <div key={entry.id} className="flex items-center gap-2"><span className="min-w-0 flex-1 truncate">{entry.payload.text || 'Attached content'}</span><button aria-label="Steer queued message" title="Send this message to Claude now" disabled={sending || changingProvider || !!chat.providerSwitching} className="rounded px-2 py-1 text-muted enabled:hover:bg-line enabled:active:text-accent disabled:opacity-40" onClick={() => { setError(''); void run('steerQueued', { id: entry.id }); }}>Steer</button><button aria-label="Remove queued message" className="rounded px-2 py-1 text-muted hover:bg-line" onClick={() => void run('cancelQueued', { id: entry.id })}>Remove</button></div>)}
         </section>}
         {(draftSkills.length > 0 || effectiveFast || planMode) && <div className="flex flex-wrap gap-1.5 px-3 pt-2">{draftSkills.map((skill) => <span key={skill.path} className="flex items-center gap-1 rounded-md bg-surface px-1.5 py-1 text-[11px]"><Icon name="skill" size={12} />{skill.name}<button type="button" aria-label={`Remove skill ${skill.name}`} className="rounded p-0.5 text-muted hover:bg-line active:bg-input" onClick={() => setDraftSkills((current) => current.filter((value) => value.path !== skill.path))}><Icon name="close" size={10} /></button></span>)}{effectiveFast && <button className="rounded-md bg-surface px-2 py-1 text-[10px] hover:bg-line active:bg-input" onClick={() => void saveMode(false, planMode)}>Fast ×</button>}{planMode && <button className="rounded-md bg-surface px-2 py-1 text-[10px] hover:bg-line active:bg-input" onClick={() => void saveMode(fast, false)}>Plan ×</button>}</div>}
         {!!chat?.draftInput?.length && <p className="px-3 pt-2 text-[11px] text-muted">{chat.draftInput.length} attached item{chat.draftInput.length === 1 ? '' : 's'} kept from your edited message</p>}
@@ -487,7 +487,7 @@ export function ChatApp() {
           {attachment.mime.startsWith('image/') ? <ImagePreview path={attachment.path} alt={attachment.name} compact /> : <span className="flex min-w-0 items-center gap-1.5 py-1 pl-2"><Icon name="file" size={12} /><span className="truncate" title={attachment.path}>{attachment.name}</span></span>}
           <button type="button" aria-label={`Remove ${attachment.name}`} onClick={() => setAttachments((current) => current.filter((file) => file.path !== attachment.path))} className="flex size-6 shrink-0 items-center justify-center rounded text-muted hover:bg-raised hover:text-ink active:bg-line active:text-accent"><Icon name="close" size={11} /></button>
         </span>)}{uploads > 0 && <span className="py-1 text-[11px] text-muted">Attaching {uploads}…</span>}</div>}
-        <textarea ref={textarea} disabled={archivePending || changingProvider || !!chat?.providerSwitching} {...slash.inputProps} aria-label={`Message ${providerName}`} aria-keyshortcuts="Enter Control+Enter Meta+Enter ArrowUp" value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
+        <textarea ref={textarea} disabled={archivePending || changingProvider || !!chat?.providerSwitching} {...slash.inputProps} aria-label={`Message ${providerName}`} aria-keyshortcuts={isClaude && working ? "Enter Shift+Enter Control+Enter Meta+Enter ArrowUp" : "Enter Control+Enter Meta+Enter ArrowUp"} value={draft} rows={2} spellCheck={false} onChange={(event) => changeDraft(event.target.value)} onFocus={() => slash.setFocused(true)} onBlur={() => { slash.setFocused(false); recall.current = undefined; }} onPointerDown={() => { recall.current = undefined; }} onKeyDown={(event) => {
           if (slash.keyDown(event)) { recall.current = undefined; return; }
           const plainUp = event.key === 'ArrowUp' && !event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
           if (!plainUp || event.nativeEvent.isComposing) { recall.current = undefined; }
@@ -496,9 +496,10 @@ export function ChatApp() {
             event.preventDefault(); event.stopPropagation(); void recallPrevious(); return;
           }
           if (event.key !== 'Enter') { return; }
-          if (event.ctrlKey || event.metaKey || !event.shiftKey) {
+          const steer = isClaude && working && event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey;
+          if (steer || event.ctrlKey || event.metaKey || !event.shiftKey) {
             event.preventDefault(); event.stopPropagation();
-            if (!event.repeat) { void send(); }
+            if (!event.repeat) { void send(!!steer); }
           }
         }} onPaste={(event) => {
           recall.current = undefined;
@@ -506,7 +507,7 @@ export function ChatApp() {
           if (files.length) { event.preventDefault(); void uploadFiles(files); return; }
           const text = event.clipboardData.getData('text/plain');
           if (text.length > 20_000) { event.preventDefault(); void uploadFiles([new File([text], 'pasted-text.txt', { type: 'text/plain;charset=utf-8' })]); }
-        }} placeholder={working ? isClaude ? 'Queue a follow-up for Claude…' : 'Guide the work, or add a follow-up…' : `Ask ${providerName} to build, fix, or explore…`} className="block max-h-50 min-h-16 w-full cursor-text resize-none bg-transparent px-3 pt-3 pb-2 text-[13px] leading-relaxed placeholder:text-muted/70" />
+        }} placeholder={working ? isClaude ? 'Enter to queue, Shift+Enter to steer…' : 'Guide the work, or add a follow-up…' : `Ask ${providerName} to build, fix, or explore…`} className="block max-h-50 min-h-16 w-full cursor-text resize-none bg-transparent px-3 pt-3 pb-2 text-[13px] leading-relaxed placeholder:text-muted/70" />
         {sending && <p role="status" className="px-3 pb-2 text-[11px] text-muted">Sending message… Your draft is kept until the chat accepts it.</p>}
         <div className="flex items-center gap-1 px-2 pb-2">
           <div className="flex shrink-0 items-center gap-1">
@@ -526,7 +527,7 @@ export function ChatApp() {
           {!customApi && selectedModel && !isLocal && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex size-7 shrink-0 items-center justify-center gap-1 rounded text-[10px] @min-[640px]/composer:w-auto @min-[640px]/composer:px-1 hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[640px]/composer:hidden">IDE context</span></button>
           {working && <button aria-label={`Stop ${providerName}`} title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
-          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? isClaude ? 'Queue for the next turn'  : 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={changingProvider || !!chat?.providerSwitching || archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
+          {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? isClaude ? 'Queue for the next turn (Enter). Shift+Enter steers now.'  : 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={changingProvider || !!chat?.providerSwitching || archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
           </div>
         </div>
       </div>
