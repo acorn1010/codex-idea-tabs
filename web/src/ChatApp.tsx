@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Attachment, Chat, Input, Item, Json, Snapshot } from './types';
 import { request, installNativeCursor } from './bridge';
 import { installTextNavigation } from './TextNavigation';
@@ -27,6 +28,22 @@ const contextTokens = new Intl.NumberFormat('en');
 const contextPercent = new Intl.NumberFormat('en', { maximumFractionDigits: 1 });
 
 function ContextUsage({ usage }: { usage?: Json }) {
+  const trigger = useRef<HTMLSpanElement>(null);
+  const tooltipId = useId();
+  const [open, setOpen] = useState(false);
+  const [position, setPosition] = useState({ left: 0, bottom: 0, width: 240 });
+  useLayoutEffect(() => {
+    if (!open) { return; }
+    const place = () => {
+      const rect = trigger.current!.getBoundingClientRect();
+      const width = Math.min(240, window.innerWidth - 16);
+      setPosition({ left: Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8)), bottom: window.innerHeight - rect.top + 8, width });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => { window.removeEventListener('resize', place); window.removeEventListener('scroll', place, true); };
+  }, [open]);
   // The latest count describes the current context. The lifetime total survives compaction.
   const last = usage?.last as { totalTokens?: number } | undefined;
   const used = typeof last?.totalTokens === 'number' && Number.isFinite(last.totalTokens) && last.totalTokens >= 0 ? last.totalTokens : undefined;
@@ -36,12 +53,20 @@ function ContextUsage({ usage }: { usage?: Json }) {
   const description = used === undefined ? 'Context usage not reported yet'
     : capacity === undefined ? `Context usage: ${contextTokens.format(used)} tokens (limit not reported)`
     : `Context usage: ${contextTokens.format(used)} / ${contextTokens.format(capacity)} tokens (${contextPercent.format(percent!)}% used)`;
-  return <span role="progressbar" aria-label="Context usage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={filled} aria-valuetext={description} title={description} tabIndex={0} className="flex size-7 shrink-0 cursor-default items-center justify-center rounded-md focus-visible:outline-1 focus-visible:outline-accent">
+  return <><span ref={trigger} role="progressbar" aria-label="Context usage" aria-valuemin={0} aria-valuemax={100} aria-valuenow={filled} aria-valuetext={description} aria-describedby={open ? tooltipId : undefined} tabIndex={0}
+    onMouseEnter={() => setOpen(true)} onMouseLeave={(event) => { if (document.activeElement !== event.currentTarget) { setOpen(false); } }}
+    onFocus={() => setOpen(true)} onBlur={(event) => { if (!event.currentTarget.matches(':hover')) { setOpen(false); } }}
+    onKeyDown={(event) => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); setOpen(false); } }}
+    className="flex size-7 shrink-0 cursor-default items-center justify-center rounded-md hover:bg-raised active:bg-line focus-visible:outline-1 focus-visible:outline-accent">
     <svg viewBox="0 0 20 20" fill="none" strokeWidth={2} aria-hidden className="size-4.5 -rotate-90">
       <circle cx={10} cy={10} r={8} className="stroke-muted/35" />
       {filled !== undefined && filled > 0 && <circle cx={10} cy={10} r={8} pathLength={100} stroke="currentColor" strokeDasharray={`${filled} 100`} className="text-accent" />}
     </svg>
-  </span>;
+  </span>{open && createPortal(<div id={tooltipId} role="tooltip" style={position} className="pointer-events-none fixed z-60 space-y-1 rounded-lg bg-raised px-3 py-2 text-xs text-ink shadow-xl ring-1 ring-line">
+    <p className="font-medium">{percent === undefined ? 'Context usage' : `${contextPercent.format(percent)}% used`}</p>
+    <p className="text-muted">{used === undefined ? 'Usage not reported yet' : capacity === undefined ? `${contextTokens.format(used)} tokens used` : `${contextTokens.format(used)} of ${contextTokens.format(capacity)} tokens used`}</p>
+    {used !== undefined && capacity === undefined && <p className="text-muted">Limit not reported</p>}
+  </div>, document.body)}</>;
 }
 
 function SmallButton({ label, title = label, icon, disabled, onClick }: { label: string; title?: string; icon: Parameters<typeof Icon>[0]['name']; disabled?: boolean; onClick: () => void }) {

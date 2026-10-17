@@ -283,3 +283,10 @@ Set `-Dcodex.smoke.apiSettings.check=true` in an isolated IDEA profile using the
 `ApiConnectionTest` checks URL validation, model fallback, thread routing, and native/WSL argument boundaries. `ApiProbeTest` uses a local HTTP fixture to check authentication headers and redirect handling without sending prompts.
 
 Run `check-api-connections.mjs` with `CODEX_SMOKE_CHROME` after building to check the custom provider menu, model picker, settings shortcut, draft retention, and reconnect notice at 360 and 900 pixels.
+
+### Native context tooltip
+
+Use `-Dcodex.smoke.contextTooltip.check=true` with the model-switch fixture enabled
+in an isolated IDEA test profile. Run `check-native-context-tooltip.mjs` against
+that profile's JCEF port. It checks exact token counts on hover and keyboard focus,
+Escape dismissal, and an unclipped tooltip in both themes at 360 pixels wide.

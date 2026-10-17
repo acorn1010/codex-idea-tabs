@@ -48,9 +48,21 @@ try {
       const ring = page.getByRole('progressbar', { name: 'Context usage', exact: true });
       await ring.waitFor();
       assert.equal(await ring.getAttribute('aria-valuenow'), '25');
-      assert.equal(await ring.getAttribute('title'), 'Context usage: 23,347 / 93,388 tokens (25% used)');
+      assert.equal(await ring.getAttribute('aria-valuetext'), 'Context usage: 23,347 / 93,388 tokens (25% used)');
       await ring.hover();
+      const tooltip = page.getByRole('tooltip');
+      await tooltip.waitFor();
+      assert.ok((await tooltip.innerText()).includes('25% used'));
+      assert.ok((await tooltip.innerText()).includes('23,347 of 93,388 tokens used'));
+      const tooltipRect = await tooltip.boundingBox();
+      assert.ok(tooltipRect.x >= 0 && tooltipRect.x + tooltipRect.width <= width, 'Tooltip must fit inside a narrow tab');
+      assert.ok(tooltipRect.y >= 0 && tooltipRect.y + tooltipRect.height <= (await ring.boundingBox()).y, 'Tooltip must appear above the ring without composer clipping');
+      await page.mouse.move(0, 0);
+      await tooltip.waitFor({ state: 'hidden' });
       await ring.focus();
+      await tooltip.waitFor();
+      await page.keyboard.press('Escape');
+      await tooltip.waitFor({ state: 'hidden' });
       assert.equal(await ring.evaluate(element => element === document.activeElement), true);
       await ring.evaluate(element => element.blur());
       const arc = ring.locator('circle').nth(1);
@@ -62,28 +74,33 @@ try {
       assert.ok(ringRect.x >= modelRect.x + modelRect.width, 'The ring must sit immediately to the right of the model');
       assert.ok(ringRect.x + ringRect.width <= width, 'The ring must fit in a narrow tab');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'The composer must not cause horizontal scrolling');
+      await ring.hover();
+      await tooltip.waitFor();
       await page.screenshot({ path: `${output}/context-ring-${theme}-${width}.png` });
       for (const used of [0, 84049, 93388, 120000, 9000]) {
         await page.evaluate(used => window.__updateUsage({ total: { totalTokens: 1736000 }, last: { totalTokens: used }, modelContextWindow: 93388 }), used);
         const expected = Math.min(100, used / 93388 * 100);
         await page.waitForFunction(expected => Number(document.querySelector('[role="progressbar"][aria-label="Context usage"]').getAttribute('aria-valuenow')) === expected, expected);
-        assert.ok((await ring.getAttribute('title')).includes(new Intl.NumberFormat('en').format(used)), 'Hover text must retain the exact usage');
+        assert.ok((await ring.getAttribute('aria-valuetext')).includes(new Intl.NumberFormat('en').format(used)), 'Hover text must retain the exact usage');
+        assert.ok((await tooltip.innerText()).includes(new Intl.NumberFormat('en').format(used)), 'Visible hover text must update with context usage');
         assert.equal(await ring.locator('circle').count(), used > 0 ? 2 : 1);
       }
-      assert.equal(await ring.getAttribute('title'), 'Context usage: 9,000 / 93,388 tokens (9.6% used)', 'Compaction must lower the ring even with a large lifetime token total');
+      assert.equal(await ring.getAttribute('aria-valuetext'), 'Context usage: 9,000 / 93,388 tokens (9.6% used)', 'Compaction must lower the ring even with a large lifetime token total');
       await model.click();
       await page.getByRole('option', { name: 'GPT-6-Astra', exact: true }).click();
       await page.evaluate(() => window.__updateUsage({ last: { totalTokens: 30000 }, modelContextWindow: 200000 }));
       await page.waitForFunction(() => document.querySelector('[role="progressbar"][aria-label="Context usage"]').getAttribute('aria-valuenow') === '15');
-      assert.equal(await ring.getAttribute('title'), 'Context usage: 30,000 / 200,000 tokens (15% used)');
+      assert.equal(await ring.getAttribute('aria-valuetext'), 'Context usage: 30,000 / 200,000 tokens (15% used)');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'Cloud effort controls must still fit beside the ring');
+      await ring.hover();
       for (const usage of [undefined, { last: { totalTokens: 9000 } }, { last: { totalTokens: -1 }, modelContextWindow: 93388 }, { last: { totalTokens: NaN }, modelContextWindow: 93388 }]) {
         await page.evaluate(usage => window.__updateUsage(usage), usage);
         await page.waitForFunction(() => !document.querySelector('[role="progressbar"][aria-label="Context usage"]').hasAttribute('aria-valuenow'));
         assert.equal(await ring.locator('circle').count(), 1, 'Unknown usage must not imply a zero-percent reading');
+        assert.ok((await tooltip.innerText()).includes(usage?.last?.totalTokens === 9000 ? '9,000 tokens used' : 'Usage not reported yet'));
       }
     }
   }
   assert.deepEqual(errors, []);
-  console.log('Context ring passed: exact tooltip, SVG fill, live updates and compaction, cloud/local models, unknown usage, keyboard focus, and 320/360/900 layouts in both themes.');
+  console.log('Context ring passed: visible hover/focus tooltip, Escape dismissal, SVG fill, live updates and compaction, cloud/local models, unknown usage, keyboard focus, and 320/360/900 layouts in both themes.');
 } finally { await browser.close(); server.close(); }
