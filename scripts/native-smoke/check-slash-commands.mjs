@@ -90,7 +90,7 @@ try {
       await page.keyboard.press('Escape');
     }
     await command('ide-context');
-    assert.equal(await page.getByRole('button', { name: 'IDE context', exact: true }).getAttribute('aria-pressed'), 'true');
+    await page.waitForFunction(() => document.querySelector('[aria-label="IDE context"]')?.getAttribute('aria-pressed') === 'true');
     await command('fast'); await page.getByRole('button', { name: 'Fast ×', exact: true }).waitFor();
     await command('plan'); await page.getByRole('button', { name: 'Plan ×', exact: true }).waitFor();
     assert.ok(await page.evaluate(() => window.__calls.some(call => call.method === 'composerPreferences' && call.params.fast && call.params.planMode)));
@@ -139,7 +139,7 @@ try {
     await inspector.getByRole('textbox', { name: 'Search context' }).waitFor();
     assert.equal(await inspector.getByRole('textbox', { name: 'Search context' }).inputValue(), 'memory');
     await page.keyboard.press('Escape');
-    await command('init'); assert.ok((await field.inputValue()).includes('AGENTS.md'));
+    await command('init'); await page.waitForFunction(() => document.querySelector('[aria-label="Message Codex"]')?.value.includes('AGENTS.md'));
     await field.fill('/missing-command'); await field.press('Enter');
     assert.equal(await field.inputValue(), '/missing-command');
     await field.fill('/project/src/index.ts'); await field.press('Control+Enter');
