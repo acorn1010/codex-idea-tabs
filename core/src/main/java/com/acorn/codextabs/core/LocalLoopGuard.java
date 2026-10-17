@@ -69,7 +69,7 @@ public final class LocalLoopGuard {
         }
         if (repeats == WARN_AT) {
             memory.addProperty("warned", true);
-            return object("stop", false, "message", "Loop guard: a tool call returned an unchanged result three times. Review the failure and choose a different approach. Do not repeat the same calls without new evidence. Keep the task unfinished until its work is done.");
+            return object("stop", false, "message", "Loop guard: the same tool call returned the same result three times. Use that result. Inspect another source or fix the cause before retrying. For an HTTP server, use wait_http with a deadline. Two more unchanged calls will stop this turn. Do not mark the task complete while work remains.");
         }
         return object();
     }

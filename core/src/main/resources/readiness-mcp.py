@@ -16,13 +16,13 @@ import urllib.parse
 
 TOOL = {
     'name': 'wait_http',
-    'description': 'Wait for a local HTTP server to become ready using one bounded call instead of repeated shell health checks. Start the server once, then call this tool. Default: 60 seconds, polling every 2 seconds, HTTP 200. Maximum: 300 seconds. On timeout, inspect logs or fix the server before trying again. This checks the HTTP status only. Use environment=windows for a Windows server when Codex runs in WSL, otherwise use current.',
+    'description': 'Wait for a local server to return the expected HTTP status. Start the server once, then call this tool with its health URL. It sends GET requests without following redirects and returns one ready or timeout result. It checks the status code, not the response body. After a timeout, read the server logs or fix startup before retrying.',
     'inputSchema': {'type': 'object', 'additionalProperties': False, 'required': ['url'], 'properties': {
-        'url': {'type': 'string', 'description': 'HTTP URL on localhost, 127.0.0.1 or [::1], including the server port and health path.'},
-        'timeout_seconds': {'type': 'number', 'minimum': 1, 'maximum': 300, 'default': 60},
-        'interval_seconds': {'type': 'number', 'minimum': 1, 'maximum': 30, 'default': 2},
-        'expected_status': {'type': 'integer', 'minimum': 100, 'maximum': 599, 'default': 200},
-        'environment': {'type': 'string', 'enum': ['current', 'windows'], 'default': 'current'},
+        'url': {'type': 'string', 'description': 'Health URL, for example http://127.0.0.1:3000/health. Use HTTP with localhost, 127.0.0.1 or [::1].'},
+        'timeout_seconds': {'type': 'number', 'minimum': 1, 'maximum': 300, 'default': 60, 'description': 'Stop waiting after this many seconds. Default 60. Allowed range 1 to 300.'},
+        'interval_seconds': {'type': 'number', 'minimum': 1, 'maximum': 30, 'default': 2, 'description': 'Seconds to wait between failed checks. Default 2. Allowed range 1 to 30.'},
+        'expected_status': {'type': 'integer', 'minimum': 100, 'maximum': 599, 'default': 200, 'description': 'HTTP status that means ready. Default 200. Use a whole number from 100 to 599.'},
+        'environment': {'type': 'string', 'enum': ['current', 'windows'], 'default': 'current', 'description': 'Where the server runs. Default current, the same environment as Codex. Use windows for a Windows server when Codex runs in WSL.'},
     }},
     'annotations': {'readOnlyHint': True, 'destructiveHint': False, 'idempotentHint': True, 'openWorldHint': False},
 }

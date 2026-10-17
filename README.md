@@ -50,6 +50,48 @@ If Codex is not on the IDE's PATH, set its full executable path under **Settings
 
 The plugin reads the available models from Codex. New workspaces start with **GPT-6-Astra / xhigh** when available. Model and reasoning choices are saved as soon as you select them, before sending a message, and return in new tabs and after an IDEA restart. These preferences are kept per workspace. Choosing **Codex default** is also remembered. Switching models keeps a supported reasoning level or uses the new model's default. Sign in through the plugin's ChatGPT sign-in button if the CLI has no account yet.
 
+### Local GLM with the Codex harness
+
+Start a local llama.cpp server with the model alias `glm-flash-uncensored`, 98,304 tokens of context, and an OpenAI-compatible Responses API at `http://127.0.0.1:30001/v1`. Under **Settings → Tools → Codex Tabs**, select **Enable local GLM with Codex** and check the API URL. Keep **Codex** selected in the header, then choose **GLM 5.3 Flash (local)** in the model menu.
+
+Codex supplies the tools, file access, approvals, streaming, and saved conversation history. GLM supplies the model replies on your computer. Local inference needs no OpenAI API key or ChatGPT sign-in. The plugin registers the local provider for its own app-server process and keeps the user's global Codex configuration intact.
+
+On Windows with a WSL project, use a current WSL Codex executable and install Python 3 inside WSL. A private WSL relay uses Windows curl through process pipes to reach the Windows model server. Both APIs stay on localhost.
+
+The current GLM option uses a 96K context window and starts automatic compaction at 73,728 tokens. Codex reserves 5% of the window, so its status panel reports 93,388 usable tokens. It uses JSON function tools and supports **Read only**, **Ask me**, **Approve for me**, and **Approve all for session**. Approve for me sends requests through Codex’s automatic reviewer with the local provider. Approve all for session grants each eligible request without review until reconnect or close. Reasoning effort and cloud Fast mode are not offered for this local model. Switching an idle chat between GLM and a cloud model releases and resumes its Codex thread with the selected provider. A running turn keeps its current model until it finishes.
+
+Long prompts can take several minutes before output begins. Keep the server running while the harness works. GLM can make invalid tool calls and need retries.
+
+Compaction creates a text checkpoint with verified progress and the next step. The relay keeps the preceding tool definitions on compaction requests and disables tool calls. This lets the server reuse its cached prompt prefix. Reuse still depends on the history in the server slot.
+
+Local GLM has a loop guard. Three matching calls with unchanged results trigger a
+request to change approach. Five stop the turn. Comparison history survives
+compaction and reconnect. A new user instruction resets it. The guard keeps the
+chat and goal, and does not count running processes or MCP status and wait polls.
+The plugin requests low reasoning effort. Set a bounded thinking budget in the
+model server, such as `--reasoning-budget 1024`, to allow thinking without an
+unlimited delay.
+
+### Waiting for a local server
+
+For local GLM chats, Codex Tabs supplies the `wait_http` MCP tool
+through the bundled `codex_tabs_readiness` server. It uses Python and curl in the
+Codex environment. Start the server once, then wait for its health URL with one
+call. The defaults are HTTP 200, a 60 second deadline, and a 2 second interval.
+The deadline can be set from 1 to 300 seconds and the interval from 1 to 30 seconds.
+Use `environment: "windows"` for a Windows localhost server when Codex runs in WSL.
+Use `current` for a server in the Codex environment. Native Windows Codex requires
+`python` and `curl` on PATH. WSL, Linux and macOS require `python3` and `curl`.
+
+The tool makes HTTP GET requests to loopback addresses and does not follow
+redirects. It checks the status code, so choose a health endpoint that reports
+readiness. It returns one result and stops at the deadline, on cancellation, or
+when Codex disconnects. A timeout is a failed check. Inspect the server logs or
+fix startup before trying again. Successful readiness checks do not count toward
+the loop guard. Repeating the same wait with unchanged timeout results still
+warns after three calls and stops after five. Ordinary repeated shell commands
+such as `curl localhost:3000/health` still count as repeated tool calls.
+
 ### Claude Code
 
 Install Claude Code and sign in by running `claude` in a terminal. Set **Claude executable** in **Settings → Tools → Codex Tabs** if needed. Native and npm installations are detected on macOS. An npm installation also uses the Node binary beside its CLI entry point.
@@ -221,46 +263,3 @@ Codex loads the selected checkout's own instructions and skills. Codex Tabs also
 ### Remembering approvals
 
 Approval cards show **Always allow** when Codex offers a saved command-prefix or network-host rule. The card shows the rule before you select it. **Allow for session** remembers a command or file approval, or keeps the requested permissions for later turns in that session. **Allow once** and **Decline** remain separate choices. Computer Use, Browser Use, and other MCP connectors also get **Allow for session** and **Always allow** when they offer those durations. The selected duration is sent back to that connector with your form answers. Available buttons follow the choices supported by the current Codex request.
-
-## Local GLM
-
-Enable local GLM in Settings > Tools > Codex Tabs and set its local API URL, such as
-`http://127.0.0.1:30001/v1`. Select GLM 5.3 Flash (local) under the Codex provider.
-The model server runs separately. On Windows with WSL, the plugin connects through
-Windows curl and a private loopback relay. Python 3 must be available in WSL.
-
-Local chats use a 96K context window, compact at 73,728 tokens, and keep their
-saved history when resumed. Their compaction prompt produces a text checkpoint
-with verified progress and the next step. Cloud model settings stay separate.
-
-The relay keeps the preceding tool definitions on Codex compaction requests and
-disables tool calls. This keeps GLM's prompt prefix eligible for cache reuse.
-Reuse still depends on the history currently held in the server slot.
-
-Local GLM has a loop guard. Three matching calls with unchanged results trigger a
-request to change approach. Five stop the turn. Comparison history survives
-compaction and reconnect. A new user instruction resets it. The guard keeps the
-chat and goal, and does not count running processes or MCP status and wait polls.
-The plugin requests low reasoning effort. Set a bounded thinking budget in the
-model server, such as `--reasoning-budget 1024`, to allow thinking without an
-unlimited delay.
-
-### Waiting for a local server
-
-For local GLM chats, Codex Tabs supplies the `wait_http` MCP tool
-through the bundled `codex_tabs_readiness` server. It uses Python and curl in the
-Codex environment. Start the server once, then wait for its health URL with one
-call. The defaults are HTTP 200, a 60 second deadline, and a 2 second interval.
-The deadline can be set from 1 to 300 seconds and the interval from 1 to 30 seconds.
-Use `environment: "windows"` for a Windows localhost server when Codex runs in WSL.
-Use `current` for a server in the Codex environment. Native Windows Codex requires
-`python` and `curl` on PATH. WSL, Linux and macOS require `python3` and `curl`.
-
-The tool makes HTTP GET requests to loopback addresses and does not follow
-redirects. It checks the status code, so choose a health endpoint that reports
-readiness. It returns one result and stops at the deadline, on cancellation, or
-when Codex disconnects. A timeout is a failed check. Inspect the server logs or
-fix startup before trying again. Successful readiness checks do not count toward
-the loop guard. Repeating the same wait with unchanged timeout results still
-warns after three calls and stops after five. Ordinary repeated shell commands
-such as `curl localhost:3000/health` still count as repeated tool calls.
