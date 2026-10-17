@@ -194,7 +194,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             });
             case "composerReady": return uiResult(() -> { composerReady = true; focusComposer(); });
             case "send": return service.send(file.id, params);
-            case "cancelQueued": case "resumeQueued": return service.claudeCommand(file.id, method, params);
+            case "cancelQueued": case "resumeQueued": case "steerQueued": return service.claudeCommand(file.id, method, params);
             case "accountLimits": if (service.isClaude(file.id)) { return service.claudeCommand(file.id, "status", params); } return service.rpc("account/rateLimits/read", new JsonObject()).orTimeout(15, java.util.concurrent.TimeUnit.SECONDS);
             case "skills": if (service.isClaude(file.id)) { return service.claudeCommand(file.id, "skills", params); } return service.rpc("skills/list", object("cwds", new String[]{chat.get("cwd")}, "forceReload", true));
             case "composerPreferences": service.rememberComposer(file.id, params); return completed(new JsonObject());

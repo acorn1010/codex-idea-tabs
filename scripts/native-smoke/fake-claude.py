@@ -12,6 +12,7 @@ root = pathlib.Path.cwd()
 lock = threading.Lock()
 active = None
 pending = None
+steered = []
 with (root / "starts.jsonl").open("a") as output:
     output.write(json.dumps(sys.argv) + "\n")
 
@@ -34,7 +35,8 @@ def finish(token):
         return
     active = None
     emit({"type": "assistant", "session_id": session_id, "message": {"id": token, "content": [{"type": "text", "text": "Done"}]}})
-    emit({"type": "result", "session_id": session_id, "subtype": "success", "usage": {"input_tokens": 10, "output_tokens": 2}, "total_cost_usd": 0.01})
+    emit({"type": "result", "session_id": session_id, "subtype": "success", "usage": {"input_tokens": 10, "output_tokens": 2}, "total_cost_usd": 0.01, "user_message_uuids": [token, *steered]})
+    steered.clear()
 
 def release(token):
     while active == token:
@@ -85,6 +87,14 @@ for line in sys.stdin:
         emit({"type": "control_response", "response": {"subtype": "success", "request_id": frame["request_id"], "response": response}})
     elif kind == "user":
         (saved_sessions / session_id).touch()
+        priority = frame.get("priority")
+        if priority == "now" and active:
+            emit({"type": "result", "session_id": session_id, "is_error": True, "result": "Interrupted for steering", "user_message_uuids": [active]})
+        if "--replay-user-messages" in sys.argv:
+            emit(frame)
+        if priority == "later" and active:
+            steered.append(frame["uuid"])
+            continue
         active = frame["uuid"]
         content = frame["message"]["content"]
         prompt = " ".join(part.get("text", "") for part in content)
@@ -104,7 +114,7 @@ for line in sys.stdin:
         elif prompt == "question":
             pending = active
             emit({"type": "control_request", "request_id": "question", "request": {"subtype": "can_use_tool", "tool_name": "AskUserQuestion", "input": {"questions": [{"question": "Which?", "multiSelect": True, "options": [{"label": "A"}, {"label": "B"}]}]}}})
-        elif prompt.startswith("hold"):
+        elif prompt.startswith("hold") or priority == "now":
             threading.Thread(target=release, args=(active,), daemon=True).start()
         else:
             finish(active)

@@ -154,7 +154,7 @@ public final class ClaudeClient implements AutoCloseable {
     public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork, String anchor) {
         UUID.fromString(session);
         if (!resume.isBlank()) { UUID.fromString(resume); }
-        var arguments = new ArrayList<>(List.of(binary, "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--permission-prompt-tool", "stdio"));
+        var arguments = new ArrayList<>(List.of(binary, "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio"));
         if (!resume.isBlank()) { arguments.add("--resume=" + resume); }
         if (resume.isBlank() || fork) { arguments.add("--session-id=" + session); }
         if (fork) { arguments.add("--fork-session"); }

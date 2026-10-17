@@ -15,6 +15,8 @@ public final class ClaudeProtocol {
     private final Map<String, Integer> completedFrameOffsets = new HashMap<>();
     private String messageId = "";
     private String turnId = "";
+    private final Set<String> pendingSteers = new HashSet<>();
+    private final Set<String> unacknowledgedSteers = new HashSet<>();
     private final ClaudeActivity activity;
     public ClaudeProtocol(Conversation chat) { this(chat, true); }
     public ClaudeProtocol(Conversation chat, boolean live) { this(chat, live, System::currentTimeMillis); }
@@ -23,9 +25,14 @@ public final class ClaudeProtocol {
     }
 
     public synchronized void start(String turn, JsonArray input) {
-        turnId = turn; blocks.clear();
+        turnId = turn; blocks.clear(); pendingSteers.clear(); unacknowledgedSteers.clear();
         event("turn/started", object("turn", object("id", turn)));
         item(object("id", turn, "type", "userMessage", "content", input), true);
+    }
+    /** Keep streamed blocks intact and wait for the steered input before completing the turn. */
+    public synchronized void steer(String id, JsonArray input) {
+        pendingSteers.add(id); unacknowledgedSteers.add(id);
+        item(object("id", id, "type", "userMessage", "content", input), true);
     }
     public synchronized void accept(JsonObject frame) {
         if (activity != null && text(frame, "type").equals("system")) { activity.system(frame); }
@@ -53,7 +60,11 @@ public final class ClaudeProtocol {
             }
             case "user" -> {
                 var userInput = ClaudeHistory.input(frame);
-                if (!userInput.isEmpty() && !text(frame, "uuid").isBlank()) { item(object("id", text(frame, "uuid"), "type", "userMessage", "content", userInput), true); }
+                String uuid = text(frame, "uuid");
+                unacknowledgedSteers.remove(uuid);
+                // Replayed input can contain hidden handoff context. Preserve the original visible message.
+                boolean known = chat.items().asList().stream().anyMatch(value -> text(value.getAsJsonObject(), "id").equals(uuid));
+                if (!userInput.isEmpty() && !uuid.isBlank() && !known) { item(object("id", uuid, "type", "userMessage", "content", userInput), true); }
                 for (var content : array(obj(frame, "message"), "content")) {
                     var result = content.getAsJsonObject();
                     if (!text(result, "type").equals("tool_result")) { continue; }
@@ -80,6 +91,17 @@ public final class ClaudeProtocol {
                 chat.set("claudeUsage", obj(frame, "usage"));
                 chat.set("claudeModelUsage", obj(frame, "modelUsage"));
                 if (frame.has("total_cost_usd")) { chat.set("claudeCost", frame.get("total_cost_usd")); }
+                if (!pendingSteers.isEmpty()) {
+                    if (frame.has("user_message_uuids") || frame.has("user_message_uuid")) {
+                        for (var uuid : array(frame, "user_message_uuids")) { pendingSteers.remove(uuid.getAsString()); }
+                        pendingSteers.remove(text(frame, "user_message_uuid"));
+                    } else {
+                        // Older CLIs replay the steer after the interrupted result, before its own result.
+                        pendingSteers.removeIf(id -> !unacknowledgedSteers.contains(id));
+                    }
+                    unacknowledgedSteers.retainAll(pendingSteers);
+                    if (!pendingSteers.isEmpty()) { break; }
+                }
                 String error = "";
                 if (flag(frame, "is_error")) { error = contentText(frame.get("errors")); if (error.isBlank()) { error = text(frame, "result", "Claude could not finish this turn."); } }
                 event("turn/completed", object("turn", object("id", turnId, "status", error.isBlank() ? "completed" : "failed", "error", error.isBlank() ? null : object("message", error))));

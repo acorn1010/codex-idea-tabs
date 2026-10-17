@@ -11,6 +11,7 @@ import static com.acorn.codextabs.core.Json.*;
 /** Exercise the actual session controller with a tool-free subprocess fixture. */
 public final class ClaudeSessionsSmoke {
     public static void main(String[] args) throws Exception {
+        ClaudeSteeringSmoke.run(args[0]);
         var root = Files.createTempDirectory("claude-session-smoke-");
         var settings = new CodexSettings.State(); settings.claudeBinary = Path.of(args[0]).toAbsolutePath().toString();
         var chat = new Conversation(UUID.randomUUID().toString(), root.toString()); chat.set("provider", "claude");

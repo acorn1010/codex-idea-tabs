@@ -108,6 +108,37 @@ final class ClaudeSessions implements AutoCloseable {
     }
     void cancelQueued(Conversation chat, String id) { new ClaudeQueue(chat).remove(id); changed.accept(chat); }
     void resumeQueued(Conversation chat) { session(chat).next(); }
+    JsonObject steerQueued(Conversation chat, String id) {
+        if (chat.archived() || flag(chat.snapshot(), "providerSwitching")) { throw new IllegalStateException("Restore this Claude chat before steering."); }
+        var session = session(chat);
+        synchronized (session) {
+            var entry = array(chat.snapshot(), "claudeQueue").asList().stream().map(JsonElement::getAsJsonObject)
+                .filter(value -> text(value, "id").equals(id)).findFirst().orElse(null);
+            if (entry == null) { return new JsonObject(); }
+            var response = steer(session, obj(entry, "payload"), array(entry, "input"));
+            // Remove only after submission succeeds, leaving failures in their original queue position.
+            session.queue.remove(id); changed.accept(chat); return response;
+        }
+    }
+    private JsonObject steer(Session session, JsonObject payload, JsonArray input) {
+        var chat = session.chat;
+        var body = content(input);
+        synchronized (session.protocol) {
+            // A completion must not slip between choosing the active turn and tracking this input.
+            if (chat.busy()) {
+                String id = UUID.randomUUID().toString();
+                String priority = array(chat.snapshot(), "requests").isEmpty() ? "now" : "later";
+                session.client.write(object("type", "user", "uuid", id, "session_id", session.sessionId, "parent_tool_use_id", null,
+                    "priority", priority, "message", object("role", "user", "content", body)));
+                session.protocol.steer(id, input); changed.accept(chat);
+                return object("steered", true, "id", id);
+            }
+        }
+        // The turn may have finished while the user pressed Steer. Send this message next.
+        validateOptions(chat, payload);
+        session.paused = false; chat.set("claudeQueuePaused", false);
+        return start(session, payload, input);
+    }
 
     private void recoverUnsentHandoff(Conversation chat) {
         // Older versions saved startup IDs for handoffs that had never sent a Claude message.
@@ -170,6 +201,7 @@ final class ClaudeSessions implements AutoCloseable {
         var session = session(chat);
         content(input); // Validate attachments before accepting a queued prompt.
         synchronized (session) {
+            if (flag(payload, "steer")) { return steer(session, payload, input); }
             validateOptions(chat, payload);
             if (chat.busy() || session.queue.hasNext() || session.starting) {
                 var queued = session.queue.add(payload, input); changed.accept(chat);
@@ -370,7 +402,7 @@ final class ClaudeSessions implements AutoCloseable {
                 }
             } else if (type.equals("control_cancel_request")) { chat.resolve(new JsonPrimitive(text(event, "request_id")).toString()); }
             else { protocol.accept(event); }
-            if (type.equals("result") && flag(event, "is_error")) { paused = true; chat.set("claudeQueuePaused", true); }
+            if (type.equals("result") && !chat.busy() && flag(event, "is_error")) { paused = true; chat.set("claudeQueuePaused", true); }
             changed.accept(chat);
             if (type.equals("result") && !paused && queue.hasNext()) { next(false); }
         }
