@@ -44,6 +44,58 @@ public final class CodexService implements Disposable {
     private volatile String connectionError = "";
     private volatile String connectionStatus = "disconnected";
     private String attachmentRoot;
+    private volatile long connectionRevision;
+    private final ConcurrentMap<String, String> credentialErrors = new ConcurrentHashMap<>();
+    private final java.util.concurrent.atomic.AtomicInteger pendingReconnect = new java.util.concurrent.atomic.AtomicInteger();
+
+    private ApiConnection apiConnection(Conversation chat) {
+        String id = chat.get("apiConnectionId");
+        return settings().apiConnections.stream().filter(value -> value.id.equals(id)).findFirst().orElse(null);
+    }
+    private ApiConnection requireApiConnection(Conversation chat) {
+        var entry = apiConnection(chat);
+        if (entry == null && !chat.get("apiConnectionId").isBlank()) {
+            throw new IllegalStateException("This API connection was removed. Choose another provider or restore it in Codex Tabs settings.");
+        }
+        if (entry != null && credentialErrors.containsKey(entry.id)) { throw new IllegalStateException(credentialErrors.get(entry.id)); }
+        return entry;
+    }
+    private JsonObject configureThread(Conversation chat, JsonObject params) {
+        var entry = requireApiConnection(chat);
+        if (entry != null) { entry.configure(params, text(params, "model", entry.selectedModel)); }
+        return params;
+    }
+    private JsonArray providerOptions() {
+        var result = new JsonArray();
+        result.add(object("id", "codex", "name", "Codex")); result.add(object("id", "claude", "name", "Claude"));
+        for (var entry : settings().apiConnections) { result.add(object("id", "api:" + entry.id, "name", entry.name)); }
+        return result;
+    }
+    /** Settings become effective once ongoing work has finished, without interrupting a turn. */
+    public void settingsApplied(boolean allProviders, boolean apiConnections) {
+        connectionRevision++;
+        if (allProviders || apiConnections) {
+            pendingReconnect.accumulateAndGet(allProviders ? 2 : 1, Math::max);
+            io.execute(this::applyPendingSettings);
+        }
+        changed("");
+    }
+    private void applyPendingSettings() {
+        if (disposed || pendingReconnect.get() == 0 || !workspaceLock.writeLock().tryLock()) { return; }
+        try {
+            int pending = pendingReconnect.get();
+            if (pending == 0 || sends.values().stream().anyMatch(value -> !value.isDone())) { return; }
+            if (chats.values().stream().filter(chat -> pending == 2 || !chat.get("provider").equals("claude"))
+                .anyMatch(chat -> chat.busy() || chat.hasBackgroundWork() || !chat.pendingRequests().isEmpty())) { return; }
+            if (!pendingReconnect.compareAndSet(pending, 0)) { return; }
+            if (pending == 2) { reconnect(); }
+            else { reconnectCodex(); editors.keySet().stream().filter(key -> !isClaude(key)).forEach(this::load); }
+            changed("");
+        } finally { workspaceLock.writeLock().unlock(); }
+    }
+    private void checkPendingSettings() {
+        if (pendingReconnect.get() != 0) { throw new IllegalStateException("Connection settings will apply when active chats finish. Try again after they finish or stop them first."); }
+    }
     private final ConcurrentMap<String, String> sharedGuidanceVersions = new ConcurrentHashMap<>();
     private final java.util.concurrent.locks.ReentrantReadWriteLock workspaceLock = new java.util.concurrent.locks.ReentrantReadWriteLock();
     private final Object workspaceRefresh = new Object();
@@ -79,7 +131,9 @@ public final class CodexService implements Disposable {
     }
     public boolean isClaude(String id) { return chat(id).get("provider").equals("claude"); }
     /** Prepare the new session before replacing the chat, serialized with sends and archive actions. */
-    public CompletableFuture<JsonObject> selectProvider(String id, String provider) {
+    public CompletableFuture<JsonObject> selectProvider(String id, String choice) {
+        String connectionId = choice.startsWith("api:") ? choice.substring(4) : "";
+        String provider = connectionId.isBlank() ? choice : "codex";
         var result = new CompletableFuture<JsonObject>();
         sessions.retain(id);
         sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
@@ -88,13 +142,18 @@ public final class CodexService implements Disposable {
                 workspaceLock.readLock().lock();
                 try {
                     if (!Set.of("codex", "claude").contains(provider)) { throw new IllegalArgumentException("Unknown provider."); }
-                    if (source.get("provider").equals(provider)) { settings().provider = provider; result.complete(snapshot(id)); return; }
+                    checkPendingSettings();
+                    if (!connectionId.isBlank() && settings().apiConnections.stream().noneMatch(entry -> entry.id.equals(connectionId))) { throw new IllegalArgumentException("API connection not found. Open Codex Tabs settings to add it."); }
+                    if (source.get("provider").equals(provider) && source.get("apiConnectionId").equals(connectionId)) {
+                        settings().provider = provider; settings().apiConnectionId = connectionId; result.complete(snapshot(id)); return;
+                    }
                     ProviderHandoff.checkIdle(source.snapshot());
                     source.set("providerSwitching", true); changed(id);
                     var history = source.get("provider").equals("claude") ? claude.transcript(source) : transcript(id).join();
                     ProviderHandoff.checkIdle(source.snapshot());
                     var visibleHistory = source.items();
                     candidate = ProviderHandoff.prepare(source.snapshot(), array(history, "items"), provider);
+                    candidate.set("apiConnectionId", connectionId);
                     if (provider.equals("claude")) { claude.load(candidate); }
                     else { connect().join(); }
                     ProviderHandoff.checkIdle(source.snapshot());
@@ -111,7 +170,7 @@ public final class CodexService implements Disposable {
                     candidate.set("renamed", !candidate.get("title").equals("New chat"));
                     candidate.replaceAfter(source.revision());
                     if (provider.equals("claude")) { sessions.load(id, () -> CompletableFuture.completedFuture(null)).join(); }
-                    chats.put(id, candidate); settings().provider = provider;
+                    chats.put(id, candidate); settings().provider = provider; settings().apiConnectionId = connectionId;
                     changed(id); result.complete(snapshot(id));
                 } catch (Exception error) {
                     if (candidate != null && provider.equals("claude")) { claude.release(id); }
@@ -142,12 +201,25 @@ public final class CodexService implements Disposable {
         }
         if (permissions.equals("session")) { changed(id); return; }
         if (claudeProvider) { settings().claudePermissions = permissions; }
+        else if (apiConnection(chat) != null) { apiConnection(chat).permissions = permissions; }
         else { settings().permissions = permissions; }
         changed("");
     }
     public void rememberModel(String id, JsonObject payload) {
         if (isClaude(id)) { settings().claudeModel = text(payload, "model"); settings().claudeEffort = text(payload, "effort"); changed(""); }
-        else { rememberModel(payload); }
+        else if (apiConnection(chat(id)) != null) {
+            var entry = apiConnection(chat(id));
+            String model = text(payload, "model");
+            if (!model.isBlank() && !entry.models.contains(model)) { throw new IllegalArgumentException("Choose a model from this API connection."); }
+            entry.selectedModel = model; changed("");
+        } else { rememberModel(payload); }
+    }
+    public void rememberComposer(String id, JsonObject payload) {
+        var entry = apiConnection(chat(id));
+        if (isClaude(id)) { settings().claudeFast = flag(payload, "fast"); }
+        else if (entry != null) { entry.planMode = flag(payload, "planMode"); }
+        else { settings().fast = flag(payload, "fast"); settings().planMode = flag(payload, "planMode"); }
+        changed("");
     }
     /** Save a deliberate selection before a message is sent, independently of active turns. */
     public synchronized void rememberModel(JsonObject payload) {
@@ -203,6 +275,7 @@ public final class CodexService implements Disposable {
     public Conversation create() {
         var chat = chat(UUID.randomUUID().toString());
         chat.set("provider", settings().provider.equals("claude") ? "claude" : "codex");
+        if (!settings().provider.equals("claude")) { chat.set("apiConnectionId", settings().apiConnectionId); }
         changed(chat.id);
         return chat;
     }
@@ -230,6 +303,12 @@ public final class CodexService implements Disposable {
     }
     private JsonObject composerSettings(Conversation chat, boolean claudeProvider) {
         var settings = settings();
+        var entry = apiConnection(chat);
+        if (!claudeProvider && entry != null) {
+            String permissions = chat.approvals.mode(entry.permissions);
+            return object("model", entry.selectedModel, "effort", "", "modelSelectionSaved", true,
+                "permissions", permissions.equals("auto") ? "ask" : permissions, "permissionRevision", chat.approvals.revision(), "fast", false, "planMode", entry.planMode);
+        }
         return object("model", claudeProvider ? settings.claudeModel : settings.model, "effort", claudeProvider ? settings.claudeEffort : settings.effort,
             "modelSelectionSaved", claudeProvider || settings.modelSelectionSaved, "permissions", chat.approvals.mode(claudeProvider ? settings.claudePermissions : settings.permissions), "permissionRevision", chat.approvals.revision(),
             "fast", claudeProvider ? settings.claudeFast : settings.fast, "planMode", !claudeProvider && settings.planMode);
@@ -237,13 +316,18 @@ public final class CodexService implements Disposable {
     public JsonObject snapshot(String id, long revision) {
         var chat = chat(id);
         var update = chat.changes(revision); update.remove("providerContext");
+        var providers = providerOptions();
+        var entry = apiConnection(chat);
+        String apiError = chat.get("apiConnectionId").isBlank() ? "" : entry == null
+            ? "This API connection was removed. Choose another provider or restore it in Codex Tabs settings."
+            : credentialErrors.getOrDefault(entry.id, "");
         if (chat.get("provider").equals("claude")) {
-            return object("chat", update, "sessions", summaries(), "models", array(update, "claudeModels"), "account", obj(update, "claudeAccount"),
+            return object("providers", providers, "connectionRevision", connectionRevision, "settingsPending", pendingReconnect.get() != 0, "chat", update, "sessions", summaries(), "models", array(update, "claudeModels"), "account", obj(update, "claudeAccount"),
                 "connection", chat.get("claudeConnection").isBlank() ? "disconnected" : chat.get("claudeConnection"), "error", "", "settings", composerSettings(chat, true),
                 "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
         }
-        return object("chat", update, "sessions", summaries(), "models", models, "account", account, "connection", connectionStatus,
-            "error", connectionError, "settings", composerSettings(chat, false), "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
+        return object("providers", providers, "connectionRevision", connectionRevision, "settingsPending", pendingReconnect.get() != 0, "chat", update, "sessions", summaries(), "models", entry == null ? (chat.get("apiConnectionId").isBlank() ? models : new JsonArray()) : entry.modelOptions(), "account", chat.get("apiConnectionId").isBlank() ? account : object("requiresOpenaiAuth", false), "connection", connectionStatus,
+            "error", apiError.isBlank() ? connectionError : apiError, "settings", composerSettings(chat, false), "distro", distro(), "cwd", chat.get("cwd"), "workspaceLabel", workspaceLabel(chat.get("cwd")), "project", project.getName());
     }
     /** Refresh all repository identities together, then return only this chat's Git choices. */
     public CompletableFuture<JsonObject> workspaces(String id) {
@@ -379,12 +463,13 @@ public final class CodexService implements Disposable {
                         } else {
                             var rpc = connect().join();
                             var params = object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true);
-                            if (source.get("modelProvider").equals(LocalModel.PROVIDER)) { requireLocalModel(); applyLocalModel(params, LocalModel.MODEL); }
-                            var fork = rpc.request("thread/fork", params).join();
+                            if (source.get("apiConnectionId").isBlank() && source.get("modelProvider").equals(LocalModel.PROVIDER)) { requireLocalModel(); applyLocalModel(params, LocalModel.MODEL); }
+                            var fork = rpc.request("thread/fork", configureThread(source, params)).join();
                             target = importThread(obj(fork, "thread"));
                             target.set("modelProvider", text(fork, "modelProvider", target.get("modelProvider")));
                             target.set("model", text(fork, "model", source.get("model")));
                             target.inheritHandoff(source);
+                            target.set("apiConnectionId", source.get("apiConnectionId"));
                             target.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
                             target.set("answeredQuestions", array(source.snapshot(), "answeredQuestions"));
                         }
@@ -558,13 +643,15 @@ public final class CodexService implements Disposable {
         connection = CompletableFuture.supplyAsync(() -> {
             LocalModelRelay relay = null;
             try {
-                var arguments = List.<String>of();
+                var entries = settings().apiConnections.stream().map(ApiConnection::copy).toList();
+                var arguments = new ArrayList<String>();
+                for (var entry : entries) { arguments.addAll(entry.arguments()); }
                 if (settings().localModelEnabled) {
                     String url = settings().localModelUrl;
                     LocalModel.validateUrl(url);
                     relay = new LocalModelRelay(distro(), url, Objects.toString(System.getenv("SystemRoot"), "C:\\Windows"), SystemInfo.isWindows);
                     url = relay.baseUrl();
-                    arguments = LocalModel.overrides(url);
+                    arguments.addAll(LocalModel.overrides(url));
                 }
                 synchronized (this) {
                     if (disposed || generation != connectionGeneration) { throw new CancellationException("Connection was replaced"); }
@@ -572,6 +659,20 @@ public final class CodexService implements Disposable {
                     localRelay = relay;
                 }
                 var builder = new ProcessBuilder(com.acorn.codextabs.core.Paths.command(executable(), distro(), SystemInfo.isWindows, arguments));
+                var exported = new ArrayList<String>();
+                credentialErrors.clear();
+                for (var entry : entries) {
+                    if (!entry.hasKey) { continue; }
+                    try {
+                        String key = ApiKeys.read(project, entry.id);
+                        if (!key.isBlank()) { builder.environment().put(entry.environmentKey(), key); exported.add(entry.environmentKey() + "/u"); }
+                        else { credentialErrors.put(entry.id, "The saved API key is unavailable. Enter it again in Codex Tabs settings."); }
+                    } catch (RuntimeException error) { credentialErrors.put(entry.id, "Could not read the API key from the IDE credential store. Open Codex Tabs settings to update it."); }
+                }
+                if (!distro().isBlank() && !exported.isEmpty()) {
+                    String current = builder.environment().getOrDefault("WSLENV", "");
+                    builder.environment().put("WSLENV", (current.isBlank() ? "" : current + ":") + String.join(":", exported));
+                }
                 if (distro().isBlank() && Files.isDirectory(java.nio.file.Path.of(cwd()))) { builder.directory(java.nio.file.Path.of(cwd()).toFile()); }
                 // A configured WSL executable is passed as one argument, even when its path contains spaces.
                 var rpc = new RpcClient(builder.start(), event -> { if (generation == connectionGeneration) { event(event); } }, message -> {
@@ -638,7 +739,7 @@ public final class CodexService implements Disposable {
     private synchronized void reconnectCodex() {
         connectionGeneration++;
         if (client != null) { client.close(); }
-        client = null; connection = null;
+        client = null; connection = null; connectionStatus = "disconnected"; connectionError = ""; credentialErrors.clear();
         if (localRelay != null) { localRelay.close(); localRelay = null; }
         chats.values().stream().filter(chat -> !chat.get("provider").equals("claude")).forEach(chat -> { chat.disconnected(); sessions.forget(chat.id); });
     }
@@ -740,6 +841,8 @@ public final class CodexService implements Disposable {
         String threadId = text(thread, "id");
         var chat = chats.values().stream().filter(value -> !value.get("provider").equals("claude") && value.get("threadId").equals(threadId)).findFirst().orElseGet(() -> chat(chats.containsKey(threadId) ? UUID.randomUUID().toString() : threadId));
         chat.hydrate(thread, chat.revision());
+        String modelProvider = text(thread, "modelProvider");
+        if (modelProvider.startsWith("codex_tabs_")) { chat.set("apiConnectionId", modelProvider.substring("codex_tabs_".length())); }
         if (!text(thread, "cwd").isBlank()) { chat.set("cwd", text(thread, "cwd")); }
         changed(chat.id);
         return chat;
@@ -768,10 +871,10 @@ public final class CodexService implements Disposable {
             var resume = object("threadId", chat.get("threadId"), "cwd", chat.get("cwd"), "excludeTurns", true, "config", ComposerOptions.threadConfig(""));
             if (!chat.get("modelProvider").isBlank()) { resume.addProperty("modelProvider", chat.get("modelProvider")); }
             if (!chat.get("model").isBlank()) { resume.addProperty("model", chat.get("model")); }
-            if (chat.get("modelProvider").equals(LocalModel.PROVIDER)) {
+            if (chat.get("apiConnectionId").isBlank() && chat.get("modelProvider").equals(LocalModel.PROVIDER)) {
                 requireLocalModel(); applyLocalModel(resume, LocalModel.MODEL); resume.addProperty("model", LocalModel.MODEL);
             }
-            return rpc.request("thread/resume", resume).thenComposeAsync(result -> {
+            return rpc.request("thread/resume", configureThread(chat, resume)).thenComposeAsync(result -> {
                 if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
                 if (chat(id) != chat) { throw new CancellationException("Provider was changed"); }
                 chat.resumed(obj(result, "thread"), revision);
@@ -854,21 +957,25 @@ public final class CodexService implements Disposable {
                         chat.set("draftInput", new JsonArray());
                         sessions.working(id, chat.busy() || chat.hasBackgroundWork()); changed(id); result.complete(response); return;
                     }
+                    checkPendingSettings();
+                    var entry = requireApiConnection(chat);
                     var rpc = connect().join();
                     var options = settings();
                     String model = text(payload, "model", options.model);
                     String effort = text(payload, "effort", options.effort);
-                    String permissions = chat.approvals.resolve(text(payload, "permissions", chat.approvals.mode(options.permissions)));
-                    boolean local = LocalModel.selected(model);
+                    if (entry != null) { model = entry.model(text(payload, "model", entry.selectedModel)); effort = ""; }
+                    String permissions = chat.approvals.resolve(text(payload, "permissions", chat.approvals.mode(entry == null ? options.permissions : entry.permissions)));
+                    if (entry != null && permissions.equals("auto")) { permissions = "ask"; }
+                    boolean local = entry == null && LocalModel.selected(model);
                     if (local) { requireLocalModel(); effort = ""; }
                     if (chat.get("threadId").isBlank()) {
                         var start = object("cwd", chat.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                         if (!model.isBlank()) { start.addProperty("model", model); }
                         start.add("config", ComposerOptions.threadConfig(effort));
-                        applyLocalModel(start, model);
-                        var started = rpc.request("thread/start", start).join();
+                        if (local) { applyLocalModel(start, model); }
+                        var started = rpc.request("thread/start", configureThread(chat, start)).join();
                         chat.hydrate(obj(started, "thread"), chat.revision());
-                        chat.set("modelProvider", text(started, "modelProvider", chat.get("modelProvider")));
+                        chat.set("modelProvider", text(started, "modelProvider", text(start, "modelProvider", defaultModelProvider)));
                         chat.set("model", text(started, "model", model));
                         if (chat.get("title").equals("New chat") || chat.get("title").isBlank()) { chat.set("title", prompt.lines().findFirst().orElse("New chat").substring(0, Math.min(prompt.lines().findFirst().orElse("New chat").length(), 80))); }
                         sessions.load(id, () -> CompletableFuture.completedFuture(null)).join();
@@ -882,11 +989,11 @@ public final class CodexService implements Disposable {
                             resume.add("config", ComposerOptions.threadConfig(effort));
                             resume.addProperty("modelProvider", local ? LocalModel.PROVIDER : defaultModelProvider);
                             if (model.isBlank() && !defaultModel.isBlank()) { resume.addProperty("model", defaultModel); }
-                            applyLocalModel(resume, model);
+                            if (local) { applyLocalModel(resume, model); }
                             // A loaded thread ignores resume overrides. Release it before choosing a different provider or thread settings.
                             rpc.request("thread/unsubscribe", object("threadId", chat.get("threadId"))).join();
                             sessions.forget(id);
-                            var resumed = rpc.request("thread/resume", resume).join();
+                            var resumed = rpc.request("thread/resume", configureThread(chat, resume)).join();
                             chat.resumed(obj(resumed, "thread"), chat.revision());
                             chat.set("modelProvider", text(resumed, "modelProvider", chat.get("modelProvider")));
                             chat.set("model", text(resumed, "model", model));
@@ -914,7 +1021,12 @@ public final class CodexService implements Disposable {
                         params.addProperty("approvalPolicy", "on-request");
                         params.addProperty("approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
                         params.add("sandboxPolicy", permissions.equals("read") ? object("type", "readOnly") : object("type", "workspaceWrite", "writableRoots", new String[]{chat.get("cwd")}, "networkAccess", false, "excludeTmpdirEnvVar", false, "excludeSlashTmp", false));
-                        if (!reviewCommand) { ComposerOptions.apply(params, payload, models, model, effort, flag(chat.snapshot(), "planModeActive")); }
+                        if (!reviewCommand) {
+                            var choices = payload;
+                            if (entry != null) { choices = payload.deepCopy(); choices.addProperty("fast", false); }
+                            ComposerOptions.apply(params, choices, entry == null ? models : entry.modelOptions(), model, effort, flag(chat.snapshot(), "planModeActive"));
+                        }
+                        if (entry != null) { params.remove("summary"); params.remove("serviceTierForTurn"); }
                         var response = reviewCommand ? rpc.request("review/start", object("threadId", chat.get("threadId"), "target", ComposerOptions.review(obj(payload, "reviewTarget")), "delivery", "inline")).join() : rpc.request("turn/start", params).join();
                         if (!reviewCommand) { chat.set("planModeActive", flag(payload, "planMode")); }
                         String returnedTurn = text(obj(response, "turn"), "id");
@@ -967,7 +1079,9 @@ public final class CodexService implements Disposable {
             } while (!found && !cursor.isBlank());
             if (payload.has("images") && !payload.get("images").isJsonArray()) { throw new IllegalArgumentException("Image attachments must be a list."); }
             var edit = MessageEdit.prepare(turns, itemId, text(payload, "text"), payload.has("images") ? array(payload, "images") : null);
-            String permissions = text(payload, "permissions", settings().permissions);
+            var entry = requireApiConnection(source);
+            String permissions = text(payload, "permissions", entry == null ? settings().permissions : entry.permissions);
+            if (entry != null && permissions.equals("auto")) { permissions = "ask"; }
             var params = object("cwd", source.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
             if (!text(payload, "model").isBlank()) { params.addProperty("model", text(payload, "model")); }
             String method = "thread/start";
@@ -977,13 +1091,14 @@ public final class CodexService implements Disposable {
                 params.addProperty("lastTurnId", edit.lastTurnId());
                 params.addProperty("excludeTurns", true);
             }
-            String model = text(payload, "model", settings().model);
-            if (LocalModel.selected(model)) { requireLocalModel(); applyLocalModel(params, model); }
-            var branch = rpc.request(method, params).join();
+            String model = entry == null ? text(payload, "model", settings().model) : entry.model(text(payload, "model", entry.selectedModel));
+            if (entry == null && LocalModel.selected(model)) { requireLocalModel(); applyLocalModel(params, model); }
+            var branch = rpc.request(method, configureThread(source, params)).join();
             var revised = importThread(obj(branch, "thread"));
             revised.set("modelProvider", text(branch, "modelProvider", revised.get("modelProvider")));
             revised.set("model", text(branch, "model", model));
             revised.inheritHandoff(source);
+            revised.set("apiConnectionId", source.get("apiConnectionId"));
             if (edit.lastTurnId().isBlank() && !source.get("providerContext").isBlank()) { revised.set("providerContextPending", true); }
             revised.set("sharedGuidanceRoot", source.get("sharedGuidanceRoot"));
             revised.set("cwd", source.get("cwd")); revised.set("workspaceBase", source.get("workspaceBase"));
@@ -1205,6 +1320,7 @@ public final class CodexService implements Disposable {
         });
     }
     private synchronized void save() {
+        applyPendingSettings();
         if (!dirty || !restored.isDone()) { return; }
         dirty = false;
         try {

@@ -197,7 +197,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
             case "cancelQueued": case "resumeQueued": return service.claudeCommand(file.id, method, params);
             case "accountLimits": if (service.isClaude(file.id)) { return service.claudeCommand(file.id, "status", params); } return service.rpc("account/rateLimits/read", new JsonObject()).orTimeout(15, java.util.concurrent.TimeUnit.SECONDS);
             case "skills": if (service.isClaude(file.id)) { return service.claudeCommand(file.id, "skills", params); } return service.rpc("skills/list", object("cwds", new String[]{chat.get("cwd")}, "forceReload", true));
-            case "composerPreferences": if (service.isClaude(file.id)) { service.settings().claudeFast = flag(params, "fast"); service.changed(""); return completed(new JsonObject()); } service.settings().fast = flag(params, "fast"); service.settings().planMode = flag(params, "planMode"); service.changed(""); return completed(new JsonObject());
+            case "composerPreferences": service.rememberComposer(file.id, params); return completed(new JsonObject());
             case "getGoal": return chat.get("threadId").isBlank() ? completed(object("goal", JsonNull.INSTANCE)) : service.rpc("thread/goal/get", object("threadId", chat.get("threadId")));
             case "clearGoal": return chat.get("threadId").isBlank() ? completed(object("cleared", false)) : service.rpc("thread/goal/clear", object("threadId", chat.get("threadId")));
             case "setGoal": { var payload = params.deepCopy(); payload.addProperty("goalObjective", text(params, "objective")); return service.send(file.id, payload); }

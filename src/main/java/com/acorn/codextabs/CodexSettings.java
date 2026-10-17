@@ -2,7 +2,7 @@ package com.acorn.codextabs;
 
 import com.intellij.openapi.components.*;
 
-/** Project settings follow the workspace while authentication stays in Codex's own credential store. */
+/** Project settings follow the workspace while API keys stay in the IDE credential store. */
 @State(name = "CodexTabsSettings", storages = @Storage(StoragePathMacros.WORKSPACE_FILE))
 @Service(Service.Level.PROJECT)
 public final class CodexSettings implements PersistentStateComponent<CodexSettings.State> {
@@ -10,6 +10,8 @@ public final class CodexSettings implements PersistentStateComponent<CodexSettin
         public String binary = "codex";
         public String claudeBinary = "claude";
         public String provider = "codex";
+        public String apiConnectionId = "";
+        public java.util.List<com.acorn.codextabs.core.ApiConnection> apiConnections = new java.util.ArrayList<>();
         public String claudeModel = "";
         public String claudeEffort = "";
         public boolean claudeFast;

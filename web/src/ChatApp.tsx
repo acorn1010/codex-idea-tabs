@@ -54,7 +54,9 @@ export function ChatApp() {
   useEffect(installTextNavigation, []);
   const [state, setState] = useState<Snapshot>();
   const isClaude = state?.chat.provider === 'claude';
-  const providerName = isClaude ? 'Claude' : 'Codex';
+  const customApi = !isClaude && !!state?.chat.apiConnectionId;
+  const providerValue = isClaude ? 'claude' : customApi ? `api:${state?.chat.apiConnectionId}` : 'codex';
+  const providerName = state?.providers?.find((provider) => provider.id === providerValue)?.name || (isClaude ? 'Claude' : customApi ? 'API connection' : 'Codex');
   const appliedProvider = useRef<string | undefined>(undefined);
   const [changingProvider, setChangingProvider] = useState(false);
   const [draft, setDraft] = useState('');
@@ -64,7 +66,7 @@ export function ChatApp() {
   const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
   const isLocal = !!selectedModel?.isLocal;
   // An unsupported model uses Ask me without forgetting the user's saved choice.
-  const permissions = isClaude && permissionPreference === 'auto' && !selectedModel?.supportsAutoMode ? 'ask' : permissionPreference;
+  const permissions = permissionPreference === 'auto' && (customApi || (isClaude && !selectedModel?.supportsAutoMode)) ? 'ask' : permissionPreference;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const [archivePending, setArchivePending] = useState(false);
@@ -117,8 +119,9 @@ export function ChatApp() {
   }, []);
   const apply = useCallback((snapshot: Snapshot) => {
     const provider = snapshot.chat.provider || 'codex';
-    if (appliedProvider.current !== provider) {
-      appliedProvider.current = provider; modelInitialized.current = false;
+    const preferenceKey = `${provider}:${snapshot.chat.apiConnectionId || ''}:${snapshot.connectionRevision || 0}`;
+    if (appliedProvider.current !== preferenceKey) {
+      appliedProvider.current = preferenceKey; modelInitialized.current = false;
       setModel(snapshot.settings.model || ''); setEffort(snapshot.settings.effort || '');
       setPermissionPreference(snapshot.settings.permissions || (provider === 'claude' ? 'ask' : 'auto'));
       setFast(!!snapshot.settings.fast); setPlanMode(!!snapshot.settings.planMode);
@@ -374,7 +377,7 @@ export function ChatApp() {
     ['settings', 'Settings', 'settings', 'Open connection settings'],
     ...(working ? [['stop', 'Stop', 'stop', 'Stop the current turn'] as [CommandName, string, SlashItem['icon'], string]] : []),
   ];
-  const slashItems: SlashItem[] = [...rows.filter(([command]) => !isClaude || !['feedback', 'goal', 'memories'].includes(command)).map(([command, label, icon, description, disabled]): SlashItem => ({ kind: 'command', command, id: command, name: command, label, icon, description, disabled })), ...skills.filter((skill) => !skill.nativeCommand || !rows.some(([command]) => command === skill.name)).map((skill): SlashItem => ({ kind: 'skill', skill, id: `skill:${skill.path}`, name: skill.name, label: skill.interface?.displayName || skill.name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' '), description: skill.interface?.shortDescription || skill.shortDescription || skill.description, icon: 'skill', scope: skill.scope === 'repo' ? state?.project || 'Project' : skill.scope === 'user' ? 'Personal' : skill.scope === 'admin' ? 'Admin' : 'Built in' }))];
+  const slashItems: SlashItem[] = [...rows.filter(([command]) => (!isClaude || !['feedback', 'goal', 'memories'].includes(command)) && (!customApi || !['fast', 'reasoning'].includes(command))).map(([command, label, icon, description, disabled]): SlashItem => ({ kind: 'command', command, id: command, name: command, label, icon, description, disabled })), ...skills.filter((skill) => !skill.nativeCommand || !rows.some(([command]) => command === skill.name)).map((skill): SlashItem => ({ kind: 'skill', skill, id: `skill:${skill.path}`, name: skill.name, label: skill.interface?.displayName || skill.name.split('-').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' '), description: skill.interface?.shortDescription || skill.shortDescription || skill.description, icon: 'skill', scope: skill.scope === 'repo' ? state?.project || 'Project' : skill.scope === 'user' ? 'Personal' : skill.scope === 'admin' ? 'Admin' : 'Built in' }))];
   const runCommand = async (item: SlashItem) => {
     if (commandRunning.current || sending || archivePending || chat?.archived || item.disabled) { return; }
     commandRunning.current = true;
@@ -422,7 +425,8 @@ export function ChatApp() {
   return <div className="relative flex h-full min-w-0 flex-col bg-surface" onDragOver={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); event.dataTransfer.dropEffect = state?.chat.archived ? 'none' : 'copy'; setDragging(!state?.chat.archived && !editingItemId); } }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node)) { setDragging(false); } }} onDrop={(event) => { if (event.dataTransfer.types.includes('Files')) { event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files)); } }}>
     <header className="flex h-10 shrink-0 items-center gap-2 px-3">
       <span aria-hidden className={`size-1.5 shrink-0 rounded-full bg-current ${statusColor}`} />
-      {!chat?.archived ? <ChoiceMenu label="Provider" value={isClaude ? 'claude' : 'codex'} placement="below" compact disabled={changingProvider || !!chat?.providerSwitching || sending || !!working || attention > 0 || !!chat?.claudeQueue?.length || !!editingItemId || uploads > 0 || archivePending} menuWidth={200} options={[{ value: 'codex', label: 'Codex', icon: <ProviderIcon provider="codex" /> }, { value: 'claude', label: 'Claude', icon: <ProviderIcon provider="claude" /> }]} onChange={(provider) => {
+      {!chat?.archived ? <ChoiceMenu label="Provider" value={providerValue} placement="below" compact disabled={changingProvider || !!chat?.providerSwitching || sending || !!working || attention > 0 || !!chat?.claudeQueue?.length || !!editingItemId || uploads > 0 || archivePending} menuWidth={240} options={[...(state?.providers || [{ id: 'codex', name: 'Codex' }, { id: 'claude', name: 'Claude' }]), { id: 'settings', name: 'Manage connections…' }].map((provider) => ({ value: provider.id, label: provider.name, icon: provider.id === 'settings' ? <Icon name="settings" size={18} /> : provider.id.startsWith('api:') ? <Icon name="code" size={18} /> : <ProviderIcon provider={provider.id === 'claude' ? 'claude' : 'codex'} /> }))} onChange={(provider) => {
+        if (provider === 'settings') { void run('settings'); return; }
         if (changingProvider || chat?.providerSwitching) { return; }
         setChangingProvider(true); setError('');
         void preferenceSaves.current.then(() => request<Snapshot>('provider', { provider })).then(apply).catch((error: Error) => setError(error.message)).finally(() => { setChangingProvider(false); textarea.current?.focus(); });
@@ -435,6 +439,7 @@ export function ChatApp() {
       <SmallButton label={chat?.archived ? 'Close tab' : 'Archive chat'} icon={chat?.archived ? 'close' : 'archive'} disabled={archivePending || (!chat?.archived && archiveBlocked)} title={chat?.archived ? 'Close tab' : archivePending ? 'Archiving chat…' : archiveBlocked ? 'Finish active work, pending requests, and edits before archiving' : 'Archive chat. You can restore it anytime.'} onClick={() => { if (chat?.archived) { void run('closeTab'); } else { void setArchived(true); } }} />
     </header>
 
+    {state?.settingsPending && <div role="status" className="border-b border-line bg-raised px-3 py-2 text-xs text-muted">Connection changes will apply when active chats finish.</div>}
     {slash.menu}
     {inspecting && <ContextInspector initialSearch={inspectionSearch} model={model} effort={effort} status={chat?.status} onClose={() => setInspecting(false)} />}
 
@@ -511,14 +516,14 @@ export function ChatApp() {
             { value: 'read', label: isClaude ? 'Plan mode' : 'Read only', shortLabel: isClaude ? 'Plan' : 'Read', description: isClaude ? 'Explore and plan' : 'No file changes', tone: 'success', icon: <Icon name="search" size={16} /> },
             { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'You review requests', tone: 'accent', icon: <Icon name="shield" size={16} /> },
             ...(isClaude ? [{ value: 'edit', label: 'Accept edits', shortLabel: 'Edit', description: 'File edits without asking', tone: 'attention' as const, icon: <Icon name="edit" size={16} /> }] : []),
-            ...(!isClaude || selectedModel?.supportsAutoMode ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'AI reviews requests', tone: 'warning' as const, icon: <Icon name="reasoning" size={16} /> }] : []),
+            ...(!customApi && (!isClaude || selectedModel?.supportsAutoMode) ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'AI reviews requests', tone: 'warning' as const, icon: <Icon name="reasoning" size={16} /> }] : []),
             { value: 'session', label: 'Approve all for session', shortLabel: 'Session', description: 'No review until reconnect or close', tone: 'danger', icon: <Icon name="bolt" size={16} /> },
           ]} />
           </div>
           <div className="flex min-w-0 flex-1 items-center justify-end gap-1">
           <ChoiceMenu openRequest={modelMenuRequest} label="Model" disabled={changingProvider || !!chat?.providerSwitching} value={model} onChange={(value) => rememberModel(value, modelEffort(state?.models || [], value, effort))} compact options={[{ value: '', label: `${providerName} default` }, ...(model && !selectedModel ? [{ value: model, label: model }] : []), ...(state?.models || []).filter((value) => value.model !== '').map((value) => ({ value: value.model, label: value.displayName || value.model }))]} />
           <ContextUsage usage={chat?.tokenUsage} />
-          {selectedModel && !isLocal && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
+          {!customApi && selectedModel && !isLocal && (!isClaude || !!chat?.claudeSettingsSupported) && <ChoiceMenu openRequest={reasoningMenuRequest} label="Reasoning effort" compact value={effort} onChange={(value) => rememberModel(model, value)} options={[{ value: '', label: 'Default effort' }, ...selectedModel.supportedReasoningEfforts.map((item) => ({ value: item.reasoningEffort, label: item.reasoningEffort, description: item.description }))]} />}
           <button title="Include open files and selected code from this checkout" aria-label="IDE context" aria-pressed={context} onClick={() => setContext(!context)} className={`flex size-7 shrink-0 items-center justify-center gap-1 rounded text-[10px] @min-[640px]/composer:w-auto @min-[640px]/composer:px-1 hover:bg-raised active:bg-line ${context ? 'bg-accent/10 text-accent' : 'text-muted hover:text-ink active:text-accent'}`}><Icon name="code" size={12} /><span className="@max-[640px]/composer:hidden">IDE context</span></button>
           {working && <button aria-label={`Stop ${providerName}`} title="Stop current turn" onClick={() => void run('stop')} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer hover:bg-accent active:translate-y-px active:bg-accent/75"><span aria-hidden className="size-2.5 rounded-[1px] bg-current" /></button>}
           {(!working || draft.trim() || attachments.length > 0 || draftSkills.length > 0 || !!chat?.draftInput?.length) && <button aria-label={working ? 'Send follow-up' : 'Send message'} title={working ? isClaude ? 'Queue for the next turn'  : 'Steer the current turn now (Ctrl+Enter)' : 'Send message (Enter or Ctrl+Enter)'} disabled={changingProvider || !!chat?.providerSwitching || archivePending || sending || uploads > 0 || (!draft.trim() && !attachments.length && !draftSkills.length && !chat?.draftInput?.length)} onClick={() => void send()} className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ink text-composer enabled:hover:bg-accent enabled:active:translate-y-px enabled:active:bg-accent/75"><Icon name="send" size={18} /></button>}
