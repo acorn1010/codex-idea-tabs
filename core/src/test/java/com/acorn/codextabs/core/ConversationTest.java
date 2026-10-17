@@ -6,6 +6,17 @@ import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class ConversationTest {
+    @Test void importedProviderDoesNotReplaceTheActiveProvider() {
+        var chat = new Conversation("id", "/project");
+        chat.hydrate(object("id", "thread", "modelProvider", LocalModel.PROVIDER), chat.revision());
+        assertEquals(LocalModel.PROVIDER, chat.get("modelProvider"));
+        chat.set("modelProvider", "openai");
+        chat.hydrate(object("id", "thread", "modelProvider", LocalModel.PROVIDER), chat.revision());
+        assertEquals("openai", chat.get("modelProvider"), "Historical provider metadata must not undo a model switch");
+        chat.resumed(object("id", "thread", "modelProvider", LocalModel.PROVIDER), chat.revision());
+        assertEquals("openai", chat.get("modelProvider"), "Only the runtime resume result can change the active provider");
+    }
+
     @Test void openingAndClosingAnIdleChatKeepsItsLastActivityTime() {
         var chat = new Conversation("chat", "/project");
         chat.hydrate(object("id", "thread", "updatedAt", 100), chat.revision());

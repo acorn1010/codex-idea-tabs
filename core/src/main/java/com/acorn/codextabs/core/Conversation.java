@@ -140,6 +140,8 @@ public final class Conversation {
     public synchronized void hydrate(JsonObject thread, long startedRevision) {
         boolean firstImport = get("threadId").isBlank();
         state.addProperty("threadId", text(thread, "id", get("threadId")));
+        // Saved thread metadata identifies imported chats but can predate a model switch.
+        if (get("modelProvider").isBlank()) { state.addProperty("modelProvider", text(thread, "modelProvider")); }
         String title = text(thread, "name", text(thread, "preview"));
         if (!title.isBlank() && !flag(state, "renamed")) { state.addProperty("title", title.lines().findFirst().orElse(title)); }
         if (thread.has("updatedAt")) {
