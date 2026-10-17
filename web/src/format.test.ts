@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { attachmentInput, mergeChat, modelEffort } from './format';
-import type { Chat, Model } from './types';
+import { attachmentInput, groupTranscript, mergeChat, modelEffort, toolContent, toolImagePaths } from './format';
+import type { Chat, Item, Model } from './types';
 
 describe('chat rendering and context', () => {
+  it('shows Claude image-reader results outside collapsed activity', () => {
+    const item: Item = { id: 'read-image', type: 'mcpToolCall', server: 'Claude', tool: 'Read', result: { content: [
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'PICTURE' } },
+    ] } };
+    expect(toolImagePaths(item)).toEqual(['data:image/png;base64,PICTURE']);
+    expect(toolContent(item)).toBe('Image result');
+    expect(groupTranscript([item])).toEqual([{ kind: 'item', item }]);
+    expect(toolContent({ ...item, result: { content: [...(item.result as { content: object[] }).content, { type: 'text', text: 'Image dimensions' }] } })).toBe('Image dimensions');
+    expect(toolImagePaths({ ...item, result: { content: [{ type: 'image', data: 'MCP', mimeType: 'image/webp' }] } })).toEqual(['data:image/webp;base64,MCP']);
+    expect(toolImagePaths({ ...item, result: { content: [{ type: 'image', source: { type: 'base64', data: '' } }] } })).toEqual([]);
+  });
   it('keeps compatible reasoning choices and preserves an explicit default', () => {
     const models = [{ id: 'model', model: 'model', defaultReasoningEffort: 'low', supportedReasoningEfforts: [{ reasoningEffort: 'low' }, { reasoningEffort: 'high' }] }] as Model[];
     expect(modelEffort(models, 'model', 'high')).toBe('high');

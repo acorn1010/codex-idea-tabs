@@ -19,6 +19,26 @@ class ClaudeProtocolTest {
         assertFalse(chat.busy());
     }
 
+    @Test void keepsImageReaderResultsButSkipsGeneratedResizeNotesInLiveAndRestoredChats() {
+        var image = object("type", "image", "source", object("type", "base64", "media_type", "image/png", "data", "PICTURE"));
+        var read = object("type", "assistant", "uuid", "read-frame", "message", object("id", "read-message", "content", List.of(
+            object("type", "tool_use", "id", "read-tool", "name", "Read", "input", object("file_path", "/project/image.png")))));
+        var result = object("type", "user", "uuid", "result-frame", "message", object("content", List.of(
+            object("type", "tool_result", "tool_use_id", "read-tool", "content", List.of(image)))));
+        String note = "[Image: original 2160x360, displayed at 2000x333. Multiply coordinates by 1.08 to map to original image.]";
+        var metadata = object("type", "user", "uuid", "image-note", "isMeta", true, "turnCompanion", true, "message", object("content", note));
+        for (boolean live : List.of(true, false)) {
+            var chat = new Conversation("id", "/project");
+            var protocol = new ClaudeProtocol(chat, live);
+            for (var frame : List.of(read, result, metadata)) { protocol.accept(frame); }
+            assertEquals(1, chat.items().size(), "A generated image note is not a user message");
+            assertEquals(image, array(obj(chat.items().get(0).getAsJsonObject(), "result"), "content").get(0));
+            assertEquals("completed", text(chat.items().get(0).getAsJsonObject(), "status"));
+        }
+        assertEquals(1, ClaudeHistory.input(object("type", "user", "message", object("content", note))).size(), "Keep the same text when a user actually sends it");
+        assertEquals(1, ClaudeHistory.input(object("isMeta", true, "turnCompanion", true, "message", object("content", "Other metadata"))).size(), "Do not hide unrelated frames");
+    }
+
     @Test void startupMetadataDoesNotMakeAnUnsentChatResumable() {
         var chat = new Conversation("id", "/project"); var protocol = new ClaudeProtocol(chat);
         for (String subtype : List.of("init", "notification", "status", "hook_started", "hook_response")) {

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Deterministic Claude stream fixture. No network, model, tools, or credentials."""
+import base64
 import json
+import struct
+import zlib
 import os
 import pathlib
 import sys
@@ -98,7 +101,32 @@ for line in sys.stdin:
         active = frame["uuid"]
         content = frame["message"]["content"]
         prompt = " ".join(part.get("text", "") for part in content)
-        if prompt == "background-activity":
+        if prompt == "image-reader":
+            token = active
+            width, height = 2000, 333
+            pixels = (b"\x00" + b"\x35\x86\xb8" * width) * height
+            def chunk(kind, data):
+                return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+            png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)) + chunk(b"IDAT", zlib.compress(pixels)) + chunk(b"IEND", b"")
+            frames = [
+                frame,
+                {"type": "assistant", "uuid": "image-read-frame", "message": {"id": "image-read-message", "content": [{"type": "tool_use", "id": "image-read-tool", "name": "Read", "input": {"file_path": str(root / "read-image.png")}}]}},
+                {"type": "user", "uuid": "image-result-frame", "message": {"content": [{"type": "tool_result", "tool_use_id": "image-read-tool", "content": [{"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": base64.b64encode(png).decode()}}]}]}},
+                {"type": "user", "uuid": "image-note-frame", "isMeta": True, "turnCompanion": True, "message": {"content": "[Image: original 2160x360, displayed at 2000x333. Multiply coordinates by 1.08 to map to original image.]"}},
+                {"type": "assistant", "uuid": "image-answer-frame", "message": {"id": "image-answer", "content": [{"type": "text", "text": "Image reader finished."}]}},
+            ]
+            history = pathlib.Path(os.environ["CLAUDE_CONFIG_DIR"]) / "projects" / "image-fixture" / (session_id + ".jsonl")
+            history.parent.mkdir(parents=True, exist_ok=True)
+            previous = ""
+            for record in frames:
+                record["session_id"] = session_id
+                record["parentUuid"] = previous
+                previous = record["uuid"]
+            history.write_text("".join(json.dumps(record) + "\n" for record in frames))
+            for record in frames[1:]:
+                emit(record)
+            finish(token)
+        elif prompt == "background-activity":
             token = active
             emit({"type": "system", "subtype": "task_started", "task_id": "build", "description": "Build images"})
             finish(token)

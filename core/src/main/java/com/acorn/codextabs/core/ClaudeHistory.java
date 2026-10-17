@@ -75,6 +75,9 @@ public final class ClaudeHistory {
     public static JsonArray input(JsonObject frame) {
         var content = obj(frame, "message").get("content"); var input = new JsonArray();
         if (content == null) { return input; }
+        // Claude sends resized image coordinates as a separate companion frame, not a user prompt.
+        if (flag(frame, "isMeta") && flag(frame, "turnCompanion") && content.isJsonPrimitive()
+            && content.getAsString().matches("\\[Image: original \\d+x\\d+, displayed at \\d+x\\d+\\. Multiply coordinates by [0-9.]+ to map to original image\\.\\]")) { return input; }
         if (content.isJsonPrimitive()) { input.add(object("type", "text", "text", content.getAsString())); return input; }
         for (var entry : content.getAsJsonArray()) {
             var part = entry.getAsJsonObject();

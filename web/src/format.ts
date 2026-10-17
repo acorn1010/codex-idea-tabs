@@ -27,7 +27,14 @@ export function toolImagePaths(item: Item): string[] {
   const result = item.result as Json | undefined;
   const path = typeof item.savedPath === 'string' ? item.savedPath : typeof item.path === 'string' && /image/i.test(item.type) ? item.path : typeof result?.path === 'string' && /image/i.test(item.type) ? result.path : item.type === 'imageGeneration' && typeof item.result === 'string' && item.result.length > 100 ? `data:image/png;base64,${item.result}` : '';
   const content = (Array.isArray(result?.content) ? result.content : []) as Json[];
-  return [...(path ? [path] : []), ...content.filter((part) => part.type === 'image' && part.data).map((part) => `data:${part.mimeType || 'image/png'};base64,${part.data}`)];
+  const images = content.flatMap((part) => {
+    if (part?.type !== 'image') { return []; }
+    const source = part.source as Json | undefined;
+    const data = typeof part.data === 'string' ? part.data : source?.type === 'base64' && typeof source.data === 'string' ? source.data : '';
+    if (data) { return [`data:${part.mimeType || source?.media_type || 'image/png'};base64,${data}`]; }
+    return [];
+  });
+  return [...(path ? [path] : []), ...images];
 }
 
 /** Keep the user's reasoning level when switching models, or use the new model's supported default. */
@@ -86,5 +93,9 @@ export function toolLabel(item: Item): string {
 
 /** Match the expanded activity details when rendering or copying a transcript. */
 export function toolContent(item: Item): string {
+  const result = item.result as Json | undefined;
+  if (Array.isArray(result?.content) && toolImagePaths(item).length) {
+    return (result.content as Json[]).filter((part) => part?.type === 'text').map((part) => String(part.text || '')).join('\n') || 'Image result';
+  }
   return item.type === 'reasoning' ? itemText(item) : item.aggregatedOutput || itemText(item) || JSON.stringify(item.result || item.arguments || item, null, 2);
 }

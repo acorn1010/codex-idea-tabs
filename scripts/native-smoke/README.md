@@ -221,6 +221,15 @@ The live check sends a real local model turn. It creates only `input.txt` and `o
 
 Set `-Dcodex.smoke.modelSwitch.check=true` with `scripts/fake-codex.py` and `CODEX_SMOKE_MODEL_SWITCH=1` for the fixture check. On Windows, forward `CODEX_SMOKE_ROOT` and `CODEX_SMOKE_MODEL_SWITCH` through `WSLENV`. It checks local to cloud switching, cloud to local switching, Codex default, cleared local context settings, history retention and reconnect. The fixture ignores overrides on loaded threads and returns the original provider in historical thread metadata, matching the behavior found in the real app-server. Results go to `logs/model-switch-result.json`. It makes no model calls.
 
+### Compaction settings and image-reader results
+
+Use `-Dcodex.smoke.compactionImages.check=true` with the model-switch fixture enabled.
+Set `-Dcodex.smoke.claude.binary` to `scripts/native-smoke/fake-claude.py` and forward
+an isolated `CLAUDE_CONFIG_DIR` through `WSLENV`. The native check verifies the GLM
+compaction prompt through model switches, then checks Claude image results live,
+from saved history, and after reconnect. Run `check-native-tool-images.mjs` against
+the test JCEF port to verify decoding, the preview, focus, and hidden resize notes.
+
 ### GLM compaction cache
 
 Run `python3 core/src/test/python/test_wsl_model_relay.py` to exercise the relay with
