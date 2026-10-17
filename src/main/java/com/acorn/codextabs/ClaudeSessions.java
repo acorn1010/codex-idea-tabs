@@ -203,6 +203,12 @@ final class ClaudeSessions implements AutoCloseable {
         synchronized (session) {
             if (flag(payload, "steer")) { return steer(session, payload, input); }
             validateOptions(chat, payload);
+            String command = input.size() == 1 && text(input.get(0).getAsJsonObject(), "type").equals("text") ? text(input.get(0).getAsJsonObject(), "text").strip() : "";
+            if (Set.of("/goal", "/goal clear").contains(command) && !chat.busy() && !session.starting) {
+                // Goal status and clear must remain usable while stopped follow-ups are paused.
+                session.paused = true; chat.set("claudeQueuePaused", true);
+                return start(session, payload, input);
+            }
             if (chat.busy() || session.queue.hasNext() || session.starting) {
                 var queued = session.queue.add(payload, input); changed.accept(chat);
                 return object("queued", true, "id", text(queued, "id"));

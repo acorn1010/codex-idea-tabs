@@ -7,6 +7,18 @@ import static org.junit.jupiter.api.Assertions.*;
 import static com.acorn.codextabs.core.Json.*;
 
 class ClaudeProtocolTest {
+    @Test void backgroundTurnCanShowAResultAfterAnEarlierTextReply() {
+        var chat = new Conversation("id", "/project");
+        var protocol = new ClaudeProtocol(chat);
+        protocol.start("first", new JsonArray());
+        protocol.accept(object("type", "assistant", "message", object("id", "first-reply", "content", List.of(object("type", "text", "text", "Started a background check")))));
+        protocol.accept(object("type", "result", "result", "Started a background check"));
+        stream(protocol, object("type", "message_start", "message", object("id", "background")));
+        protocol.accept(object("type", "result", "uuid", "background-result", "result", "Background check complete"));
+        assertEquals("Background check complete", text(chat.items().get(chat.items().size() - 1).getAsJsonObject(), "text"));
+        assertFalse(chat.busy());
+    }
+
     @Test void startupMetadataDoesNotMakeAnUnsentChatResumable() {
         var chat = new Conversation("id", "/project"); var protocol = new ClaudeProtocol(chat);
         for (String subtype : List.of("init", "notification", "status", "hook_started", "hook_response")) {
@@ -106,6 +118,24 @@ class ClaudeProtocolTest {
         assertEquals(2, array(array(chat.snapshot(), "requests").get(0).getAsJsonObject(), "approvalChoices").size());
         protocol.accept(object("type", "result", "is_error", true, "errors", List.of("Please sign in.")));
         assertEquals("Please sign in.", chat.get("error")); assertFalse(chat.busy()); assertTrue(array(chat.snapshot(), "requests").isEmpty());
+    }
+    @Test void nativeGoalResultsStayVisibleWithoutRepeatingAssistantReplies() {
+        var chat = new Conversation("id", "/project"); var protocol = new ClaudeProtocol(chat);
+        protocol.start("clear-turn", GSON.toJsonTree(List.of(object("type", "text", "text", "/goal clear"))).getAsJsonArray());
+        protocol.accept(object("type", "result", "uuid", "clear-result", "is_error", false, "result", "No goal set"));
+        assertFalse(chat.busy());
+        assertEquals(2, chat.items().size(), "Native commands can reply only through their result frame");
+        assertEquals("No goal set", text(chat.items().get(1).getAsJsonObject(), "text"));
+        assertEquals("agentMessage", text(chat.items().get(1).getAsJsonObject(), "type"));
+        assertEquals(chat.items(), Conversation.restore(chat.snapshot()).items());
+        protocol.start("next-turn", new JsonArray());
+        protocol.accept(object("type", "assistant", "message", object("id", "reply", "content", List.of(object("type", "text", "text", "Done")))));
+        int before = chat.items().size();
+        protocol.accept(object("type", "result", "uuid", "next-result", "is_error", false, "result", "Done"));
+        assertEquals(before, chat.items().size(), "A normal final reply must not appear twice");
+        protocol.start("failed-turn", new JsonArray()); before = chat.items().size();
+        protocol.accept(object("type", "result", "is_error", true, "result", "Command failed"));
+        assertEquals(before, chat.items().size()); assertEquals("Command failed", chat.get("error"));
     }
     @Test void exactApprovalMatchingIncludesCheckoutAndCanonicalNestedInput() {
         var first = object("tool_name", "Bash", "input", object("command", "git status", "options", object("a", 1, "b", 2)));

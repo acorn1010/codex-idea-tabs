@@ -108,6 +108,9 @@ for line in sys.stdin:
             active = "background-" + frame["uuid"]
             pending = active
             emit({"type": "control_request", "request_id": "background-approval", "request": {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "echo background"}}})
+        elif prompt in ("/goal", "/goal clear"):
+            active = None
+            emit({"type": "result", "uuid": str(uuid.uuid4()), "session_id": session_id, "subtype": "success", "is_error": False, "result": "No goal set", "usage": {}})
         elif prompt == "approval":
             pending = active
             emit({"type": "control_request", "request_id": "approval", "request": {"subtype": "can_use_tool", "tool_name": "Bash", "input": {"command": "npm test"}, "permission_suggestions": [{"type": "addRules", "behavior": "allow", "rules": [{"toolName": "Bash", "ruleContent": "npm test"}]}]}})

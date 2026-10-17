@@ -51,7 +51,7 @@ try {
       if (method === 'resumeQueued') { chat.claudeQueue = []; chat.working = true; publish(); }
       if (method === 'answer') { chat.requests = []; publish(); }
       if (method === 'searchChats') { reply({ data: [], pullRequestSearch: false }); return; }
-      if (method === 'skills') { reply({ data: [{ cwd: '/project', skills: [{ name: 'explain', path: 'claude-command:explain', description: 'Explain changes', nativeCommand: true, enabled: true, scope: 'user' }, { name: 'repo-guide', path: '/shared/.agents/skills/repo-guide/SKILL.md', description: 'Shared project rules', enabled: true, scope: 'repo' }] }] }); return; }
+      if (method === 'skills') { reply({ data: [{ cwd: '/project', skills: [{ name: 'goal', path: 'claude-command:goal', description: 'Set, inspect, or clear a goal', nativeCommand: true, enabled: true, scope: 'user' }, { name: 'explain', path: 'claude-command:explain', description: 'Explain changes', nativeCommand: true, enabled: true, scope: 'user' }, { name: 'repo-guide', path: '/shared/.agents/skills/repo-guide/SKILL.md', description: 'Shared project rules', enabled: true, scope: 'repo' }] }] }); return; }
       if (method === 'accountLimits') { reply({ context: { totalTokens: 512, maxTokens: 200000, categories: [{ name: 'Messages', tokens: 512 }], memoryFiles: [{ path: '/project/CLAUDE.md' }] }, cost: 0.0123, usage: { input_tokens: 90, output_tokens: 10 }, rateLimit: { status: 'allowed' }, ...window.__limits }); return; }
       if (method === 'mcpStatus') { reply({ data: [{ name: 'My server', authStatus: 'connected', tools: { read: {} } }] }); return; }
       if (method === 'send') {
@@ -86,7 +86,36 @@ try {
     await page.getByRole('listbox', { name: 'Permission mode' }).waitFor({ state: 'detached' });
     await field.fill('/');
     await page.getByRole('listbox', { name: 'Slash commands' }).waitFor();
-    assert.equal(await page.getByRole('option', { name: /Goal/ }).count(), 0);
+    assert.equal(await page.getByRole('option', { name: /^Goal/ }).count(), 1);
+    await page.getByRole('option', { name: /^Goal/ }).click();
+    const goalPanel = page.getByRole('region', { name: 'Goal', exact: true });
+    await goalPanel.waitFor();
+    assert.equal(await goalPanel.getByRole('spinbutton', { name: 'Optional goal token budget' }).count(), 0);
+    await goalPanel.getByText('Stop ends the current turn. Your goal stays active until it is met or cleared.', { exact: true }).waitFor();
+    await goalPanel.getByRole('button', { name: 'Check status', exact: true }).click();
+    await page.waitForFunction(() => window.__requests.some(call => call.method === 'send' && call.params.text === '/goal'));
+    await page.evaluate(() => window.__finishTurn());
+    await field.fill('/goal'); await page.getByRole('option', { name: /^Goal/ }).click();
+    await goalPanel.getByRole('button', { name: 'Clear goal', exact: true }).click();
+    await page.waitForFunction(() => window.__requests.some(call => call.method === 'send' && call.params.text === '/goal clear'));
+    await page.evaluate(() => window.__finishTurn());
+    await field.fill('/goal'); await page.getByRole('option', { name: /^Goal/ }).click();
+    await goalPanel.getByRole('textbox', { name: 'Goal objective' }).fill('All tests pass. Stop if user input is needed.');
+    await goalPanel.getByRole('button', { name: 'Set goal', exact: true }).click();
+    await page.waitForFunction(() => window.__requests.some(call => call.method === 'send' && call.params.text === '/goal All tests pass. Stop if user input is needed.'));
+    await field.fill('/goal'); await page.getByRole('option', { name: /^Goal/ }).click();
+    assert.ok(await goalPanel.getByRole('button', { name: 'Clear goal', exact: true }).isDisabled());
+    assert.ok(await goalPanel.getByRole('button', { name: 'Check status', exact: true }).isDisabled());
+    await goalPanel.getByRole('button', { name: 'Stop turn', exact: true }).click();
+    await goalPanel.getByRole('button', { name: 'Clear goal', exact: true }).click();
+    await page.waitForFunction(() => window.__requests.filter(call => call.method === 'send' && call.params.text === '/goal clear').length === 2);
+    assert.equal(await page.evaluate(() => window.__requests.filter(call => ['getGoal', 'setGoal', 'clearGoal'].includes(call.method)).length), 0);
+    await page.evaluate(() => window.__finishTurn());
+    await field.fill('/goal'); await page.getByRole('option', { name: /^Goal/ }).click();
+    await page.screenshot({ path: `${output}/claude-goal-${width}.png` });
+    assert.ok(await goalPanel.evaluate(element => element.scrollWidth <= element.clientWidth));
+    await goalPanel.getByRole('button', { name: 'Close', exact: true }).click();
+    await field.fill('/');
     await page.waitForFunction(() => window.__requests.some(call => call.method === 'skills'));
     await page.getByRole('option', { name: /Repo Guide/ }).waitFor();
     await page.keyboard.press('Escape'); await field.fill('Hello Claude');
@@ -206,7 +235,7 @@ try {
     await page.keyboard.press('Escape');
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
     await page.screenshot({ path: `${output}/claude-chat-${width}.png` });
-    console.log({ width, providerSelection: true, claudeSteering: true, steeringRetries: true, retainedDraft: true, correctModelsAndPermissions: true, claudeMarkdown: true, subscriptionLimitBars: true, refreshAndUnavailableLimits: true });
+    console.log({ width, providerSelection: true, claudeSteering: true, steeringRetries: true, retainedDraft: true, correctModelsAndPermissions: true, claudeGoalControls: true, claudeMarkdown: true, subscriptionLimitBars: true, refreshAndUnavailableLimits: true });
   }
   assert.deepEqual(errors, []);
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

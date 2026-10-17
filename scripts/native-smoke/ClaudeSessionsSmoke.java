@@ -58,6 +58,22 @@ public final class ClaudeSessionsSmoke {
             Files.delete(root.resolve("usage-unavailable"));
             check(array(sessions.mcp(chat), "data").size() == 1, "MCP status");
             check(array(array(sessions.skills(chat), "data").get(0).getAsJsonObject(), "skills").size() == 1, "Commands");
+            for (String command : List.of("/goal", "/goal clear")) {
+                int before = countUsers(root);
+                sessions.send(chat, options(), input(command));
+                await(() -> !chat.busy() && countUsers(root) == before + 1);
+                check(ClaudeHistory.prompt(obj(users(root).get(before).getAsJsonObject(), "message").get("content")).equals(command), "Native goal command reaches CLI unchanged");
+                check(text(chat.items().get(chat.items().size() - 1).getAsJsonObject(), "text").equals("No goal set"), "Native goal result is shown in chat");
+            }
+            sessions.send(chat, options(), input("hold goal-blocked"));
+            sessions.send(chat, options(), input("pending work"));
+            sessions.stop(chat).get(5, TimeUnit.SECONDS); await(() -> !chat.busy());
+            int beforeClear = countUsers(root);
+            sessions.send(chat, options(), input("/goal clear"));
+            await(() -> !chat.busy() && countUsers(root) == beforeClear + 1);
+            check(ClaudeHistory.prompt(obj(users(root).get(beforeClear).getAsJsonObject(), "message").get("content")).equals("/goal clear"), "Clear goal bypasses paused work");
+            check(flag(chat.snapshot(), "claudeQueuePaused") && array(chat.snapshot(), "claudeQueue").size() == 1, "Clearing a goal preserves paused work");
+            sessions.resumeQueued(chat); await(() -> !chat.busy() && array(chat.snapshot(), "claudeQueue").isEmpty());
             var edited = new Conversation(UUID.randomUUID().toString(), root.toString()); edited.set("provider", "claude");
             String anchor = UUID.randomUUID().toString(); edited.set("claudeResumeId", UUID.randomUUID().toString()); edited.set("claudeResumeAt", anchor);
             Files.createFile(root.resolve("saved-sessions").resolve(edited.get("claudeResumeId")));
@@ -110,7 +126,7 @@ public final class ClaudeSessionsSmoke {
             checkSessionApprovals(sessions, settings, root);
             checkSessionApprovalLifetime(sessions, root);
             checkBackgroundActivity(sessions, root);
-            System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands.");
+            System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands, native goal replies.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
         }

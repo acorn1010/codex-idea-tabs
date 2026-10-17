@@ -15,6 +15,7 @@ public final class ClaudeProtocol {
     private final Map<String, Integer> completedFrameOffsets = new HashMap<>();
     private String messageId = "";
     private String turnId = "";
+    private boolean textReplyReceived;
     private final Set<String> pendingSteers = new HashSet<>();
     private final Set<String> unacknowledgedSteers = new HashSet<>();
     private final ClaudeActivity activity;
@@ -25,7 +26,7 @@ public final class ClaudeProtocol {
     }
 
     public synchronized void start(String turn, JsonArray input) {
-        turnId = turn; blocks.clear(); pendingSteers.clear(); unacknowledgedSteers.clear();
+        turnId = turn; blocks.clear(); textReplyReceived = false; pendingSteers.clear(); unacknowledgedSteers.clear();
         event("turn/started", object("turn", object("id", turn)));
         item(object("id", turn, "type", "userMessage", "content", input), true);
     }
@@ -82,7 +83,7 @@ public final class ClaudeProtocol {
                 if (text(frame, "subtype").equals("init")) {
                     chat.set("claudeCommands", array(frame, "slash_commands"));
                 }
-                if (text(frame, "subtype").equals("local_command_output")) { item(object("id", text(frame, "uuid"), "type", "agentMessage", "text", text(frame, "content")), true); }
+                if (text(frame, "subtype").equals("local_command_output")) { textReplyReceived |= !text(frame, "content").isBlank(); item(object("id", text(frame, "uuid"), "type", "agentMessage", "text", text(frame, "content")), true); }
                 if (text(frame, "subtype").equals("commands_changed")) { chat.set("claudeCommands", array(frame, "commands")); }
                 if (text(frame, "subtype").equals("notification")) { chat.set("claudeNotice", text(frame, "text", text(frame, "message"))); }
             }
@@ -100,10 +101,16 @@ public final class ClaudeProtocol {
                         pendingSteers.removeIf(id -> !unacknowledgedSteers.contains(id));
                     }
                     unacknowledgedSteers.retainAll(pendingSteers);
-                    if (!pendingSteers.isEmpty()) { break; }
+                    if (!pendingSteers.isEmpty()) { textReplyReceived = false; break; }
                 }
                 String error = "";
                 if (flag(frame, "is_error")) { error = contentText(frame.get("errors")); if (error.isBlank()) { error = text(frame, "result", "Claude could not finish this turn."); } }
+                // Native commands such as /goal clear can reply only in the final result frame.
+                String reply = text(frame, "result");
+                if (error.isBlank() && !turnId.isBlank() && !reply.isBlank() && !textReplyReceived) {
+                    item(object("id", text(frame, "uuid", turnId + ":result"), "type", "agentMessage", "text", reply), true);
+                    textReplyReceived = true;
+                }
                 event("turn/completed", object("turn", object("id", turnId, "status", error.isBlank() ? "completed" : "failed", "error", error.isBlank() ? null : object("message", error))));
                 turnId = "";
             }
@@ -117,7 +124,7 @@ public final class ClaudeProtocol {
                 messageId = text(obj(event, "message"), "id"); blocks.clear();
                 if (activity != null && turnId.isBlank()) {
                     // Background completions and wakeups can start a reply without a composer send.
-                    turnId = UUID.randomUUID().toString();
+                    turnId = UUID.randomUUID().toString(); textReplyReceived = false;
                     event("turn/started", object("turn", object("id", turnId)));
                     activity.resumed();
                 }
@@ -147,7 +154,7 @@ public final class ClaudeProtocol {
     }
     private void block(String id, JsonObject content, boolean complete) {
         switch (text(content, "type")) {
-            case "text" -> item(object("id", id, "type", "agentMessage", "text", text(content, "text")), complete);
+            case "text" -> { textReplyReceived |= !text(content, "text").isBlank(); item(object("id", id, "type", "agentMessage", "text", text(content, "text")), complete); }
             case "thinking" -> item(object("id", id, "type", "reasoning", "text", text(content, "thinking")), complete);
             case "tool_use" -> {
                 String toolId = text(content, "id"), name = text(content, "name");
