@@ -266,3 +266,11 @@ The result is saved as `readiness-result.json` in the test IDE log directory.
 checks startup, deadlines, a stalled server, redirects, input limits, cancellation
 and disconnect. `ReadinessToolTest` checks process configuration and
 `LocalLoopGuardTest` checks successful readiness and repeated timeouts.
+
+## API connections and settings
+
+Set `-Dcodex.smoke.apiSettings.check=true` in an isolated IDEA profile using the fake Codex backend. The native check opens the settings page, adds the Routeway preset, applies it without restarting, and verifies per-chat routing, model selection, draft retention, deferred reconnect, resume, cancel, and XML serialization. It writes `api-settings-result.json` and `api-settings.png` to the test log directory. No API keys or external models are used.
+
+`ApiConnectionTest` checks URL validation, model fallback, thread routing, and native/WSL argument boundaries. `ApiProbeTest` uses a local HTTP fixture to check authentication headers and redirect handling without sending prompts.
+
+Run `check-api-connections.mjs` with `CODEX_SMOKE_CHROME` after building to check the custom provider menu, model picker, settings shortcut, draft retention, and reconnect notice at 360 and 900 pixels.

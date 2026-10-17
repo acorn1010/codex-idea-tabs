@@ -24,6 +24,19 @@ This is an independent client for the [Codex app server](https://developers.open
 
 Codex uses one app-server process per project. Claude uses one process per open or active chat, with saved sessions for resume. Restored hidden tabs do not start browser renderers. History loads in pages, the transcript initially renders its latest 80 messages or activity groups, and streaming updates contain only changed items. Collapsed groups do not render their tool details.
 
+## API connections
+
+Open **Settings > Tools > Codex Tabs > Connections**, or choose **Manage connections** from a chat’s provider menu.
+
+- Use **Add Routeway** to prefill its endpoint and `glm-5.3-flash-uncensored`, or **Add custom API** for another provider.
+- Enter the base URL, API key, and model IDs. The endpoint must support the Responses API with tool calling. Chat Completions alone is not enough.
+- **Check API** checks authentication and the model list without sending a prompt. It does not verify chat generation.
+- Click **Apply**, then select the connection in any chat. The model menu shows that connection’s model IDs. **New chats use** sets the project default.
+
+Keys use the IDE credential store and are passed only to the Codex child process environment. They are not saved in project XML, chat snapshots, or command arguments. No global Codex configuration or shell environment changes are needed. Apply reconnects the backend when affected chats are idle. It does not restart IntelliJ or interrupt a running turn.
+
+API connections use the regular Codex tool and worktree support. Ask me, read-only, and session approvals are available. Provider-specific reasoning, fast mode, and automatic approval review are not advertised for custom models.
+
 ## Install
 
 Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI or Claude Code CLI. Native Codex integration has been tested with IDEA 2026.1.3 and Codex 0.153.0.

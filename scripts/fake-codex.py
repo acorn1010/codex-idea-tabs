@@ -28,13 +28,14 @@ cwd_file = root / "thread-cwds.json"
 thread_cwds = json.loads(cwd_file.read_text()) if cwd_file.exists() else {}
 last_turn_params = {}
 last_fork_params = {}
+last_start_params = {}
+last_resume_params = {}
 last_list_params = {}
 approval_replies = []
 goals = {}
 model_switch = os.environ.get("CODEX_SMOKE_MODEL_SWITCH") == "1"
 model_file = root / "model-states.json"
 model_states = json.loads(model_file.read_text()) if model_file.exists() else {}
-last_resume_params = {}
 
 
 def model_reply(thread_id, params):
@@ -145,7 +146,7 @@ def attention(thread_id):
 
 
 def respond(request):
-    global last_turn_params, last_fork_params, last_list_params, last_resume_params
+    global last_turn_params, last_fork_params, last_list_params, last_start_params, last_resume_params
     method, params = request.get("method"), request.get("params", {})
     result = {}
     if method == "initialize":
@@ -201,7 +202,7 @@ def respond(request):
         event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "fixture/stats":
-        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params, "loopGuardActions": loop_guard_actions}
+        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastStart": last_start_params, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params, "loopGuardActions": loop_guard_actions}
     elif method == "fixture/event":
         notification = params["event"]
         thread_id = notification["params"]["threadId"]
@@ -216,11 +217,11 @@ def respond(request):
         result = {"status": "unsubscribed" if thread_id in subscriptions else "notSubscribed"}
         subscriptions.discard(thread_id)
     elif method == "thread/resume":
+        last_resume_params = params
         thread_id = params["threadId"]
         resumes[thread_id] = resumes.get(thread_id, 0) + 1
         if thread_id.startswith("lifecycle-retry-") and resumes[thread_id] == 1:
             raise RuntimeError("Fixture resume needs a retry")
-        last_resume_params = params
         metadata = model_reply(thread_id, params) if model_switch else {}
         subscriptions.add(thread_id)
         if params.get("cwd"):
@@ -257,6 +258,7 @@ def respond(request):
         save_history()
         result = {"thread": thread(new_id)}
     elif method == "thread/start":
+        last_start_params = params
         new_id = "new-" + str(time.time_ns())
         thread_cwds[new_id] = params.get("cwd", str(root))
         metadata = model_reply(new_id, params) if model_switch else {}

@@ -1,13 +1,20 @@
 package com.acorn.codextabs;
 
+import com.acorn.codextabs.core.SharedGuidance;
 import com.intellij.openapi.options.Configurable;
+import com.intellij.openapi.options.ConfigurationException;
+import com.intellij.openapi.progress.ProgressManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.SystemInfo;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.components.*;
+import com.intellij.util.ui.JBUI;
 import javax.swing.*;
 import java.awt.*;
+import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 
-/** Keep execution settings native and separate from the compact chat composer. */
+/** Native, project-scoped settings with credential IO and reconnects off the event thread. */
 public final class CodexConfigurable implements Configurable {
     private final Project project;
     private final JBTextField binary = new JBTextField();
@@ -18,43 +25,72 @@ public final class CodexConfigurable implements Configurable {
     private final JBCheckBox localModelEnabled = new JBCheckBox("Enable local GLM with Codex");
     private final JBTextField sharedGuidance = new JBTextField();
     private final JBCheckBox sharedGuidanceEnabled = new JBCheckBox("Use shared project guidance");
+    private ApiConnectionsPanel connections;
     public CodexConfigurable(Project project) { this.project = project; }
     @Override public String getDisplayName() { return "Codex Tabs"; }
     @Override public JComponent createComponent() {
-        var panel = new JPanel(new GridBagLayout());
-        var c = new GridBagConstraints();
-        c.insets = new Insets(6, 8, 6, 8); c.fill = GridBagConstraints.HORIZONTAL;
-        String[] labels = SystemInfo.isWindows
-            ? new String[]{"Codex executable", "Claude executable", "WSL distribution", "Working directory", "Shared guidance folder", "Local GLM API URL"}
-            : new String[]{"Codex executable", "Claude executable", "Working directory", "Shared guidance folder", "Local GLM API URL"};
-        JBTextField[] fields = SystemInfo.isWindows
-            ? new JBTextField[]{binary, claudeBinary, distro, cwd, sharedGuidance, localModelUrl} : new JBTextField[]{binary, claudeBinary, cwd, sharedGuidance, localModelUrl};
-        for (int i = 0; i < fields.length; i++) {
-            c.gridy = i; c.gridx = 0; c.weightx = 0; panel.add(new JBLabel(labels[i]), c);
-            c.gridx = 1; c.weightx = 1; fields[i].setColumns(38); panel.add(fields[i], c);
-        }
-        c.gridy = fields.length; c.gridx = 0; c.gridwidth = 2;
-        panel.add(sharedGuidanceEnabled, c);
-        sharedGuidanceEnabled.addActionListener(event -> sharedGuidance.setEnabled(sharedGuidanceEnabled.isSelected()));
-        sharedGuidance.getEmptyText().setText("Auto: IDEA project folder");
-        c.gridy++;
-        panel.add(localModelEnabled, c);
+        var root = new JPanel(new BorderLayout(0, JBUI.scale(16)));
+        root.setBorder(JBUI.Borders.empty(16));
+        var title = new JBLabel("Codex Tabs"); title.setFont(title.getFont().deriveFont(Font.BOLD, 22f));
+        var header = new JPanel(new BorderLayout(0, JBUI.scale(6))); header.add(title, BorderLayout.NORTH);
+        header.add(hint("Settings for " + project.getName() + ". Apply changes without restarting IntelliJ."), BorderLayout.SOUTH);
+        root.add(header, BorderLayout.NORTH);
+        var tabs = new JBTabbedPane();
+        connections = new ApiConnectionsPanel(project); connections.setBorder(JBUI.Borders.empty(16, 0));
+        tabs.addTab("Connections", new JBScrollPane(connections));
+        var local = section("Local GLM", "Add GLM 5.3 Flash to the Codex model menu. Start your model server before chatting.");
+        fullRow(local, localModelEnabled);
+        row(local, "API URL", localModelUrl, "Use a local Responses server, such as http://127.0.0.1:30001/v1. No sign-in needed.");
+        if (SystemInfo.isWindows) { fullRow(local, hint("WSL needs Python 3. Windows curl forwards requests to the Windows API.")); }
         localModelEnabled.addActionListener(event -> localModelUrl.setEnabled(localModelEnabled.isSelected()));
-        c.gridy++;
-        String help = SystemInfo.isWindows
-            ? "Use an executable path inside WSL when a distribution is selected.<br>Leave distribution empty to detect it from a WSL project path.<br>"
-            : SystemInfo.isMac
-                ? "Codex runs directly on macOS.<br>Leave the executable as codex to detect a CLI or app installation, or enter its full path.<br>"
-                : "Codex runs directly on this computer. Enter its full path if it is not on PATH.<br>";
-        panel.add(new JBLabel("<html>" + help + "Leave working directory empty to use the current project.<br>Leave shared guidance empty to detect AGENTS.md and .agents in the IDEA project folder.<br>Shared guidance applies to this project’s chats, including subrepos and external worktrees.<br>Changes apply when chats reconnect. Linked files stay in their original locations.<br>Enable local GLM to add GLM 5.3 Flash to the Codex model menu.<br>Start your 64K model server first. Local GLM needs no sign-in.<br>WSL requires Python 3. Windows curl forwards requests to the Windows API.<br>Sign in with ChatGPT for cloud Codex models.<br>For Claude, install Claude Code and sign in by running claude in a terminal.<br>Each CLI keeps its own credentials. Choose the provider before sending the first message.</html>"), c);
-        c.gridy = fields.length + 3; c.weighty = 1; c.fill = GridBagConstraints.BOTH; panel.add(new JPanel(), c);
-        reset(); return panel;
+        tabs.addTab("Local GLM", page(local));
+        var tools = section("Command-line tools", "Codex Tabs uses your installed agents and their existing sign-ins.");
+        row(tools, "Codex executable", binary, "Use codex for automatic detection, or enter its full path.");
+        row(tools, "Claude executable", claudeBinary, "Use claude, or enter its full path. Sign in from a terminal.");
+        if (SystemInfo.isWindows) { row(tools, "WSL distribution", distro, "Leave blank to detect it from the project path."); }
+        tabs.addTab("Command-line tools", page(tools));
+        var workspace = section("Workspace", "Keep shared instructions available to subrepos and worktrees.");
+        cwd.getEmptyText().setText("Current IntelliJ project"); sharedGuidance.getEmptyText().setText("Detect from the IntelliJ project folder");
+        row(workspace, "Working directory", cwd, null); fullRow(workspace, sharedGuidanceEnabled);
+        row(workspace, "Guidance folder", sharedGuidance, "Reads AGENTS.md and .agents. Linked files stay in their original locations.");
+        sharedGuidanceEnabled.addActionListener(event -> sharedGuidance.setEnabled(sharedGuidanceEnabled.isSelected()));
+        tabs.addTab("Workspace", page(workspace)); root.add(tabs, BorderLayout.CENTER);
+        root.add(hint("Changes apply when chats are idle. No restart needed."), BorderLayout.SOUTH);
+        reset(); return root;
+    }
+    private static JComponent page(JPanel content) {
+        var page = new JPanel(new BorderLayout()); page.setBorder(JBUI.Borders.empty(16)); page.add(content, BorderLayout.NORTH); return new JBScrollPane(page);
+    }
+    static JPanel section(String title, String description) {
+        var panel = new JPanel(new GridBagLayout());
+        var heading = new JBLabel(title); heading.setFont(heading.getFont().deriveFont(Font.BOLD, 14f));
+        fullRow(panel, heading); fullRow(panel, hint(description)); return panel;
+    }
+    static JBLabel hint(String text) {
+        var label = new JBLabel("<html><div style='width: 330px'>" + text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") + "</div></html>");
+        label.setForeground(JBColor.GRAY); return label;
+    }
+    static void fullRow(JPanel panel, JComponent component) {
+        var c = constraints(panel); c.gridwidth = 2; c.weightx = 1; panel.add(component, c);
+    }
+    static void row(JPanel panel, String label, JComponent field, String help) {
+        var c = constraints(panel); c.weightx = 0; c.fill = GridBagConstraints.NONE; c.anchor = GridBagConstraints.NORTHWEST;
+        var text = new JBLabel(label); text.setLabelFor(field); panel.add(text, c);
+        c.gridx = 1; c.weightx = 1; c.fill = GridBagConstraints.HORIZONTAL; panel.add(field, c);
+        if (help != null) { var h = constraints(panel); h.gridx = 1; h.weightx = 1; panel.add(hint(help), h); }
+    }
+    private static GridBagConstraints constraints(JPanel panel) {
+        var c = new GridBagConstraints(); c.gridx = 0; c.gridy = panel.getComponentCount();
+        c.anchor = GridBagConstraints.NORTHWEST; c.fill = GridBagConstraints.HORIZONTAL; c.insets = JBUI.insets(5, 0, 5, 12); return c;
     }
     @Override public boolean isModified() {
+        if (connections == null) { return false; }
         var state = CodexService.get(project).settings();
         return !claudeBinary.getText().equals(state.claudeBinary) || !binary.getText().equals(state.binary) || !distro.getText().equals(state.distro) || !cwd.getText().equals(state.cwd)
             || !sharedGuidance.getText().equals(state.sharedGuidanceFolder) || sharedGuidanceEnabled.isSelected() != state.sharedGuidanceEnabled
-            || localModelEnabled.isSelected() != state.localModelEnabled || !localModelUrl.getText().equals(state.localModelUrl);
+            || localModelEnabled.isSelected() != state.localModelEnabled || !localModelUrl.getText().equals(state.localModelUrl)
+            || !connections.connections().equals(state.apiConnections) || connections.keysModified()
+            || !connections.provider().equals(state.provider) || !connections.preferredId().equals(state.apiConnectionId);
     }
     @Override public void reset() {
         var state = CodexService.get(project).settings();
@@ -62,17 +98,34 @@ public final class CodexConfigurable implements Configurable {
         sharedGuidance.setText(state.sharedGuidanceFolder); sharedGuidanceEnabled.setSelected(state.sharedGuidanceEnabled);
         sharedGuidance.setEnabled(state.sharedGuidanceEnabled);
         localModelEnabled.setSelected(state.localModelEnabled); localModelUrl.setText(state.localModelUrl); localModelUrl.setEnabled(state.localModelEnabled);
+        if (connections != null) { connections.reset(state); }
     }
-    @Override public void apply() throws com.intellij.openapi.options.ConfigurationException {
+    @Override public void apply() throws ConfigurationException {
+        var entries = connections.connections();
         try {
             if (localModelEnabled.isSelected()) { com.acorn.codextabs.core.LocalModel.validateUrl(localModelUrl.getText().trim()); }
-            com.acorn.codextabs.core.SharedGuidance.resolve(sharedGuidanceEnabled.isSelected(), sharedGuidance.getText().trim(),
-                java.util.Objects.toString(project.getBasePath(), ""), SystemInfo.isWindows ? (distro.getText().isBlank() ? com.acorn.codextabs.core.Paths.distro(java.util.Objects.toString(project.getBasePath(), "")) : distro.getText().trim()) : "", SystemInfo.isWindows);
-        } catch (RuntimeException error) { throw new com.intellij.openapi.options.ConfigurationException(error.getMessage()); }
+            for (var entry : entries) { entry.validate(); }
+            SharedGuidance.resolve(sharedGuidanceEnabled.isSelected(), sharedGuidance.getText().trim(), Objects.toString(project.getBasePath(), ""),
+                SystemInfo.isWindows ? (distro.getText().isBlank() ? com.acorn.codextabs.core.Paths.distro(Objects.toString(project.getBasePath(), "")) : distro.getText().trim()) : "", SystemInfo.isWindows);
+        } catch (RuntimeException error) { throw new ConfigurationException(error.getMessage()); }
         var service = CodexService.get(project); var state = service.settings();
+        boolean all = !state.binary.equals(binary.getText().trim()) || !state.claudeBinary.equals(claudeBinary.getText().trim()) || !state.distro.equals(distro.getText().trim())
+            || !state.cwd.equals(cwd.getText().trim()) || !state.sharedGuidanceFolder.equals(sharedGuidance.getText().trim()) || state.sharedGuidanceEnabled != sharedGuidanceEnabled.isSelected();
+        boolean api = !state.apiConnections.equals(entries) || connections.keysModified()
+            || state.localModelEnabled != localModelEnabled.isSelected() || !state.localModelUrl.equals(localModelUrl.getText().trim());
+        var keys = new java.util.HashMap<>(connections.keyChanges());
+        for (var entry : state.apiConnections) { if (entries.stream().noneMatch(value -> value.id.equals(entry.id))) { keys.put(entry.id, ""); } }
+        var failure = new AtomicReference<RuntimeException>();
+        ProgressManager.getInstance().runProcessWithProgressSynchronously(() -> {
+            try { keys.forEach((id, key) -> ApiKeys.write(project, id, key)); }
+            catch (RuntimeException error) { failure.set(error); }
+        }, "Saving API credentials", false, project);
+        if (failure.get() != null) { throw new ConfigurationException("Could not save the API key in the IDE credential store. Your settings have not been applied."); }
         state.claudeBinary = claudeBinary.getText().trim(); state.binary = binary.getText().trim(); state.distro = distro.getText().trim(); state.cwd = cwd.getText().trim();
         state.sharedGuidanceEnabled = sharedGuidanceEnabled.isSelected(); state.sharedGuidanceFolder = sharedGuidance.getText().trim();
         state.localModelEnabled = localModelEnabled.isSelected(); state.localModelUrl = localModelUrl.getText().trim();
-        service.reconnect();
+        state.apiConnections = new java.util.ArrayList<>(entries); state.provider = connections.provider(); state.apiConnectionId = connections.preferredId();
+        service.settingsApplied(all, api); connections.reset(state);
     }
+    @Override public void disposeUIResources() { if (connections != null) { connections.dispose(); connections = null; } }
 }
