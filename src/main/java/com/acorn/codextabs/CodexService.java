@@ -1233,6 +1233,18 @@ public final class CodexService implements Disposable {
             } catch (Exception error) { throw new CompletionException(error); }
         }, io);
     }
+    /** Read local usage from saved CLI records, even when the model server is offline. */
+    public CompletableFuture<JsonObject> localUsage(String id) {
+        String thread = chat(id).get("threadId");
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                String home = attachmentRoot().replace("/codex-idea-tabs/attachments", "");
+                var source = java.nio.file.Path.of(com.acorn.codextabs.core.Paths.host(home, distro(), SystemInfo.isWindows));
+                var index = java.nio.file.Path.of(PathManager.getConfigPath(), "codex-tabs", "local-usage-" + Integer.toHexString(source.toString().hashCode()) + ".json");
+                return LocalUsageHistory.read(source, index, thread, java.time.Clock.systemDefaultZone());
+            } catch (Exception error) { throw new CompletionException(error); }
+        }, io);
+    }
     public CompletableFuture<JsonObject> readImage(String id, String path) {
         if (!isClaude(id)) { return rpc("fs/readFile", object("path", path)); }
         return CompletableFuture.supplyAsync(() -> {
