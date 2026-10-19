@@ -15,9 +15,11 @@ import java.util.concurrent.Flow;
 public final class ApiProbe {
     private static final int MAX_BYTES = 1_048_576;
     private ApiProbe() {}
-    public static String check(ApiConnection entry, String secret) {
+    /** Keep the outcome separate from its message so callers can show a reliable status icon. */
+    public record Result(boolean success, String message) {}
+    public static Result check(ApiConnection entry, String secret) {
         entry.validate();
-        if (entry.hasKey && secret.isBlank()) { return "Saved key is unavailable. Enter it again."; }
+        if (entry.hasKey && secret.isBlank()) { return new Result(false, "Saved key is unavailable. Enter it again."); }
         try (var client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).followRedirects(HttpClient.Redirect.NEVER).build()) {
             var request = HttpRequest.newBuilder(URI.create(entry.baseUrl + "/models")).timeout(Duration.ofSeconds(15)).header("Accept", "application/json");
             if (!secret.isBlank()) { request.header("Authorization", "Bearer " + secret); }
@@ -25,16 +27,17 @@ public final class ApiProbe {
             HttpResponse<byte[]> response;
             try { response = pending.get(15, TimeUnit.SECONDS); }
             catch (Exception error) { pending.cancel(true); throw error; }
-            if (response.statusCode() == 401 || response.statusCode() == 403) { return "API rejected the key. Check its value and access."; }
-            if (response.statusCode() == 404 || response.statusCode() == 405) { return "This API does not list models. Save it and try a chat."; }
-            if (response.statusCode() != 200) { return "API returned HTTP " + response.statusCode() + ". Check the base URL."; }
+            if (response.statusCode() == 401 || response.statusCode() == 403) { return new Result(false, "API rejected the key. Check its value and access."); }
+            if (response.statusCode() == 404 || response.statusCode() == 405) { return new Result(false, "This API does not list models. Save it and try a chat."); }
+            if (response.statusCode() != 200) { return new Result(false, "API returned HTTP " + response.statusCode() + ". Check the base URL."); }
             var data = JsonParser.parseString(new String(response.body(), StandardCharsets.UTF_8)).getAsJsonObject().getAsJsonArray("data");
             var available = new HashSet<String>();
             if (data != null) { data.forEach(value -> available.add(value.getAsJsonObject().get("id").getAsString())); }
-            return available.containsAll(entry.models) ? "API reachable. Models found. Chat generation has not been tested." : "API reachable. Some model IDs were not listed. Check their spelling.";
+            boolean success = available.containsAll(entry.models);
+            return new Result(success, success ? "API reachable. Models found. Chat generation has not been tested." : "API reachable. Some model IDs were not listed. Check their spelling.");
         } catch (Exception error) {
             if (error instanceof InterruptedException) { Thread.currentThread().interrupt(); }
-            return "Could not check the API. Check the URL and your network connection.";
+            return new Result(false, "Could not check the API. Check the URL and your network connection.");
         }
     }
     private static final class LimitedBody implements HttpResponse.BodySubscriber<byte[]> {

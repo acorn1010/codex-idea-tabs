@@ -21,7 +21,7 @@ public final class ApiSettingsSmoke {
         service.settings().sharedGuidanceEnabled = false;
         var config = new CodexConfigurable(project);
         JComponent root = ui(config::createComponent);
-        var frame = ui(() -> { var window = new JFrame("Codex Tabs settings check"); window.setContentPane(root); window.setSize(900, 680); window.setVisible(true); return window; });
+        var frame = ui(() -> { var window = new JFrame("Codex Tabs settings check"); window.setContentPane(root); window.setSize(900, 820); window.setVisible(true); return window; });
         try {
             check(!ui(config::isModified), "Opening settings changed stored values");
             ui(() -> { button(root, "Add Routeway").doClick();
@@ -32,6 +32,7 @@ public final class ApiSettingsSmoke {
             var entry = ui(() -> { var method = panel.getClass().getDeclaredMethod("connections"); method.setAccessible(true); return ((java.util.List<ApiConnection>) method.invoke(panel)).getFirst(); });
             check(entry.models.contains("glm-5.3-flash-uncensored") && entry.baseUrl.equals("https://api.routeway.ai/v1"), "Routeway preset is wrong");
             check(service.settings().apiConnections.isEmpty(), "Draft connection escaped before Apply");
+            checkApiStatus(panel, root, output);
             ui(() -> { ((JComboBox<?>) field(panel, "preferred")).setSelectedIndex(2); return null; });
             capture(root, output.resolve("api-settings.png"));
             ui(() -> { config.apply(); return null; });
@@ -86,9 +87,34 @@ public final class ApiSettingsSmoke {
             JDOMUtil.write(xml, output.resolve("api-settings.xml"));
             ui(() -> { config.reset(); button(root, "Add custom API").doClick(); config.disposeUIResources(); return null; });
             check(service.settings().apiConnections.size() == 1, "Cancel saved a draft connection");
-            Files.writeString(output.resolve("api-settings-result.json"), GSON.toJson(object("preset", true, "localSettings", true, "localAliasIsolation", true, "applyWithoutRestart", true, "cancel", true, "customModels", true,
+            Files.writeString(output.resolve("api-settings-result.json"), GSON.toJson(object("apiCheckIcons", true, "preset", true, "localSettings", true, "localAliasIsolation", true, "applyWithoutRestart", true, "cancel", true, "customModels", true,
                 "noChatGptLogin", true, "perChatRouting", true, "staleModelGuard", true, "handoffDraft", true, "deferredReconnect", true, "resume", true, "settingsRoundTrip", true)));
         } finally { ui(() -> { config.disposeUIResources(); frame.dispose(); return null; }); }
+    }
+    private static void checkApiStatus(Object panel, JComponent root, Path output) throws Exception {
+        var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/ok/models", exchange -> {
+            byte[] body = "{\"data\":[{\"id\":\"glm-5.3-flash-uncensored\"}]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
+        });
+        server.createContext("/denied/models", exchange -> { exchange.sendResponseHeaders(401, -1); exchange.close(); });
+        server.start();
+        var url = (JTextField) field(panel, "url"); var status = (JLabel) field(panel, "status"); var button = (JButton) field(panel, "check");
+        String original = ui(url::getText); String base = "http://127.0.0.1:" + server.getAddress().getPort();
+        try {
+            ui(() -> { url.setText(base + "/ok"); button.doClick(); return null; });
+            await(() -> status.getText().contains("Models found"));
+            check(ui(() -> status.getIcon() != null), "Successful API check has no icon");
+            var success = ui(status::getIcon); capture(root, output.resolve("api-check-success.png"));
+            ui(() -> { url.setText(base + "/denied"); return null; });
+            check(ui(() -> status.getIcon() == null && status.getText().isBlank()), "Editing the connection kept the previous result");
+            ui(() -> { button.doClick(); check(status.getIcon() == null, "Checking kept the previous result icon"); return null; });
+            await(() -> status.getText().contains("rejected the key"));
+            check(ui(() -> status.getIcon() != null && status.getIcon() != success), "Failed API check has no distinct icon");
+            capture(root, output.resolve("api-check-failure.png"));
+            ui(() -> { url.setText("invalid-url"); button.doClick(); return null; });
+            check(ui(() -> status.getIcon() != null && status.getText().contains("API base URL")), "Invalid settings have no failure icon");
+        } finally { server.stop(0); ui(() -> { url.setText(original); return null; }); }
     }
     private static Object field(Object owner, String name) throws Exception { var field = owner.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(owner); }
     private static JButton button(Container parent, String text) {

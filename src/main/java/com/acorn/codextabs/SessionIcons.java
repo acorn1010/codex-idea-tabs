@@ -17,6 +17,8 @@ final class SessionIcons {
                 g.setColor(component.getForeground()); g.setStroke(new BasicStroke(1.4f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND));
                 switch (name) {
                     case "check" -> { g.setColor(SessionTheme.ACCENT); g.drawPolyline(new int[]{3, 6, 13}, new int[]{8, 11, 4}, 3); }
+                    case "success" -> { g.setColor(SessionTheme.SUCCESS); g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)); g.drawPolyline(new int[]{3, 6, 13}, new int[]{8, 11, 4}, 3); }
+                    case "error" -> { g.setColor(SessionTheme.ERROR); g.setStroke(new BasicStroke(2f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)); g.drawLine(4, 4, 12, 12); g.drawLine(12, 4, 4, 12); }
                     case "branch" -> { g.drawLine(4, 2, 4, 10); g.drawOval(2, 10, 4, 4); g.drawOval(10, 2, 4, 4); g.drawArc(4, 4, 8, 8, 270, 90); }
                     case "plus" -> { g.drawLine(8, 3, 8, 13); g.drawLine(3, 8, 13, 8); }
                     case "refresh" -> { g.drawArc(3, 3, 10, 10, 45, 285); g.drawPolyline(new int[]{10, 14, 14}, new int[]{5, 5, 1}, 3); }

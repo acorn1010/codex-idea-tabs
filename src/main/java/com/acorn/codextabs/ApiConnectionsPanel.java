@@ -3,7 +3,6 @@ package com.acorn.codextabs;
 import com.acorn.codextabs.core.ApiConnection;
 import com.acorn.codextabs.core.ApiProbe;
 import com.intellij.openapi.project.Project;
-import com.intellij.ui.JBColor;
 import com.intellij.ui.components.*;
 import com.intellij.util.ui.JBUI;
 import javax.swing.*;
@@ -77,7 +76,7 @@ final class ApiConnectionsPanel extends JPanel {
         clearKey.addActionListener(event -> { key.setEnabled(!clearKey.isSelected()); invalidateCheck(); });
     }
     private void invalidateCheck() {
-        checkGeneration++; check.setEnabled(true); status.setText(" ");
+        checkGeneration++; check.setEnabled(true); status.setText(" "); status.setIcon(null);
     }
     private void flush() {
         if (editing == null) { return; }
@@ -101,7 +100,7 @@ final class ApiConnectionsPanel extends JPanel {
         clearKey.setVisible(entry != null && (entry.hasKey || clearKey.isSelected()));
         clearKey.setEnabled(entry != null && (entry.hasKey || clearKey.isSelected())); key.setEnabled(!clearKey.isSelected());
         keyHint.setText(entry != null && entry.hasKey ? "Saved securely. Leave blank to keep the current key." : "Stored in the IDE credential store. Optional for local servers.");
-        status.setText(" ");
+        status.setText(" "); status.setIcon(null);
     }
     private void addConnection(boolean routeway) {
         flush(); var entry = new ApiConnection(); entry.id = UUID.randomUUID().toString();
@@ -134,20 +133,26 @@ final class ApiConnectionsPanel extends JPanel {
     Map<String, String> keyChanges() { flush(); return Map.copyOf(changedKeys); }
     void dispose() { disposed = true; checkGeneration++; changedKeys.clear(); key.setText(""); }
 
+    private void showCheckResult(ApiProbe.Result result) {
+        status.setIcon(SessionIcons.icon(result.success() ? "success" : "error"));
+        status.setIconTextGap(JBUI.scale(6));
+        status.setText("<html><div style='width: 330px'>" + result.message() + "</div></html>");
+    }
+
     /** A bounded metadata request checks authentication without spending tokens or following redirects. */
     private void checkApi() {
         flush(); if (editing == null) { return; }
         var entry = editing.copy();
-        try { entry.validate(); } catch (IllegalArgumentException error) { status.setText(error.getMessage()); return; }
+        try { entry.validate(); } catch (IllegalArgumentException error) { showCheckResult(new ApiProbe.Result(false, error.getMessage())); return; }
         String supplied = changedKeys.get(entry.id); long generation = ++checkGeneration;
-        check.setEnabled(false); status.setForeground(JBColor.GRAY); status.setText("Checking API…");
+        check.setEnabled(false); status.setIcon(null); status.setText("Checking API…");
         CompletableFuture.supplyAsync(() -> {
             try {
                 String secret = supplied == null && entry.hasKey ? ApiKeys.read(project, entry.id) : Objects.toString(supplied, "");
                 return ApiProbe.check(entry, secret);
-            } catch (Exception error) { return "Could not check the API. Check the URL and your network connection."; }
-        }).thenAccept(message -> SwingUtilities.invokeLater(() -> {
-            if (!disposed && generation == checkGeneration) { check.setEnabled(true); status.setText("<html><div style='width: 330px'>" + message + "</div></html>"); }
+            } catch (Exception error) { return new ApiProbe.Result(false, "Could not check the API. Check the URL and your network connection."); }
+        }).thenAccept(result -> SwingUtilities.invokeLater(() -> {
+            if (!disposed && generation == checkGeneration) { check.setEnabled(true); showCheckResult(result); }
         }));
     }
 }

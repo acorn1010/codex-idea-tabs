@@ -26,10 +26,12 @@ class ApiProbeTest {
         try {
             var entry = new ApiConnection(); entry.id = "fixture"; entry.name = "Fixture"; entry.hasKey = true; entry.models.add("test-model");
             String base = "http://127.0.0.1:" + server.getAddress().getPort(); entry.baseUrl = base + "/v1";
-            assertTrue(ApiProbe.check(entry, "fixture-key").contains("Models found")); assertEquals(1, calls.get());
-            entry.baseUrl = base + "/redirect"; assertTrue(ApiProbe.check(entry, "fixture-key").contains("HTTP 302")); assertEquals(0, redirected.get());
-            entry.baseUrl = base + "/denied"; assertTrue(ApiProbe.check(entry, "fixture-key").contains("rejected the key"));
-            assertTrue(ApiProbe.check(entry, "").contains("unavailable"));
+            var success = ApiProbe.check(entry, "fixture-key"); assertTrue(success.success()); assertTrue(success.message().contains("Models found")); assertEquals(1, calls.get());
+            entry.baseUrl = base + "/redirect"; var redirect = ApiProbe.check(entry, "fixture-key"); assertFalse(redirect.success()); assertTrue(redirect.message().contains("HTTP 302")); assertEquals(0, redirected.get());
+            entry.baseUrl = base + "/denied"; var denied = ApiProbe.check(entry, "fixture-key"); assertFalse(denied.success()); assertTrue(denied.message().contains("rejected the key"));
+            var missingKey = ApiProbe.check(entry, ""); assertFalse(missingKey.success()); assertTrue(missingKey.message().contains("unavailable"));
+            entry.baseUrl = base + "/not-supported"; assertFalse(ApiProbe.check(entry, "fixture-key").success());
+            entry.baseUrl = base + "/v1"; entry.models.add("not-listed"); assertFalse(ApiProbe.check(entry, "fixture-key").success());
         } finally { server.stop(0); }
     }
 }
