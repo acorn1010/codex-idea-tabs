@@ -248,7 +248,7 @@ It checks exact token counts and percentages, live usage updates after compactio
 unknown usage, keyboard focus, and local and cloud layouts at 320, 360 and 900
 pixels in both themes. It uses chat snapshots and makes no model calls.
 
-### Local GLM loop guard
+### Local and custom API loop guard
 
 Run `:core:test` for repeated command and MCP calls, alternating loops, timing
 noise, changing results, polling, saved state and warning recovery. For the native
@@ -261,6 +261,10 @@ Run `check-native-loop-guard.mjs` against that profile to check the notice and
 manual recovery in the composer. No model calls are made.
 Run `check-loop-guard.mjs` with `CODEX_SMOKE_CHROME` set to check the distinction
 between loop stops and connection errors in the bundled UI.
+
+The native loop-guard check also replays a text-loop regression fixture through a custom API chat. Set `-Dcodex.smoke.loopText` to the IDE host's path to either `repeated-planning.txt` or `repeated-send.txt` in `core/src/test/resources/loop-guard`, and set `CODEX_SMOKE_LOOP_GUARD=1` and `CODEX_SMOKE_MODEL_SWITCH=1` for the fake backend. It verifies two distinct corrective messages, interruption before each continuation, a final stop, retained goals, blocked automatic retries, Stop cancelling a pending correction, and a fresh recovery budget after useful progress or a normal completed reply. `check-native-loop-guard.mjs` checks that both messages appear in the chat, then checks the stop notice and recovery through the composer.
+
+Set `CODEX_RETRY_TEST_BINARY` to a real Codex executable to run `LoopRecoveryTransportTest` against a local HTTP server. It uses an endless text stream to check that both unique corrections reach the model request and appear once in chat history. The test uses an empty Codex home and no API account. Core tests replay both text fixtures as single chunks and small deltas, including late output after Stop.
 
 ### Bounded readiness waits
 

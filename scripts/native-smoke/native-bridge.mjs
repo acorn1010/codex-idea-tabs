@@ -30,7 +30,7 @@ export async function connectNative() {
         refreshed = Date.now();
       }
       for (const page of browser.contexts().flatMap(context => context.pages())) {
-        if (!await page.getByRole('textbox', { name: /^Message (Codex|Claude)$/, exact: true }).count()) { continue; }
+        if (!await page.locator('textarea[aria-label^="Message "]').count()) { continue; }
         const state = await native(page, 'ready');
         if (predicate(state.chat)) { return { page, chat: state.chat, state }; }
       }

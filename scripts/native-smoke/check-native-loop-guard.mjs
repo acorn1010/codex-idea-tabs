@@ -7,14 +7,19 @@ const output = 'output/playwright';
 mkdirSync(output, { recursive: true });
 const bridge = await connectNative();
 try {
-  const { page, chat } = await bridge.findChat(chat => chat.error?.startsWith('Loop guard stopped'));
+  const { page, chat } = await bridge.findChat(chat => chat.error?.includes('repeated text'));
+  const corrections = chat.items.filter(item => item.type === 'userMessage' && item.content?.some(part => part.text?.startsWith('Loop guard recovery ')));
+  assert.equal(corrections.length, 2, 'Both corrective messages must be present in the chat');
+  const correctionTexts = corrections.map(item => item.content.find(part => part.text?.startsWith('Loop guard recovery ')).text);
+  assert.notEqual(correctionTexts[0], correctionTexts[1]);
+  for (const message of correctionTexts) { await page.getByText(message, { exact: true }).waitFor(); }
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const notice = page.getByText(/^Loop guard stopped this turn/);
   await notice.waitFor();
   assert.equal(await page.getByRole('button', { name: 'Reconnect', exact: true }).count(), 0);
-  await page.getByRole('button', { name: 'Stop Codex', exact: true }).waitFor({ state: 'hidden' });
-  const field = page.getByRole('textbox', { name: 'Message Codex', exact: true });
+  await page.getByRole('button', { name: 'Stop Loop fixture', exact: true }).waitFor({ state: 'hidden' });
+  const field = page.getByRole('textbox', { name: 'Message Loop fixture', exact: true });
   assert.equal(await field.isEnabled(), true);
   for (const theme of ['dark', 'light']) {
     await page.setViewportSize({ width: 360, height: 720 });
@@ -30,5 +35,5 @@ try {
   assert.equal(state.chat.error, '');
   assert.deepEqual(state.chat.localLoopGuard || {}, {});
   assert.deepEqual(errors, []);
-  console.log('Native loop guard UI passed: visible stop reason, retained chat, narrow layouts in both themes, and recovery through the composer.');
+  console.log('Native loop guard UI passed: streamed text stop reason, retained API chat, narrow layouts in both themes, and recovery through the composer.');
 } finally { await bridge.close(); }

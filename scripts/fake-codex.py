@@ -9,6 +9,7 @@ import threading
 import time
 
 loop_guard_actions = []
+held_interrupts = set()
 lock = threading.Lock()
 root = pathlib.Path(os.environ.get("CODEX_SMOKE_ROOT", "/tmp/codex-idea-smoke-project"))
 root.mkdir(parents=True, exist_ok=True)
@@ -203,6 +204,11 @@ def respond(request):
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "fixture/stats":
         result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastStart": last_start_params, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params, "loopGuardActions": loop_guard_actions}
+    elif method == "fixture/holdInterrupt":
+        if params.get("enabled"):
+            held_interrupts.add(params["threadId"])
+        else:
+            held_interrupts.discard(params["threadId"])
     elif method == "fixture/event":
         notification = params["event"]
         thread_id = notification["params"]["threadId"]
@@ -280,6 +286,16 @@ def respond(request):
             failed_sends.add(thread_id)
             raise RuntimeError("Fixture send failed once. Your edited message is ready to retry.")
         turn = {"id": "turn-" + str(time.time_ns()), "status": "inProgress"}
+        if os.environ.get("CODEX_SMOKE_LOOP_GUARD") == "1" and any(part.get("text", "").startswith("Loop guard recovery ") for part in params["input"]):
+            loop_guard_actions.append({"method": method, "params": params})
+            statuses[thread_id] = "active"
+            user = {"id": turn["id"] + "-user", "type": "userMessage", "content": params["input"]}
+            turns(thread_id).append({**turn, "items": [user]})
+            save_history()
+            event("turn/started", thread_id, turn=turn)
+            event("item/completed", thread_id, turnId=turn["id"], item=user)
+            emit({"id": request["id"], "result": {"turn": turn}})
+            return
         if any(part.get("text") == "FIXTURE_HOLD_APPROVALS" for part in params["input"]):
             statuses[thread_id] = "active"
             event("turn/started", thread_id, turn=turn)
@@ -295,9 +311,16 @@ def respond(request):
         event("turn/completed", thread_id, turn={**turn, "status": "completed"})
         result = {"turn": turn}
     elif method == "turn/interrupt":
+        if params["threadId"] in held_interrupts:
+            emit({"id": request["id"], "result": {}})
+            return
         if os.environ.get("CODEX_SMOKE_LOOP_GUARD") == "1":
             loop_guard_actions.append({"method": method, "params": params})
             statuses[params["threadId"]] = "idle"
+            for saved in turns(params["threadId"]):
+                if saved["id"] == params["turnId"]:
+                    saved["status"] = "interrupted"
+            save_history()
         event("turn/completed", params["threadId"], turn={"id": params["turnId"], "status": "interrupted"})
     elif method == "fs/readFile":
         result = {"dataBase64": base64.b64encode(pathlib.Path(params["path"]).read_bytes()).decode()}

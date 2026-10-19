@@ -20,6 +20,8 @@ public final class CodexService implements Disposable {
     private final ClaudeSessions claude = new ClaudeSessions(this::settings, this::distro, this::sharedGuidance, this::claudeChanged);
     private final ConcurrentMap<String, Conversation> chats = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, CompletableFuture<Void>> sends = new ConcurrentHashMap<>();
+    private record LoopRecovery(String turn, CompletableFuture<Void> completed) {}
+    private final ConcurrentMap<String, LoopRecovery> loopRecoveries = new ConcurrentHashMap<>();
     private final ConcurrentMap<String, Integer> editors = new ConcurrentHashMap<>();
     private final CopyOnWriteArrayList<Consumer<String>> listeners = new CopyOnWriteArrayList<>();
     private final ExecutorService io = Executors.newVirtualThreadPerTaskExecutor();
@@ -680,7 +682,7 @@ public final class CodexService implements Disposable {
                     if (generation != connectionGeneration) { return; }
                     connectionStatus = "disconnected";
                     connectionError = disposed ? "" : message;
-                    chats.values().stream().filter(chat -> !chat.get("provider").equals("claude")).forEach(chat -> { chat.disconnected(); sessions.forget(chat.id); });
+                    chats.values().stream().filter(chat -> !chat.get("provider").equals("claude")).forEach(chat -> { cancelLoopRecovery(chat); chat.disconnected(); sessions.forget(chat.id); });
                     changed("");
                 });
                 if (disposed || generation != connectionGeneration) { rpc.close(); throw new IllegalStateException("Connection was replaced"); }
@@ -742,7 +744,7 @@ public final class CodexService implements Disposable {
         if (client != null) { client.close(); }
         client = null; connection = null; connectionStatus = "disconnected"; connectionError = ""; credentialErrors.clear();
         if (localRelay != null) { localRelay.close(); localRelay = null; }
-        chats.values().stream().filter(chat -> !chat.get("provider").equals("claude")).forEach(chat -> { chat.disconnected(); sessions.forget(chat.id); });
+        chats.values().stream().filter(chat -> !chat.get("provider").equals("claude")).forEach(chat -> { cancelLoopRecovery(chat); chat.disconnected(); sessions.forget(chat.id); });
     }
     public void reconnect() {
         claude.close(); sessions.disconnected(); attachmentRoot = null; reconnectCodex();
@@ -925,6 +927,8 @@ public final class CodexService implements Disposable {
     }
     public CompletableFuture<JsonObject> send(String id, JsonObject payload) {
         var chat = chat(id);
+        chat.suspendLocalLoopGuard();
+        cancelLoopRecovery(chat);
         if (chat.get("providerSwitching").equals("true")) { return CompletableFuture.failedFuture(new IllegalStateException("Wait for the provider change to finish.")); }
         var result = new CompletableFuture<JsonObject>();
         sessions.retain(id);
@@ -1196,7 +1200,20 @@ public final class CodexService implements Disposable {
         chat(id).approvals.stopTurn();
         if (isClaude(id)) { return claude.stop(chat(id)); }
         var chat = chat(id);
-        return rpc("turn/interrupt", object("threadId", chat.get("threadId"), "turnId", chat.get("turnId")));
+        chat.suspendLocalLoopGuard();
+        cancelLoopRecovery(chat);
+        changed(id);
+        var result = new CompletableFuture<JsonObject>();
+        sessions.retain(id);
+        sends.compute(id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
+            .thenRunAsync(() -> {
+                try {
+                    String turn = chat.get("turnId");
+                    result.complete(turn.isBlank() ? object() : rpc("turn/interrupt", object("threadId", chat.get("threadId"), "turnId", turn)).join());
+                } catch (Exception error) { result.completeExceptionally(error); }
+                finally { sessions.working(id, chat.busy() || chat.hasBackgroundWork()); changed(id); }
+            }, io).whenComplete((value, error) -> sessions.release(id)));
+        return result;
     }
     public CompletableFuture<JsonObject> attachment(String id, JsonObject input) {
         if (!isClaude(id)) { return attachment(input); }
@@ -1276,6 +1293,10 @@ public final class CodexService implements Disposable {
                 }
                 chat.event(event);
                 applyLocalLoopGuard(chat);
+                if (text(event, "method").equals("turn/completed")) {
+                    var recovery = loopRecoveries.get(chat.id);
+                    if (recovery != null && recovery.turn().equals(text(obj(params, "turn"), "id"))) { recovery.completed().complete(null); }
+                }
             }
             changed(chat.id);
             if (Set.of("thread/archived", "thread/unarchived", "thread/closed").contains(text(event, "method"))) { chat.approvals.reset(); sessions.forget(chat.id); }
@@ -1290,7 +1311,8 @@ public final class CodexService implements Disposable {
         String turn = chat.get("turnId");
         if (action.isEmpty() || turn.isBlank()) { return; }
         boolean stop = flag(action, "stop");
-        if (stop) { chat.approvals.stopTurn(); }
+        if (!stop && flag(action, "restart")) { recoverTextLoop(chat, action, turn); return; }
+        if (stop) { cancelLoopRecovery(chat); chat.approvals.stopTurn(); }
         var params = object("threadId", chat.get("threadId"));
         if (stop) { params.addProperty("turnId", turn); }
         else {
@@ -1302,6 +1324,63 @@ public final class CodexService implements Disposable {
             changed(chat.id);
             return null;
         });
+    }
+    private void cancelLoopRecovery(Conversation chat) {
+        synchronized (chat) {
+            var recovery = loopRecoveries.remove(chat.id);
+            if (recovery != null) { recovery.completed().complete(null); chat.set("loopRecovery", false); }
+        }
+    }
+    private void recoverTextLoop(Conversation chat, JsonObject action, String turn) {
+        var recovery = new LoopRecovery(turn, new CompletableFuture<>());
+        var previousRecovery = loopRecoveries.get(chat.id);
+        if (previousRecovery != null && !previousRecovery.completed().isDone()) { return; }
+        loopRecoveries.put(chat.id, recovery);
+        chat.set("loopRecovery", true);
+        var rpc = client; long generation = connectionGeneration;
+        String threadId = chat.get("threadId");
+        sessions.retain(chat.id);
+        sends.compute(chat.id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
+            .thenRunAsync(() -> {
+                workspaceLock.readLock().lock();
+                try {
+                    synchronized (chat) {
+                        if (loopRecoveries.get(chat.id) != recovery || disposed || generation != connectionGeneration || client != rpc) { return; }
+                    }
+                    // Steering is queued until the model stream ends. Interrupt it before sending the correction.
+                    rpc.request("turn/interrupt", object("threadId", threadId, "turnId", turn)).join();
+                    recovery.completed().get(15, TimeUnit.SECONDS);
+                    CompletableFuture<JsonObject> started;
+                    synchronized (chat) {
+                        if (loopRecoveries.get(chat.id) != recovery || disposed || generation != connectionGeneration || client != rpc
+                            || chats.get(chat.id) != chat || chat.archived() || !chat.get("turnId").isBlank()) { return; }
+                        chat.set("loopRecovery", false);
+                        started = rpc.request("turn/start", object("threadId", threadId,
+                            "input", new Object[]{object("type", "text", "text", text(action, "message"))}));
+                    }
+                    var response = started.join();
+                    synchronized (chat) {
+                        String returnedTurn = text(obj(response, "turn"), "id");
+                        if (generation == connectionGeneration && chat.get("turnId").isBlank() && !chat.get("completedTurnId").equals(returnedTurn)
+                            && text(obj(response, "turn"), "status").equals("inProgress")) {
+                            chat.event(object("method", "turn/started", "params", response));
+                        }
+                    }
+                } catch (Exception error) {
+                    synchronized (chat) {
+                        if (loopRecoveries.get(chat.id) == recovery) {
+                            var memory = obj(chat.snapshot(), "localLoopGuard"); memory.addProperty("stopped", true); memory.addProperty("stopReason", "text");
+                            chat.set("localLoopGuard", memory);
+                            chat.set("error", "Loop guard could not deliver its recovery message: " + message(error));
+                            chat.set("errorKind", "loopGuardStopped");
+                        }
+                    }
+                } finally {
+                    workspaceLock.readLock().unlock();
+                    if (loopRecoveries.remove(chat.id, recovery)) { chat.set("loopRecovery", false); }
+                    sessions.working(chat.id, chat.busy() || chat.hasBackgroundWork()); changed(chat.id);
+                }
+            }, io).whenComplete((value, error) -> sessions.release(chat.id)));
     }
     private void refreshTabs() {
         if (disposed || project.isDisposed()) { return; }
@@ -1335,6 +1414,7 @@ public final class CodexService implements Disposable {
     }
     @Override public void dispose() {
         disposed = true;
+        chats.values().forEach(this::cancelLoopRecovery);
         sessions.disconnected();
         persistence.shutdownNow();
         save();

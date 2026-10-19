@@ -354,9 +354,9 @@ export function ChatApp() {
     finally { setSending(false); }
   };
   const chat = state?.chat;
-  const working = chat?.working;
+  const working = chat?.working || chat?.loopRecovery;
   const attention = chat?.requests.length || 0;
-  const workingLabel = `${providerName} is working${attention ? ' · Your answer can help guide it' : ''}`;
+  const workingLabel = chat?.loopRecovery ? 'Loop guard is restarting the response' : `${providerName} is working${attention ? ' · Your answer can help guide it' : ''}`;
   const archiveBlocked = !chat || changingProvider || !!chat.providerSwitching || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
   const setArchived = async (archived: boolean) => {
     if (archivePending || (archived && archiveBlocked)) { return; }

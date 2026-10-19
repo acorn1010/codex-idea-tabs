@@ -17,12 +17,46 @@ class LocalLoopGuardTest {
         assertEquals("loopGuardStopped", chat.get("errorKind"));
         assertEquals(5, array(memory(chat), "recent").size());
     }
+    @Test void sendsDistinctCorrectionsOnTheThirdAndFourthUnchangedCalls() {
+        var chat = local();
+        var messages = new java.util.HashSet<String>();
+        for (int i = 1; i <= 5; i++) {
+            completed(chat, "call-" + i, "cargo test", "same failure", 1);
+            var action = chat.takeLocalLoopAction();
+            if (i < 3) { assertTrue(action.isEmpty()); }
+            else if (i < 5) {
+                assertFalse(action.isEmpty()); assertFalse(flag(action, "stop"));
+                assertTrue(messages.add(text(action, "message")));
+            } else { assertTrue(flag(action, "stop")); }
+        }
+        assertEquals(2, messages.size());
+    }
     @Test void catchesAlternatingReadAndFailedEditCycles() {
         var chat = local();
         for (int i = 0; i < 5; i++) {
             completed(chat, "read-" + i, "cat file.rs", "unchanged source", 0);
             completed(chat, "edit-" + i, "apply_patch patch.txt", "expected lines not found", 1);
         }
+        assertTrue(flag(memory(chat), "stopped"));
+    }
+    @Test void aChangedFailureClearsTheRecoveryCountAndWarning() {
+        var chat = local();
+        for (int i = 1; i <= 4; i++) { completed(chat, "old-" + i, "cargo test", "failure A", 1); chat.takeLocalLoopAction(); }
+        completed(chat, "progress", "cargo test", "failure B", 1);
+        assertFalse(memory(chat).has("recoveryAttempts")); assertEquals("", chat.get("error"));
+        completed(chat, "new-2", "cargo test", "failure B", 1);
+        completed(chat, "new-3", "cargo test", "failure B", 1);
+        assertTrue(text(chat.takeLocalLoopAction(), "message").startsWith("Loop guard recovery 1/2"));
+    }
+    @Test void duplicateAndUnchangedSuccessfulCallsAreNotFreshProgress() {
+        var chat = local();
+        completed(chat, "read-1", "cat file", "same source", 0);
+        for (int i = 1; i <= 4; i++) { completed(chat, "fail-" + i, "cargo test", "failure", 1); chat.takeLocalLoopAction(); }
+        completed(chat, "read-1", "cat file", "same source", 0);
+        completed(chat, "read-2", "cat file", "same source", 0);
+        assertEquals(2, memory(chat).get("recoveryAttempts").getAsInt());
+        completed(chat, "fail-5", "cargo test", "failure", 1);
+        completed(chat, "late-success", "inspect new file", "new source", 0);
         assertTrue(flag(memory(chat), "stopped"));
     }
     @Test void changingResultsResetThatCommandsRepeatCount() {

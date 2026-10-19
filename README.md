@@ -65,10 +65,20 @@ Long prompts can take several minutes before output begins. Keep the server runn
 
 Compaction creates a text checkpoint with verified progress and the next step. The relay keeps the preceding tool definitions on compaction requests and disables tool calls. This lets the server reuse its cached prompt prefix. Reuse still depends on the history in the server slot.
 
-Local GLM has a loop guard. Three matching calls with unchanged results trigger a
-request to change approach. Five stop the turn. Comparison history survives
-compaction and reconnect. A new user instruction resets it. The guard keeps the
-chat and goal, and does not count running processes or MCP status and wait polls.
+Local GLM and custom API chats have a loop guard. The third and fourth matching
+tool calls with unchanged results each trigger a different request to change
+approach. Five stop the turn. Tool comparison history survives compaction and
+reconnect. The guard also checks streamed replies and reasoning for repeated
+passages of at least 48 words. Three copies interrupt the response, then continue
+with a corrective message shown in the chat. Each correction has different
+instructions and a unique reference. The guard allows two recovery messages while looping continues. New successful
+tool results, changed results, successful edits, or a normal completed reply reset
+that recovery count. Unchanged calls, polling, failures without new evidence,
+reconnects, and interrupted recoveries do not reset it. Stop cancels pending recovery.
+Text comparisons restart after a tool result, a new turn, or a disconnect.
+A stopped turn stays stopped across automatic continuations and reconnects until
+you send a new instruction. The guard keeps your chat and goal, and does not count
+running processes or MCP status and wait polls as repeated tool calls.
 The plugin requests low reasoning effort. Set a bounded thinking budget in the
 model server, such as `--reasoning-budget 1024`, to allow thinking without an
 unlimited delay.

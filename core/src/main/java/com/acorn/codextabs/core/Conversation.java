@@ -17,7 +17,11 @@ public final class Conversation {
     private long historyRevision;
     private long runtimeRevision;
     private JsonObject localLoopAction = new JsonObject();
+    private boolean loopGuardSuspended;
+    private boolean loopWarningThisTurn;
+    private boolean loopReplyThisTurn;
     private final GenerationSpeed generationSpeed;
+    private final TextLoopGuard textLoopGuard = new TextLoopGuard();
 
     public Conversation(String id, String cwd) { this(id, cwd, System::nanoTime); }
     Conversation(String id, String cwd, java.util.function.LongSupplier clock) {
@@ -39,6 +43,7 @@ public final class Conversation {
             if (!value.has("rpcId")) { chat.requests.put(text(value, "key"), value.deepCopy()); }
         }
         chat.state.remove("claudeActivity");
+        chat.state.remove("loopRecovery");
         chat.state.addProperty("claudeConnection", "disconnected");
         chat.state.addProperty("providerSwitching", false);
         chat.state.addProperty("working", false);
@@ -57,7 +62,7 @@ public final class Conversation {
         state.addProperty("error", message); state.addProperty("errorKind", "connection"); revision++;
     }
     public synchronized void loaded() { clearRecoverableError(); revision++; }
-    public synchronized boolean busy() { return flag(state, "providerSwitching") || flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
+    public synchronized boolean busy() { return flag(state, "loopRecovery") || flag(state, "providerSwitching") || flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
     /** Keep background work visible and its CLI alive without blocking new foreground messages. */
     public synchronized boolean hasBackgroundWork() {
         var activity = obj(state, "claudeActivity");
@@ -83,7 +88,7 @@ public final class Conversation {
     }
     public synchronized String status() {
         if (!requests.isEmpty()) { return "attention"; }
-        if (flag(state, "working") || hasBackgroundWork()) { return "working"; }
+        if (flag(state, "loopRecovery") || flag(state, "working") || hasBackgroundWork()) { return "working"; }
         if (!text(state, "error").isEmpty()) { return "error"; }
         return flag(state, "unread") ? "complete" : "idle";
     }
@@ -231,6 +236,8 @@ public final class Conversation {
         revision++;
     }
     public synchronized void disconnected() {
+        state.remove("loopRecovery");
+        textLoopGuard.reset();
         generationSpeed.reset();
         state.add("claudeActivity", new JsonObject());
         approvals.reset();
@@ -239,8 +246,15 @@ public final class Conversation {
         state.addProperty("turnId", "");
         revision++;
     }
+    /** Ignore late output after Stop while the interrupted model request is shutting down. */
+    public synchronized void suspendLocalLoopGuard() {
+        loopGuardSuspended = true;
+        localLoopAction = new JsonObject();
+    }
     /** Clear no-progress history only when the user explicitly sends a new instruction. */
     public synchronized void resetLocalLoopGuard() {
+        loopGuardSuspended = false;
+        textLoopGuard.reset();
         if (!state.has("localLoopGuard")) { return; }
         state.remove("localLoopGuard");
         localLoopAction = new JsonObject();
@@ -253,16 +267,32 @@ public final class Conversation {
         localLoopAction = new JsonObject();
         return action;
     }
+    private boolean guardsLoops() {
+        return !get("provider").equals("claude") && (get("modelProvider").equals(LocalModel.PROVIDER)
+            || get("modelProvider").startsWith("codex_tabs_") || !get("apiConnectionId").isBlank());
+    }
+    private void observeLocalText(JsonObject params, String method) {
+        if (loopGuardSuspended || !guardsLoops() || get("turnId").isBlank() || !text(params, "turnId").equals(get("turnId"))) { return; }
+        var memory = obj(state, "localLoopGuard");
+        var action = textLoopGuard.observe(memory, method, text(params, "delta"));
+        if (!memory.isEmpty()) { state.add("localLoopGuard", memory); }
+        if (!action.isEmpty()) { localLoopAction(action); }
+    }
     private void observeLocalLoop(JsonObject params, JsonObject item) {
-        if (!get("modelProvider").equals(LocalModel.PROVIDER) || get("turnId").isBlank()
+        if (loopGuardSuspended || !guardsLoops() || get("turnId").isBlank()
             || !text(params, "turnId", get("turnId")).equals(get("turnId"))) { return; }
-        if (!Set.of("commandExecution", "mcpToolCall").contains(text(item, "type"))) { return; }
+        if (!Set.of("commandExecution", "mcpToolCall", "fileChange").contains(text(item, "type"))) { return; }
+        if (Set.of("completed", "failed").contains(text(item, "status"))) { textLoopGuard.reset(); }
         var memory = obj(state, "localLoopGuard");
         var action = LocalLoopGuard.observe(memory, item);
+        if (!flag(memory, "warned") && get("errorKind").equals("loopGuard")) {
+            state.addProperty("error", ""); state.addProperty("errorKind", "");
+        }
         if (!memory.isEmpty()) { state.add("localLoopGuard", memory); }
         if (!action.isEmpty()) { localLoopAction(action); }
     }
     private void localLoopAction(JsonObject action) {
+        loopWarningThisTurn = true;
         localLoopAction = action;
         state.addProperty("error", text(action, "message"));
         state.addProperty("errorKind", flag(action, "stop") ? "loopGuardStopped" : "loopGuard");
@@ -273,16 +303,22 @@ public final class Conversation {
         boolean liveActivity = false;
         switch (method) {
             case "turn/started" -> {
+                loopWarningThisTurn = false; loopReplyThisTurn = false;
+                textLoopGuard.reset();
                 approvals.turnStarted();
                 state.addProperty("turnId", text(obj(params, "turn"), "id"));
                 state.addProperty("working", true);
                 state.addProperty("unread", false);
                 state.addProperty("error", "");
-                if (get("modelProvider").equals(LocalModel.PROVIDER) && flag(obj(state, "localLoopGuard"), "stopped")) { localLoopAction(LocalLoopGuard.stopped()); }
+                if (guardsLoops() && flag(obj(state, "localLoopGuard"), "stopped")) { localLoopAction(LocalLoopGuard.stopped(obj(state, "localLoopGuard"))); }
             }
             case "turn/completed" -> {
                 var turn = obj(params, "turn");
                 if (!get("turnId").isBlank() && !get("turnId").equals(text(turn, "id"))) { return; }
+                if (!get("turnId").isBlank() && !loopGuardSuspended && !loopWarningThisTurn && loopReplyThisTurn && text(turn, "status").equals("completed")) {
+                    LocalLoopGuard.progress(obj(state, "localLoopGuard"));
+                }
+                textLoopGuard.reset();
                 state.addProperty("working", false);
                 approvals.endTurn();
                 state.addProperty("completedTurnId", text(turn, "id"));
@@ -303,7 +339,10 @@ public final class Conversation {
                 put(item);
                 if (method.equals("item/completed")) { observeLocalLoop(params, item); }
                 if (method.equals("item/completed") || text(item, "type").equals("userMessage")) { pullRequests.addItem(item); }
-                if (method.equals("item/completed") && text(item, "type").equals("agentMessage")) { preview(text(item, "text")); }
+                if (method.equals("item/completed") && text(item, "type").equals("agentMessage")) {
+                    preview(text(item, "text"));
+                    if (!get("turnId").isBlank() && text(params, "turnId", get("turnId")).equals(get("turnId")) && !text(item, "text").isBlank()) { loopReplyThisTurn = true; }
+                }
             }
             case "item/agentMessage/delta", "item/reasoning/summaryTextDelta", "item/reasoning/textDelta", "item/commandExecution/outputDelta" -> {
                 clearRecoverableError();
@@ -317,6 +356,7 @@ public final class Conversation {
                 if (type.equals("commandExecution") && content.length() > 100_000) { content = content.substring(content.length() - 100_000); }
                 item.addProperty(field, content);
                 itemRevisions.put(id, revision + 1);
+                if (!type.equals("commandExecution")) { observeLocalText(params, method); }
             }
             case "claude/toolApproval", "item/tool/requestUserInput", "item/commandExecution/requestApproval", "item/fileChange/requestApproval", "item/permissions/requestApproval", "mcpServer/elicitation/request" -> {
                 var request = params.deepCopy();

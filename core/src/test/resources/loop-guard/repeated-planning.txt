@@ -1,0 +1,108 @@
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
+
+if (versionMask === undefined) versionMask = (low ^ headerKey) &0xffff;
+else if...
+
+But if length === NO_PACKET_MARKER, still set? Fine. In join mask=versionMask ?? MAPLE_VERSION. Need const versionMask to let versionMask: number | undefined. Also if version 0 actual, deriving from header works. If MAPLE_VERSION=0, unknown. Good. Test multi.
+
+Let's patch. Need in split:
