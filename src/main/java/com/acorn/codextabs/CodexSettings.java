@@ -19,6 +19,7 @@ public final class CodexSettings implements PersistentStateComponent<CodexSettin
         public java.util.List<String> claudeApprovals = new java.util.ArrayList<>();
         public String distro = "";
         public String cwd = "";
+        public String additionalWritableFolders = "";
         public boolean sharedGuidanceEnabled = true;
         public String sharedGuidanceFolder = "";
         public boolean localModelEnabled;

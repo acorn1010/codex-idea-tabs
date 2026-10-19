@@ -284,6 +284,12 @@ Set `-Dcodex.smoke.apiSettings.check=true` in an isolated IDEA profile using the
 
 Run `check-api-connections.mjs` with `CODEX_SMOKE_CHROME` after building to check the custom provider menu, model picker, settings shortcut, draft retention, and reconnect notice at 360 and 900 pixels.
 
+### Additional writable folders
+
+`SandboxSettingsTest` checks Windows and WSL path conversion, invalid paths, duplicate folders, read-only mode, and removal. With `CODEX_RETRY_TEST_BINARY` set, `SandboxSettingsTransportTest` checks the actual Codex sandbox returned on start and resume, including a continuation and removal. It uses a local HTTP fixture and no API account.
+
+For native verification, set `-Dcodex.smoke.writableFolders.check=true` in a disposable IDEA profile with the fake backend and `CODEX_SMOKE_MODEL_SWITCH=1`. The test edits and applies the Workspace settings form, checks persistence and start/turn/resume requests, rejects invalid input, keeps read-only mode, defers changes until a running turn stops, removes access, and checks Cancel. Inspect `writable-folders-settings.png` and `writable-folders-result.json` in the profile's log folder.
+
 ### Native context tooltip
 
 Use `-Dcodex.smoke.contextTooltip.check=true` with the model-switch fixture enabled

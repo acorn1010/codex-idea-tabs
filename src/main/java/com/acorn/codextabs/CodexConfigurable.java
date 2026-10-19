@@ -1,6 +1,7 @@
 package com.acorn.codextabs;
 
 import com.acorn.codextabs.core.SharedGuidance;
+import com.acorn.codextabs.core.SandboxSettings;
 import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.options.ConfigurationException;
 import com.intellij.openapi.progress.ProgressManager;
@@ -21,6 +22,7 @@ public final class CodexConfigurable implements Configurable {
     private final JBTextField claudeBinary = new JBTextField();
     private final JBTextField distro = new JBTextField();
     private final JBTextField cwd = new JBTextField();
+    private final JBTextArea additionalWritableFolders = new JBTextArea(4, 30);
     private final JBTextField localModelUrl = new JBTextField();
     private final JBCheckBox localModelEnabled = new JBCheckBox("Enable local GLM with Codex");
     private final JBTextField sharedGuidance = new JBTextField();
@@ -51,7 +53,12 @@ public final class CodexConfigurable implements Configurable {
         tabs.addTab("Command-line tools", page(tools));
         var workspace = section("Workspace", "Keep shared instructions available to subrepos and worktrees.");
         cwd.getEmptyText().setText("Current IntelliJ project"); sharedGuidance.getEmptyText().setText("Detect from the IntelliJ project folder");
-        row(workspace, "Working directory", cwd, null); fullRow(workspace, sharedGuidanceEnabled);
+        row(workspace, "Working directory", cwd, null);
+        additionalWritableFolders.getAccessibleContext().setAccessibleName("Additional writable folders");
+        row(workspace, "Additional writable folders", new JBScrollPane(additionalWritableFolders),
+            "One absolute folder per line. Grants Codex chats in this project write access there. Read only mode stays read only.");
+        if (SystemInfo.isWindows) { fullRow(workspace, hint("With WSL, use Linux paths, Windows paths, or paths from the selected WSL distribution.")); }
+        fullRow(workspace, sharedGuidanceEnabled);
         row(workspace, "Guidance folder", sharedGuidance, "Reads AGENTS.md and .agents. Linked files stay in their original locations.");
         sharedGuidanceEnabled.addActionListener(event -> sharedGuidance.setEnabled(sharedGuidanceEnabled.isSelected()));
         tabs.addTab("Workspace", page(workspace)); root.add(tabs, BorderLayout.CENTER);
@@ -87,6 +94,7 @@ public final class CodexConfigurable implements Configurable {
         if (connections == null) { return false; }
         var state = CodexService.get(project).settings();
         return !claudeBinary.getText().equals(state.claudeBinary) || !binary.getText().equals(state.binary) || !distro.getText().equals(state.distro) || !cwd.getText().equals(state.cwd)
+            || !additionalWritableFolders.getText().equals(state.additionalWritableFolders)
             || !sharedGuidance.getText().equals(state.sharedGuidanceFolder) || sharedGuidanceEnabled.isSelected() != state.sharedGuidanceEnabled
             || localModelEnabled.isSelected() != state.localModelEnabled || !localModelUrl.getText().equals(state.localModelUrl)
             || !connections.connections().equals(state.apiConnections) || connections.keysModified()
@@ -95,6 +103,7 @@ public final class CodexConfigurable implements Configurable {
     @Override public void reset() {
         var state = CodexService.get(project).settings();
         claudeBinary.setText(state.claudeBinary); binary.setText(state.binary); distro.setText(state.distro); cwd.setText(state.cwd);
+        additionalWritableFolders.setText(state.additionalWritableFolders); additionalWritableFolders.setCaretPosition(0);
         sharedGuidance.setText(state.sharedGuidanceFolder); sharedGuidanceEnabled.setSelected(state.sharedGuidanceEnabled);
         sharedGuidance.setEnabled(state.sharedGuidanceEnabled);
         localModelEnabled.setSelected(state.localModelEnabled); localModelUrl.setText(state.localModelUrl); localModelUrl.setEnabled(state.localModelEnabled);
@@ -105,13 +114,19 @@ public final class CodexConfigurable implements Configurable {
         try {
             if (localModelEnabled.isSelected()) { com.acorn.codextabs.core.LocalModel.validateUrl(localModelUrl.getText().trim()); }
             for (var entry : entries) { entry.validate(); }
-            SharedGuidance.resolve(sharedGuidanceEnabled.isSelected(), sharedGuidance.getText().trim(), Objects.toString(project.getBasePath(), ""),
-                SystemInfo.isWindows ? (distro.getText().isBlank() ? com.acorn.codextabs.core.Paths.distro(Objects.toString(project.getBasePath(), "")) : distro.getText().trim()) : "", SystemInfo.isWindows);
+            String selectedDistro = SystemInfo.isWindows ? (distro.getText().isBlank() ? com.acorn.codextabs.core.Paths.distro(Objects.toString(project.getBasePath(), "")) : distro.getText().trim()) : "";
+            for (String folder : SandboxSettings.folders(additionalWritableFolders.getText(), selectedDistro, SystemInfo.isWindows)) {
+                if (!java.nio.file.Files.isDirectory(java.nio.file.Path.of(com.acorn.codextabs.core.Paths.host(folder, selectedDistro, SystemInfo.isWindows)))) {
+                    throw new IllegalArgumentException("Writable folder does not exist or is not a directory: " + folder);
+                }
+            }
+            SharedGuidance.resolve(sharedGuidanceEnabled.isSelected(), sharedGuidance.getText().trim(), Objects.toString(project.getBasePath(), ""), selectedDistro, SystemInfo.isWindows);
         } catch (RuntimeException error) { throw new ConfigurationException(error.getMessage()); }
         var service = CodexService.get(project); var state = service.settings();
         boolean all = !state.binary.equals(binary.getText().trim()) || !state.claudeBinary.equals(claudeBinary.getText().trim()) || !state.distro.equals(distro.getText().trim())
             || !state.cwd.equals(cwd.getText().trim()) || !state.sharedGuidanceFolder.equals(sharedGuidance.getText().trim()) || state.sharedGuidanceEnabled != sharedGuidanceEnabled.isSelected();
         boolean api = !state.apiConnections.equals(entries) || connections.keysModified()
+            || !state.additionalWritableFolders.equals(additionalWritableFolders.getText())
             || state.localModelEnabled != localModelEnabled.isSelected() || !state.localModelUrl.equals(localModelUrl.getText().trim());
         var keys = new java.util.HashMap<>(connections.keyChanges());
         for (var entry : state.apiConnections) { if (entries.stream().noneMatch(value -> value.id.equals(entry.id))) { keys.put(entry.id, ""); } }
@@ -122,6 +137,7 @@ public final class CodexConfigurable implements Configurable {
         }, "Saving API credentials", false, project);
         if (failure.get() != null) { throw new ConfigurationException("Could not save the API key in the IDE credential store. Your settings have not been applied."); }
         state.claudeBinary = claudeBinary.getText().trim(); state.binary = binary.getText().trim(); state.distro = distro.getText().trim(); state.cwd = cwd.getText().trim();
+        state.additionalWritableFolders = additionalWritableFolders.getText();
         state.sharedGuidanceEnabled = sharedGuidanceEnabled.isSelected(); state.sharedGuidanceFolder = sharedGuidance.getText().trim();
         state.localModelEnabled = localModelEnabled.isSelected(); state.localModelUrl = localModelUrl.getText().trim();
         state.apiConnections = new java.util.ArrayList<>(entries); state.provider = connections.provider(); state.apiConnectionId = connections.preferredId();

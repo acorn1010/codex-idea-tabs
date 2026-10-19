@@ -68,6 +68,9 @@ public final class Smoke implements StartupActivity.DumbAware {
                 if (Boolean.getBoolean("codex.smoke.providerPreference.check")) {
                     ProviderPreferenceSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }
+                if (Boolean.getBoolean("codex.smoke.writableFolders.check")) {
+                    com.acorn.codextabs.WritableFoldersSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
+                }
                 if (Boolean.getBoolean("codex.smoke.apiSettings.check")) {
                     com.acorn.codextabs.ApiSettingsSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }

@@ -61,6 +61,7 @@ public final class CodexService implements Disposable {
         return entry;
     }
     private JsonObject configureThread(Conversation chat, JsonObject params) {
+        SandboxSettings.configureThread(params, SandboxSettings.folders(settings().additionalWritableFolders, distro(), SystemInfo.isWindows));
         var entry = requireApiConnection(chat);
         if (entry != null) { entry.configure(params, text(params, "model", entry.selectedModel)); }
         return params;
@@ -1021,7 +1022,7 @@ public final class CodexService implements Disposable {
                         if (!effort.isBlank()) { params.addProperty("effort", effort); }
                         params.addProperty("approvalPolicy", "on-request");
                         params.addProperty("approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
-                        params.add("sandboxPolicy", permissions.equals("read") ? object("type", "readOnly") : object("type", "workspaceWrite", "writableRoots", new String[]{chat.get("cwd")}, "networkAccess", false, "excludeTmpdirEnvVar", false, "excludeSlashTmp", false));
+                        params.add("sandboxPolicy", SandboxSettings.policy(permissions, chat.get("cwd"), SandboxSettings.folders(settings().additionalWritableFolders, distro(), SystemInfo.isWindows)));
                         if (!reviewCommand) {
                             var choices = payload;
                             if (entry != null) { choices = payload.deepCopy(); choices.addProperty("fast", false); }

@@ -261,6 +261,12 @@ Discovery checks the project folder and nested repository folders, skips depende
 
 Codex loads the selected checkout's own instructions and skills. Codex Tabs also supplies the IDEA project's shared guidance by default. See [Shared guidance for multiple repositories](#shared-guidance-for-multiple-repositories) to choose another source or disable it. Keep repository-specific guidance in that repository and commit it if new worktrees need it. The extension does not copy or rewrite instruction files. The context inspector's Recorded view includes shared guidance, while its separate CLI Startup preview does not include plugin-added context.
 
+### Additional writable folders
+
+Open **Settings → Tools → Codex Tabs → Workspace** and enter **Additional writable folders**, one existing absolute folder per line. These folders are writable from Codex chats in this IntelliJ project, including local models and custom API connections. Each chat keeps its selected checkout as its working directory. Read only mode still prevents writes.
+
+For WSL, enter Linux paths such as `/home/acorn/cloud/Projects/js/foony`, Windows paths such as `C:\Work\JS`, or UNC paths from the selected WSL distribution. Spaces in folder names are supported. Apply saves the list for this project. Changes take effect when active Codex chats finish or are stopped, without restarting IntelliJ. Resumed chats and automatic continuations keep the configured access. Remove a line and Apply to remove that extra access. Claude permissions are separate.
+
 ### Remembering approvals
 
 Approval cards show **Always allow** when Codex offers a saved command-prefix or network-host rule. The card shows the rule before you select it. **Allow for session** remembers a command or file approval, or keeps the requested permissions for later turns in that session. **Allow once** and **Decline** remain separate choices. Computer Use, Browser Use, and other MCP connectors also get **Allow for session** and **Always allow** when they offer those durations. The selected duration is sent back to that connector with your form answers. Available buttons follow the choices supported by the current Codex request.
