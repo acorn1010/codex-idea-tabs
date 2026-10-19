@@ -45,10 +45,8 @@ final class ApiConnectionsPanel extends JPanel {
         sidebar.setPreferredSize(JBUI.size(180, 310));
         sidebar.add(new JBScrollPane(list), BorderLayout.CENTER);
         var buttons = new JPanel(new GridLayout(0, 1, 0, JBUI.scale(6)));
-        for (String title : List.of("Add Routeway", "Add custom API")) {
-            var button = new JButton(title); buttons.add(button);
-            button.addActionListener(event -> addConnection(title.equals("Add Routeway")));
-        }
+        var add = new JButton("Add custom API"); buttons.add(add);
+        add.addActionListener(event -> addConnection());
         buttons.add(remove); remove.addActionListener(event -> removeConnection()); sidebar.add(buttons, BorderLayout.SOUTH);
         body.add(sidebar, BorderLayout.WEST);
         var form = CodexConfigurable.section("API connection", "Responses API with tool calling. Powered by Codex.");
@@ -102,11 +100,9 @@ final class ApiConnectionsPanel extends JPanel {
         keyHint.setText(entry != null && entry.hasKey ? "Saved securely. Leave blank to keep the current key." : "Stored in the IDE credential store. Optional for local servers.");
         status.setText(" "); status.setIcon(null);
     }
-    private void addConnection(boolean routeway) {
+    private void addConnection() {
         flush(); var entry = new ApiConnection(); entry.id = UUID.randomUUID().toString();
-        entry.name = routeway ? "Routeway" : "Custom API";
-        entry.baseUrl = routeway ? "https://api.routeway.ai/v1" : "";
-        if (routeway) { entry.models.add("glm-5.3-flash-uncensored"); }
+        entry.name = "Custom API";
         entries.addElement(entry); preferred.addItem(entry); list.setSelectedValue(entry, true); name.requestFocusInWindow();
     }
     private void removeConnection() {

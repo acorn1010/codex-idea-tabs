@@ -18,7 +18,7 @@ try {
     page.on('pageerror', error => errors.push(error.message));
     await page.addInitScript(() => {
       const model = id => ({ id, model: id, displayName: id, supportedReasoningEfforts: [], isDefault: true });
-      const state = { providers: [{ id: 'codex', name: 'Codex' }, { id: 'claude', name: 'Claude' }, { id: 'api:routeway', name: 'Routeway' }], connectionRevision: 0,
+      const state = { providers: [{ id: 'codex', name: 'Codex' }, { id: 'claude', name: 'Claude' }, { id: 'api:custom-api', name: 'Test API' }], connectionRevision: 0,
         connection: 'connected', error: '', project: 'Fixture', cwd: '/tmp', settings: { model: 'gpt-test', effort: '', modelSelectionSaved: true, permissions: 'ask' }, models: [model('gpt-test')], account: {}, sessions: [],
         chat: { id: 'chat', provider: 'codex', threadId: '', title: 'New chat', cwd: '/tmp', draft: 'Keep my draft', items: [], requests: [], status: 'idle', working: false, unread: false, pinned: false, revision: 1 } };
       window.__requests = [];
@@ -27,8 +27,8 @@ try {
         const { id, method, params } = JSON.parse(raw); window.__requests.push({ method, params }); let result = {};
         if (method === 'provider') {
           state.chat.provider = params.provider === 'claude' ? 'claude' : 'codex';
-          state.chat.apiConnectionId = params.provider.startsWith('api:') ? 'routeway' : '';
-          state.models = state.chat.apiConnectionId ? [model('glm-5.3-flash-uncensored'), model('another-model')] : [model('gpt-test')];
+          state.chat.apiConnectionId = params.provider.startsWith('api:') ? 'custom-api' : '';
+          state.models = state.chat.apiConnectionId ? [model('test-model'), model('another-model')] : [model('gpt-test')];
           state.models[0].isDefault = true; if (state.models[1]) { state.models[1].isDefault = false; }
           state.settings = { model: '', effort: '', modelSelectionSaved: true, permissions: 'ask' };
           window.__publish({}); result = state;
@@ -41,12 +41,12 @@ try {
     });
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     await page.getByRole('button', { name: /^Provider:/ }).click();
-    await page.getByRole('option', { name: 'Routeway', exact: true }).click();
-    await page.getByRole('button', { name: /^Provider:/ }).filter({ hasText: 'Routeway' }).waitFor();
+    await page.getByRole('option', { name: 'Test API', exact: true }).click();
+    await page.getByRole('button', { name: /^Provider:/ }).filter({ hasText: 'Test API' }).waitFor();
     assert.equal(await page.locator('textarea').inputValue(), 'Keep my draft');
     assert.equal(await page.getByRole('button', { name: /^Reasoning effort:/ }).count(), 0);
     await page.getByRole('button', { name: /^Model:/ }).click();
-    await page.getByRole('option', { name: 'glm-5.3-flash-uncensored', exact: true }).waitFor();
+    await page.getByRole('option', { name: 'test-model', exact: true }).waitFor();
     await page.getByRole('option', { name: 'another-model', exact: true }).click();
     await page.waitForFunction(() => window.__requests.some(value => value.method === 'modelPreferences' && value.params.model === 'another-model'));
     await page.getByRole('button', { name: /^Permission mode:/ }).click();

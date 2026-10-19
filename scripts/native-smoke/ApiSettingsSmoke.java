@@ -24,13 +24,19 @@ public final class ApiSettingsSmoke {
         var frame = ui(() -> { var window = new JFrame("Codex Tabs settings check"); window.setContentPane(root); window.setSize(900, 820); window.setVisible(true); return window; });
         try {
             check(!ui(config::isModified), "Opening settings changed stored values");
-            ui(() -> { button(root, "Add Routeway").doClick();
+            ui(() -> { button(root, "Add custom API").doClick();
                 ((JCheckBox) field(config, "localModelEnabled")).doClick();
                 ((JTextField) field(config, "localModelUrl")).setText("http://127.0.0.1:30002/v1"); return null; });
             check(ui(config::isModified), "Adding a connection did not enable Apply");
             var panel = field(config, "connections");
+            ui(() -> {
+                var url = (JTextField) field(panel, "url"); var models = (JTextArea) field(panel, "models");
+                check(url.getText().isBlank() && models.getText().isBlank(), "New connection has provider-specific defaults");
+                ((JTextField) field(panel, "name")).setText("Test API");
+                url.setText("https://api.example.com/v1"); models.setText("test-model"); return null;
+            });
             var entry = ui(() -> { var method = panel.getClass().getDeclaredMethod("connections"); method.setAccessible(true); return ((java.util.List<ApiConnection>) method.invoke(panel)).getFirst(); });
-            check(entry.models.contains("glm-5.3-flash-uncensored") && entry.baseUrl.equals("https://api.routeway.ai/v1"), "Routeway preset is wrong");
+            check(entry.models.contains("test-model") && entry.baseUrl.equals("https://api.example.com/v1"), "Custom connection fields were not saved");
             check(service.settings().apiConnections.isEmpty(), "Draft connection escaped before Apply");
             checkApiStatus(panel, root, output);
             ui(() -> { ((JComboBox<?>) field(panel, "preferred")).setSelectedIndex(2); return null; });
@@ -54,6 +60,7 @@ public final class ApiSettingsSmoke {
             var initialChat = chat; await(() -> !initialChat.busy());
             var stats = service.rpc("fixture/stats", object()).get(10, TimeUnit.SECONDS);
             check(text(obj(stats, "lastStart"), "modelProvider").equals(entry.providerId()), "Thread started with the wrong API provider");
+            check(!obj(obj(stats, "lastStart"), "config").has("web_search"), "Custom start overrode hosted web search");
             check(text(obj(stats, "lastTurn"), "model").equals(entry.models.getFirst()), "Stale GPT model overrode custom model");
             check(text(obj(stats, "lastTurn"), "approvalsReviewer").equals("user"), "Custom provider invoked automatic review");
             check(!obj(stats, "lastTurn").has("summary") && !obj(stats, "lastTurn").has("serviceTierForTurn"), "Custom turn inherited OpenAI-only settings");
@@ -73,6 +80,7 @@ public final class ApiSettingsSmoke {
             service.load(chat.id).get(10, TimeUnit.SECONDS);
             stats = service.rpc("fixture/stats", object()).get(10, TimeUnit.SECONDS);
             check(text(obj(stats, "lastResume"), "modelProvider").equals(entry.providerId()), "Resume lost custom routing");
+            check(!obj(obj(stats, "lastResume"), "config").has("web_search"), "Custom resume overrode hosted web search");
             var custom = service.settings().apiConnections.getFirst(); custom.models.add(LocalModel.MODEL);
             var aliased = service.create();
             service.send(aliased.id, object("text", "Remote model with a local alias", "model", LocalModel.MODEL, "permissions", "ask")).get(10, TimeUnit.SECONDS);
@@ -87,14 +95,14 @@ public final class ApiSettingsSmoke {
             JDOMUtil.write(xml, output.resolve("api-settings.xml"));
             ui(() -> { config.reset(); button(root, "Add custom API").doClick(); config.disposeUIResources(); return null; });
             check(service.settings().apiConnections.size() == 1, "Cancel saved a draft connection");
-            Files.writeString(output.resolve("api-settings-result.json"), GSON.toJson(object("apiCheckIcons", true, "preset", true, "localSettings", true, "localAliasIsolation", true, "applyWithoutRestart", true, "cancel", true, "customModels", true,
-                "noChatGptLogin", true, "perChatRouting", true, "staleModelGuard", true, "handoffDraft", true, "deferredReconnect", true, "resume", true, "settingsRoundTrip", true)));
+            Files.writeString(output.resolve("api-settings-result.json"), GSON.toJson(object("apiCheckIcons", true, "customConnection", true, "localSettings", true, "localAliasIsolation", true, "applyWithoutRestart", true, "cancel", true, "customModels", true,
+                "noChatGptLogin", true, "searchSettingPreserved", true, "perChatRouting", true, "staleModelGuard", true, "handoffDraft", true, "deferredReconnect", true, "resume", true, "settingsRoundTrip", true)));
         } finally { ui(() -> { config.disposeUIResources(); frame.dispose(); return null; }); }
     }
     private static void checkApiStatus(Object panel, JComponent root, Path output) throws Exception {
         var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/ok/models", exchange -> {
-            byte[] body = "{\"data\":[{\"id\":\"glm-5.3-flash-uncensored\"}]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            byte[] body = "{\"data\":[{\"id\":\"test-model\"}]}".getBytes(java.nio.charset.StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(200, body.length); exchange.getResponseBody().write(body); exchange.close();
         });
         server.createContext("/denied/models", exchange -> { exchange.sendResponseHeaders(401, -1); exchange.close(); });

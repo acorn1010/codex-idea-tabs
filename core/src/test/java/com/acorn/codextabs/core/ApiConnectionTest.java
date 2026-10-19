@@ -7,14 +7,14 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ApiConnectionTest {
     private ApiConnection connection() {
-        var value = new ApiConnection(); value.id = "routeway-123"; value.name = "Routeway";
-        value.baseUrl = "https://api.routeway.ai/v1"; value.models.addAll(List.of("glm-test", "second-model")); return value;
+        var value = new ApiConnection(); value.id = "custom-123"; value.name = "Custom API";
+        value.baseUrl = "https://api.example.com/v1"; value.models.addAll(List.of("glm-test", "second-model")); return value;
     }
     @Test void credentialsStayOutOfArgumentsAndMetadata() {
         var value = connection(); value.hasKey = true;
         String args = String.join(" ", value.arguments());
         assertTrue(args.contains("wire_api=\"responses\""));
-        assertTrue(args.contains("env_key=\"CODEX_TABS_API_ROUTEWAY_123\""));
+        assertTrue(args.contains("env_key=\"CODEX_TABS_API_CUSTOM_123\""));
         assertTrue(args.contains("requires_openai_auth=false"));
         assertFalse(args.contains("api_key")); assertFalse(args.contains("Authorization"));
         value.hasKey = false; assertFalse(String.join(" ", value.arguments()).contains("env_key"));
@@ -23,7 +23,7 @@ class ApiConnectionTest {
         for (String url : List.of("https://key@api.example.com/v1", "https://api.example.com?key=secret", "https://api.example.com/#part", "http://api.example.com/v1", "file:///tmp/api", "invalid")) {
             var value = connection(); value.baseUrl = url; assertThrows(IllegalArgumentException.class, value::validate, url);
         }
-        for (String url : List.of("http://localhost:8080/v1", "http://127.0.0.1:1234/v1", "http://[::1]:1234/v1", "https://api.routeway.ai/v1")) {
+        for (String url : List.of("http://localhost:8080/v1", "http://127.0.0.1:1234/v1", "http://[::1]:1234/v1", "https://api.example.com/v1")) {
             var value = connection(); value.baseUrl = url; assertDoesNotThrow(value::validate);
         }
     }
@@ -34,6 +34,23 @@ class ApiConnectionTest {
         assertTrue(flag(obj(params, "config"), "other")); assertEquals("none", text(obj(params, "config"), "model_reasoning_summary"));
         value.configure(params, "second-model"); assertEquals("second-model", text(params, "model"));
         assertEquals(2, value.modelOptions().size()); assertTrue(flag(value.modelOptions().get(0).getAsJsonObject(), "isDefault"));
+    }
+    @Test void apiConnectionsPreserveSearchAndOtherToolsWithoutChangingTheInputConfig() {
+        for (String url : List.of("https://api.example.com/v1", "https://API.EXAMPLE.COM/v1/", "http://localhost:8080/v1")) {
+            var value = connection(); value.baseUrl = url;
+            for (String mode : List.of("", "cached", "live", "disabled")) {
+                var config = object("mcp_servers", object("search", object("url", "https://search.example/mcp")), "other", true);
+                if (!mode.isEmpty()) { config.addProperty("web_search", mode); }
+                var original = config.deepCopy();
+                var params = object("config", config);
+                value.configure(params, "glm-test");
+                var configured = obj(params, "config");
+                assertEquals(original.get("web_search"), configured.get("web_search"), url + " with " + mode);
+                assertEquals(obj(original, "mcp_servers"), obj(configured, "mcp_servers"));
+                assertTrue(flag(configured, "other"));
+                assertEquals(original, config, "The caller's configuration must not be changed");
+            }
+        }
     }
     @Test void editsAndProviderHandoffKeepConnectionIdentitySeparate() {
         var value = connection(); var draft = value.copy(); draft.models.add("third-model"); assertEquals(2, value.models.size());

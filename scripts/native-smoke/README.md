@@ -286,7 +286,7 @@ and disconnect. `ReadinessToolTest` checks process configuration and
 
 Set `-Dcodex.smoke.apiRetry.check=true` in a disposable IDEA profile with the fake backend and `CODEX_SMOKE_MODEL_SWITCH=1` for native service coverage. It checks the actual delay, recovery on attempt six after a full 60-second wait, preserved draft, goal and loop guard, Stop, manual continuation, and reconnect. After `api-retry-result.json` appears, run `check-native-api-retry.mjs` against its JCEF port for the countdown, Stop button, recovery, and both themes at 360 and 900 pixels.
 
-Set `-Dcodex.smoke.apiSettings.check=true` in an isolated IDEA profile using the fake Codex backend. The native check opens the settings page, adds the Routeway preset, applies it without restarting, and verifies per-chat routing, model selection, draft retention, deferred reconnect, resume, cancel, and XML serialization. It writes `api-settings-result.json` and `api-settings.png` to the test log directory. No API keys or external models are used.
+Set `-Dcodex.smoke.apiSettings.check=true` in an isolated IDEA profile using the fake Codex backend. The native check opens the settings page, adds a custom API connection, applies it without restarting, and verifies per-chat routing, model selection, draft retention, deferred reconnect, resume, cancel, and XML serialization. It writes `api-settings-result.json` and `api-settings.png` to the test log directory. No API keys or external models are used.
 
 `ApiConnectionTest` checks URL validation, model fallback, thread routing, and native/WSL argument boundaries. `ApiProbeTest` uses a local HTTP fixture to check authentication headers and redirect handling without sending prompts.
 

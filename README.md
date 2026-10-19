@@ -29,7 +29,7 @@ Codex uses one app-server process per project. Claude uses one process per open 
 
 Open **Settings > Tools > Codex Tabs > Connections**, or choose **Manage connections** from a chat’s provider menu.
 
-- Use **Add Routeway** to prefill its endpoint and `glm-5.3-flash-uncensored`, or **Add custom API** for another provider.
+- Use **Add custom API** for any third-party provider.
 - Enter the base URL, API key, and model IDs. The endpoint must support the Responses API with tool calling. Chat Completions alone is not enough.
 - **Check API** checks authentication and the model list without sending a prompt. It does not verify chat generation.
 - Click **Apply**, then select the connection in any chat. The model menu shows that connection’s model IDs. **New chats use** sets the project default.
