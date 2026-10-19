@@ -38,6 +38,8 @@ Keys use the IDE credential store and are passed only to the Codex child process
 
 API connections use the regular Codex tool and worktree support. Ask me, read-only, and session approvals are available. Provider-specific reasoning, fast mode, and automatic approval review are not advertised for custom models.
 
+Custom API chats automatically retry HTTP 429 rate limits after 5, 10, 20, and 40 seconds, then every 60 seconds until the request succeeds or you cancel. A countdown appears above the message box. Each retry continues the saved conversation, including completed tool results, without adding another user message. Stop, a new message, or reconnect cancels a pending retry. Other API errors and loop-guard stops do not trigger this recovery.
+
 ## Install
 
 Requires IntelliJ IDEA 2026.1 or newer, its bundled JetBrains Runtime with JCEF, and a current Codex CLI or Claude Code CLI. Native Codex integration has been tested with IDEA 2026.1.3 and Codex 0.153.0.

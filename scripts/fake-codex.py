@@ -9,6 +9,7 @@ import threading
 import time
 
 loop_guard_actions = []
+turn_requests = []
 held_interrupts = set()
 lock = threading.Lock()
 root = pathlib.Path(os.environ.get("CODEX_SMOKE_ROOT", "/tmp/codex-idea-smoke-project"))
@@ -203,7 +204,7 @@ def respond(request):
         event("thread/archived" if method == "thread/archive" else "thread/unarchived", thread_id)
         result = {} if method == "thread/archive" else {"thread": thread(thread_id)}
     elif method == "fixture/stats":
-        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastStart": last_start_params, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params, "loopGuardActions": loop_guard_actions}
+        result = {"subscriptions": sorted(subscriptions), "resumes": resumes, "unsubscribes": unsubscribes, "cwds": thread_cwds, "lastStart": last_start_params, "lastTurn": last_turn_params, "lastFork": last_fork_params, "lastList": last_list_params, "approvalReplies": approval_replies, "modelStates": model_states, "lastResume": last_resume_params, "loopGuardActions": loop_guard_actions, "turnRequests": turn_requests}
     elif method == "fixture/holdInterrupt":
         if params.get("enabled"):
             held_interrupts.add(params["threadId"])
@@ -281,11 +282,20 @@ def respond(request):
         result = {"turnId": params.get("expectedTurnId")}
     elif method in ("turn/start", "turn/steer"):
         last_turn_params = params
+        turn_requests.append(params)
         thread_id = params["threadId"]
         if "FIXTURE_RETRY_EDIT" in json.dumps(params["input"]) and thread_id not in failed_sends:
             failed_sends.add(thread_id)
             raise RuntimeError("Fixture send failed once. Your edited message is ready to retry.")
         turn = {"id": "turn-" + str(time.time_ns()), "status": "inProgress"}
+        if any(part.get("text") == "FIXTURE_API_RATE_LIMIT" for part in params["input"]):
+            event("turn/started", thread_id, turn=turn)
+            event("item/completed", thread_id, turnId=turn["id"], item={"id": turn["id"] + "-user", "type": "userMessage", "content": params["input"]})
+            error = {"message": "exceeded retry limit, last status: 429 Too Many Requests", "codexErrorInfo": {"responseTooManyFailedAttempts": {"httpStatusCode": 429}}}
+            statuses[thread_id] = "idle"
+            event("turn/completed", thread_id, turn={**turn, "status": "failed", "error": error})
+            emit({"id": request["id"], "result": {"turn": turn}})
+            return
         if os.environ.get("CODEX_SMOKE_LOOP_GUARD") == "1" and any(part.get("text", "").startswith("Loop guard recovery ") for part in params["input"]):
             loop_guard_actions.append({"method": method, "params": params})
             statuses[thread_id] = "active"
@@ -303,10 +313,11 @@ def respond(request):
             return
         user = {"id": turn["id"] + "-user", "type": "userMessage", "content": params["input"]}
         answer = {"id": turn["id"] + "-reply", "type": "agentMessage", "text": "Message received in this conversation. The other tabs are unchanged."}
-        turns(thread_id).append({**turn, "status": "completed", "items": [user, answer]})
+        turns(thread_id).append({**turn, "status": "completed", "items": ([user] if params["input"] else []) + [answer]})
         save_history()
         event("turn/started", thread_id, turn=turn)
-        event("item/completed", thread_id, turnId=turn["id"], item=user)
+        if params["input"]:
+            event("item/completed", thread_id, turnId=turn["id"], item=user)
         event("item/completed", thread_id, turnId=turn["id"], item=answer)
         event("turn/completed", thread_id, turn={**turn, "status": "completed"})
         result = {"turn": turn}

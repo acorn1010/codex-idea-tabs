@@ -11,7 +11,7 @@ public final class ProviderHandoff {
 
     public static void checkIdle(JsonObject snapshot) {
         if (flag(snapshot, "archived") || flag(snapshot, "hidden")) { throw new IllegalStateException("Restore this chat before changing providers."); }
-        if (flag(snapshot, "working") || flag(snapshot, "loopRecovery") || !array(snapshot, "requests").isEmpty() || !array(snapshot, "claudeQueue").isEmpty()) {
+        if (flag(snapshot, "working") || flag(snapshot, "loopRecovery") || snapshot.has("apiRetry") || !array(snapshot, "requests").isEmpty() || !array(snapshot, "claudeQueue").isEmpty()) {
             throw new IllegalStateException("Finish active work, answer pending requests, and send or remove queued messages before changing providers.");
         }
     }

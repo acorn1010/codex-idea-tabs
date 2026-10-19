@@ -16,6 +16,11 @@ public final class Conversation {
     private long revision;
     private long historyRevision;
     private long runtimeRevision;
+    private static final int[] API_RETRY_DELAYS = {5, 10, 20, 40, 60};
+    private long apiRetryAttempts;
+    private long apiRetryVersion;
+    private boolean apiRetryCancelled;
+    private String apiRetriedTurn = "";
     private JsonObject localLoopAction = new JsonObject();
     private boolean loopGuardSuspended;
     private boolean loopWarningThisTurn;
@@ -43,7 +48,9 @@ public final class Conversation {
             if (!value.has("rpcId")) { chat.requests.put(text(value, "key"), value.deepCopy()); }
         }
         chat.state.remove("claudeActivity");
+        chat.state.remove("apiRetry");
         chat.state.remove("loopRecovery");
+        chat.apiRetryCancelled = true;
         chat.state.addProperty("claudeConnection", "disconnected");
         chat.state.addProperty("providerSwitching", false);
         chat.state.addProperty("working", false);
@@ -62,7 +69,7 @@ public final class Conversation {
         state.addProperty("error", message); state.addProperty("errorKind", "connection"); revision++;
     }
     public synchronized void loaded() { clearRecoverableError(); revision++; }
-    public synchronized boolean busy() { return flag(state, "loopRecovery") || flag(state, "providerSwitching") || flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
+    public synchronized boolean busy() { return flag(state, "loopRecovery") || state.has("apiRetry") || flag(state, "providerSwitching") || flag(state, "working") || requests.values().stream().anyMatch(request -> request.has("rpcId")); }
     /** Keep background work visible and its CLI alive without blocking new foreground messages. */
     public synchronized boolean hasBackgroundWork() {
         var activity = obj(state, "claudeActivity");
@@ -88,7 +95,7 @@ public final class Conversation {
     }
     public synchronized String status() {
         if (!requests.isEmpty()) { return "attention"; }
-        if (flag(state, "loopRecovery") || flag(state, "working") || hasBackgroundWork()) { return "working"; }
+        if (flag(state, "loopRecovery") || state.has("apiRetry") || flag(state, "working") || hasBackgroundWork()) { return "working"; }
         if (!text(state, "error").isEmpty()) { return "error"; }
         return flag(state, "unread") ? "complete" : "idle";
     }
@@ -237,6 +244,7 @@ public final class Conversation {
     }
     public synchronized void disconnected() {
         state.remove("loopRecovery");
+        cancelApiRetry(false);
         textLoopGuard.reset();
         generationSpeed.reset();
         state.add("claudeActivity", new JsonObject());
@@ -245,6 +253,49 @@ public final class Conversation {
         state.addProperty("working", false);
         state.addProperty("turnId", "");
         revision++;
+    }
+    /** Cancel delayed API work. A new user instruction resets the retry delay. */
+    public synchronized void cancelApiRetry(boolean newInstruction) {
+        apiRetryVersion++;
+        apiRetryCancelled = !newInstruction;
+        state.remove("apiRetry");
+        if (newInstruction) { apiRetryAttempts = 0; apiRetriedTurn = ""; }
+        revision++;
+    }
+    /** Retry a failed custom API turn only when Codex reports a structured HTTP 429. */
+    public synchronized JsonObject scheduleApiRetry(JsonObject turn) {
+        String turnId = text(turn, "id");
+        if (apiRetryCancelled || flag(state, "loopRecovery") || archived() || get("provider").equals("claude") || get("apiConnectionId").isBlank()
+            || !get("turnId").isBlank() || turnId.isBlank() || !turnId.equals(get("completedTurnId"))
+            || !text(turn, "status").equals("failed") || flag(obj(state, "localLoopGuard"), "stopped")
+            || !requests.isEmpty() || state.has("apiRetry") || apiRetriedTurn.equals(turnId)) { return new JsonObject(); }
+        var info = obj(obj(turn, "error"), "codexErrorInfo");
+        boolean rateLimited = info.entrySet().stream().anyMatch(entry -> entry.getValue().isJsonObject()
+            && text(entry.getValue().getAsJsonObject(), "httpStatusCode").equals("429"));
+        if (!rateLimited) { return new JsonObject(); }
+        apiRetriedTurn = turnId;
+        int delay = API_RETRY_DELAYS[(int) Math.min(apiRetryAttempts++, API_RETRY_DELAYS.length - 1)];
+        var retry = object("version", ++apiRetryVersion, "attempt", apiRetryAttempts,
+            "delaySeconds", delay, "retryAt", System.currentTimeMillis() + delay * 1000L);
+        state.add("apiRetry", retry.deepCopy());
+        state.addProperty("error", ""); state.addProperty("errorKind", "");
+        state.addProperty("unread", false);
+        revision++;
+        return retry;
+    }
+    /** Claim one scheduled retry so duplicate callbacks cannot send extra turns. */
+    public synchronized boolean beginApiRetry(JsonObject retry) {
+        if (apiRetryCancelled || !state.has("apiRetry") || apiRetryVersion != retry.get("version").getAsLong()
+            || flag(obj(state, "apiRetry"), "starting") || !get("turnId").isBlank()) { return false; }
+        obj(state, "apiRetry").addProperty("starting", true);
+        revision++;
+        return true;
+    }
+    /** Report an unsuccessful retry request only while it still owns this chat. */
+    public synchronized void apiRetryFailed(JsonObject retry, String message) {
+        if (apiRetryVersion != retry.get("version").getAsLong()) { return; }
+        cancelApiRetry(false);
+        state.addProperty("error", message); state.addProperty("errorKind", "rateLimit");
     }
     /** Ignore late output after Stop while the interrupted model request is shutting down. */
     public synchronized void suspendLocalLoopGuard() {
@@ -304,6 +355,8 @@ public final class Conversation {
         switch (method) {
             case "turn/started" -> {
                 loopWarningThisTurn = false; loopReplyThisTurn = false;
+                state.remove("apiRetry");
+                apiRetryVersion++;
                 textLoopGuard.reset();
                 approvals.turnStarted();
                 state.addProperty("turnId", text(obj(params, "turn"), "id"));

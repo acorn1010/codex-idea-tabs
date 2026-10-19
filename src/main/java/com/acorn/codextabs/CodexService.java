@@ -929,6 +929,7 @@ public final class CodexService implements Disposable {
         var chat = chat(id);
         chat.suspendLocalLoopGuard();
         cancelLoopRecovery(chat);
+        chat.cancelApiRetry(false);
         if (chat.get("providerSwitching").equals("true")) { return CompletableFuture.failedFuture(new IllegalStateException("Wait for the provider change to finish.")); }
         var result = new CompletableFuture<JsonObject>();
         sessions.retain(id);
@@ -1011,6 +1012,7 @@ public final class CodexService implements Disposable {
                         rpc.request("thread/inject_items", ProviderHandoff.injection(chat)).join();
                         chat.set("providerContextPending", false);
                     }
+                    chat.cancelApiRetry(true);
                     chat.resetLocalLoopGuard();
                     var params = object("threadId", chat.get("threadId"), "input", input);
                     String active = chat.get("turnId");
@@ -1202,6 +1204,7 @@ public final class CodexService implements Disposable {
         var chat = chat(id);
         chat.suspendLocalLoopGuard();
         cancelLoopRecovery(chat);
+        chat.cancelApiRetry(false);
         changed(id);
         var result = new CompletableFuture<JsonObject>();
         sessions.retain(id);
@@ -1296,6 +1299,7 @@ public final class CodexService implements Disposable {
                 if (text(event, "method").equals("turn/completed")) {
                     var recovery = loopRecoveries.get(chat.id);
                     if (recovery != null && recovery.turn().equals(text(obj(params, "turn"), "id"))) { recovery.completed().complete(null); }
+                    scheduleApiRetry(chat, obj(params, "turn"));
                 }
             }
             changed(chat.id);
@@ -1305,6 +1309,42 @@ public final class CodexService implements Disposable {
                 client.reject(event.get("id"), "This client does not yet support " + text(event, "method"));
             }
         } else if (event.has("id") && client != null) { client.reject(event.get("id"), "No open conversation owns this request."); }
+    }
+    private void scheduleApiRetry(Conversation chat, JsonObject turn) {
+        if (disposed) { return; }
+        var retry = chat.scheduleApiRetry(turn);
+        if (retry.isEmpty()) { return; }
+        var rpc = client;
+        long generation = connectionGeneration;
+        String threadId = chat.get("threadId");
+        persistence.schedule(() -> {
+            if (disposed) { return; }
+            sessions.retain(chat.id);
+            sends.compute(chat.id, (key, previous) -> (previous == null ? CompletableFuture.<Void>completedFuture(null) : previous.handle((v, e) -> null))
+                .thenRunAsync(() -> {
+                    workspaceLock.readLock().lock();
+                    try {
+                        synchronized (chat) {
+                            if (disposed || generation != connectionGeneration || client != rpc || !rpc.isAlive()
+                                || chats.get(chat.id) != chat || chat.archived() || !chat.get("threadId").equals(threadId)
+                                || !chat.beginApiRetry(retry)) { return; }
+                        }
+                        // Empty input continues saved model and tool history without duplicating the user's message.
+                        var response = rpc.request("turn/start", object("threadId", threadId, "input", new JsonArray())).join();
+                        synchronized (chat) {
+                            String returnedTurn = text(obj(response, "turn"), "id");
+                            if (chat.get("turnId").isBlank() && !chat.get("completedTurnId").equals(returnedTurn)
+                                && text(obj(response, "turn"), "status").equals("inProgress")) {
+                                chat.event(object("method", "turn/started", "params", response));
+                            }
+                        }
+                    } catch (Exception error) { chat.apiRetryFailed(retry, "Could not retry the API request: " + message(error)); }
+                    finally {
+                        workspaceLock.readLock().unlock();
+                        sessions.working(chat.id, chat.busy() || chat.hasBackgroundWork()); changed(chat.id);
+                    }
+                }, io).whenComplete((value, error) -> sessions.release(chat.id)));
+        }, retry.get("delaySeconds").getAsLong(), TimeUnit.SECONDS);
     }
     private void applyLocalLoopGuard(Conversation chat) {
         var action = chat.takeLocalLoopAction();

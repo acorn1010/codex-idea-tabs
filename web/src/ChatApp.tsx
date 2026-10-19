@@ -354,9 +354,17 @@ export function ChatApp() {
     finally { setSending(false); }
   };
   const chat = state?.chat;
-  const working = chat?.working || chat?.loopRecovery;
+  const retry = chat?.apiRetry;
+  const [retryNow, setRetryNow] = useState(Date.now);
+  useEffect(() => {
+    if (!retry) { return; }
+    setRetryNow(Date.now());
+    const timer = window.setInterval(() => setRetryNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [retry?.retryAt]);
+  const working = chat?.working || !!retry || chat?.loopRecovery;
   const attention = chat?.requests.length || 0;
-  const workingLabel = chat?.loopRecovery ? 'Loop guard is restarting the response' : `${providerName} is working${attention ? ' · Your answer can help guide it' : ''}`;
+  const workingLabel = chat?.loopRecovery ? 'Loop guard is restarting the response' : retry ? `${providerName} is rate limited · ${retry.starting ? 'Retrying' : `Retrying in ${Math.max(0, Math.ceil((retry.retryAt - retryNow) / 1000))}s`} (attempt ${retry.attempt})` : `${providerName} is working${attention ? ' · Your answer can help guide it' : ''}`;
   const archiveBlocked = !chat || changingProvider || !!chat.providerSwitching || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
   const setArchived = async (archived: boolean) => {
     if (archivePending || (archived && archiveBlocked)) { return; }
@@ -374,7 +382,7 @@ export function ChatApp() {
   const backgroundStatus = isClaude && chat?.claudeActivity?.tasks?.length ? 'Background work' : isClaude && chat?.claudeActivity?.wakeup?.scheduledFor !== undefined ? 'Wakeup scheduled' : '';
   const status = chat?.archived ? 'Archived' : attention ? 'Needs your input' : working ? 'Working' : state?.connection === 'connecting' ? 'Connecting' : state?.connection === 'connected' ? backgroundStatus || 'Ready' : 'Disconnected';
   const alert = error || chat?.error || state?.error || connectionError || (chat && !chat.archived && state?.connection === 'disconnected' ? `${providerName} is disconnected. Reconnect to continue.` : '');
-  const loopGuardAlert = !error && !state?.error && !connectionError && state?.connection === 'connected' && chat?.errorKind?.startsWith('loopGuard');
+  const recoveryNotice = !error && !state?.error && !connectionError && state?.connection === 'connected' && (chat?.errorKind?.startsWith('loopGuard') || chat?.errorKind === 'rateLimit');
   const statusColor = status === 'Archived' ? 'text-muted' : status === 'Needs your input' || status === 'Connecting' ? 'text-attention' : ['Working', 'Background work', 'Wakeup scheduled'].includes(status) ? 'text-accent' : status === 'Ready' ? 'text-success' : 'text-danger';
   const attentionCount = state?.sessions.filter((session) => session.status === 'attention').length || 0;
   const fastTier = selectedModel?.serviceTiers?.find((tier) => tier.name.toLowerCase() === 'fast' || ['fast', 'priority'].includes(tier.id));
@@ -470,7 +478,7 @@ export function ChatApp() {
     {slash.menu}
     {inspecting && <ContextInspector initialSearch={inspectionSearch} model={model} effort={effort} status={chat?.status} onClose={() => setInspecting(false)} />}
 
-    {alert && <div role="alert" className="flex items-start gap-2 border-b border-danger-border bg-danger-surface px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1 break-words">{alert}</span>{!loopGuardAlert && <button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded bg-danger px-2 py-0.5 font-medium text-surface hover:brightness-110 active:brightness-90">Reconnect</button>}</div>}
+    {alert && <div role="alert" className="flex items-start gap-2 border-b border-danger-border bg-danger-surface px-3 py-2 text-xs text-danger"><span className="min-w-0 flex-1 break-words">{alert}</span>{!recoveryNotice && <button onClick={() => { setError(''); setConnectionError(''); void run('reconnect'); }} className="shrink-0 rounded bg-danger px-2 py-0.5 font-medium text-surface hover:brightness-110 active:brightness-90">Reconnect</button>}</div>}
     {needsLogin && <div className="flex flex-wrap items-center gap-2 border-b border-line bg-raised px-3 py-2 text-xs"><span className="flex-1">Use your Codex subscription</span><button className="rounded bg-accent px-2.5 py-1 text-composer hover:brightness-110 active:brightness-90" onClick={() => { void run('login').then((value) => { if (value) { setLogin(value); } }); }}>Sign in with ChatGPT</button></div>}
     {login && needsLogin && <div className="border-b border-line p-3 text-xs"><p>Open the sign-in page and enter <strong className="select-all text-accent">{String(login.userCode || '')}</strong>.</p><button className="mt-2 rounded text-accent underline hover:bg-accent/10 active:bg-accent/20" onClick={() => void run('openLink', { path: login.verificationUrl })}>Open sign-in page ↗</button></div>}
 
