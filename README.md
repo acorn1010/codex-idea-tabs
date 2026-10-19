@@ -16,6 +16,7 @@ This is an independent client for the [Codex app server](https://developers.open
 - Supports file drops, pasted images, large text attachments, and native file selection. Attached images show a small thumbnail. Click one to preview it, then press Escape to return to the composer. Right-click a chat image, thumbnail, or expanded preview and choose **Copy image** to copy its full-size pixels to the system clipboard.
 - Opens source and image links in the IDE, including files inside WSL. HTML chat links open in the browser with their section anchors and query parameters. Failed links show a local error with Dismiss, without asking you to reconnect.
 - Keeps workspace, permissions, model, reasoning effort, and IDE context in a compact composer. Secondary labels shorten in narrow panes to keep the controls on one row.
+- Shows the last measured output speed above the message box, on the same row as the working status, when the provider reports output tokens. Click the `tok/s` readout for the count and measured time. The rate excludes tool runs and approval waits, but network delay can affect it. It updates after each response with usage data, for Codex, local and custom APIs, and Claude.
 - Creates and shares Git worktrees across chat tabs, with branch labels, native diffs and terminals, and explicit cleanup.
 - Handles permission approvals and both blocking and asynchronous questions.
 - Lets you steer a running turn, interrupt it, and discuss selected code in a new tab.

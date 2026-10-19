@@ -17,9 +17,11 @@ public final class Conversation {
     private long historyRevision;
     private long runtimeRevision;
     private JsonObject localLoopAction = new JsonObject();
+    private final GenerationSpeed generationSpeed;
 
-    public Conversation(String id, String cwd) {
-        this.id = id;
+    public Conversation(String id, String cwd) { this(id, cwd, System::nanoTime); }
+    Conversation(String id, String cwd, java.util.function.LongSupplier clock) {
+        this.id = id; generationSpeed = new GenerationSpeed(clock);
         state = object("id", id, "provider", "codex", "cwd", cwd, "title", "New chat", "threadId", "", "turnId", "", "draft", "", "working", false, "unread", false, "pinned", false, "updatedAt", System.currentTimeMillis());
     }
     public static Conversation restore(JsonObject saved) {
@@ -229,6 +231,7 @@ public final class Conversation {
         revision++;
     }
     public synchronized void disconnected() {
+        generationSpeed.reset();
         state.add("claudeActivity", new JsonObject());
         approvals.reset();
         requests.values().removeIf(request -> request.has("rpcId"));
@@ -331,6 +334,7 @@ public final class Conversation {
             case "thread/status/changed" -> threadStatus(obj(params, "status"));
             case "thread/closed" -> disconnected();
             case "thread/tokenUsage/updated" -> state.add("tokenUsage", obj(params, "tokenUsage"));
+            case "model/responseStarted", "model/responseCompleted" -> {}
             case "turn/plan/updated" -> state.add("plan", array(params, "plan"));
             case "turn/diff/updated" -> state.addProperty("diff", text(params, "diff"));
             case "error" -> {
@@ -339,6 +343,11 @@ public final class Conversation {
                 state.addProperty("errorKind", flag(params, "willRetry") ? "retry" : "turn");
             }
             default -> { return; }
+        }
+        var speed = generationSpeed.event(method, params, get("turnId"));
+        if (speed != null) {
+            if (speed.isEmpty()) { state.remove("generationSpeed"); }
+            else { state.add("generationSpeed", speed); }
         }
         // Thread loading and metadata changes are not chat activity. Record whole items rather than every streamed token.
         if (!method.startsWith("thread/") && !method.endsWith("Delta") && !method.endsWith("/delta")) {

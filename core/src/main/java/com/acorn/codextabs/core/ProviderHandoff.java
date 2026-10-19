@@ -23,7 +23,7 @@ public final class ProviderHandoff {
         String generation = UUID.randomUUID().toString();
         var saved = snapshot.deepCopy();
         for (String key : new ArrayList<>(saved.keySet())) {
-            if (key.startsWith("claude") || Set.of("apiConnectionId", "modelProvider", "model", "threadId", "turnId", "completedTurnId", "tokenUsage", "localLoopGuard", "plan", "diff", "planModeActive", "answeredQuestions", "historyCursor", "error", "errorKind", "sharedGuidanceRoot", "providerContext", "providerContextPending").contains(key)) { saved.remove(key); }
+            if (key.startsWith("claude") || Set.of("apiConnectionId", "modelProvider", "model", "threadId", "turnId", "completedTurnId", "tokenUsage", "generationSpeed", "localLoopGuard", "plan", "diff", "planModeActive", "answeredQuestions", "historyCursor", "error", "errorKind", "sharedGuidanceRoot", "providerContext", "providerContextPending").contains(key)) { saved.remove(key); }
         }
         saved.addProperty("provider", provider); saved.addProperty("providerSwitching", false);
         saved.addProperty("threadId", ""); saved.addProperty("renamed", !text(saved, "title").equals("New chat"));

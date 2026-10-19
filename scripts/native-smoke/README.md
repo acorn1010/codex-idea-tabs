@@ -290,3 +290,9 @@ Use `-Dcodex.smoke.contextTooltip.check=true` with the model-switch fixture enab
 in an isolated IDEA test profile. Run `check-native-context-tooltip.mjs` against
 that profile's JCEF port. It checks exact token counts on hover and keyboard focus,
 Escape dismissal, and an unclipped tooltip in both themes at 360 pixels wide.
+
+### Generation speed
+
+Run `check-generation-speed.mjs` with `CODEX_SMOKE_CHROME` after building the web UI. It checks the rate above the composer, exact token and time details, keyboard access, unavailable counts, updates, and narrow layouts in Codex and Claude.
+
+For native checks, start an isolated IDEA profile with `-Dcodex.smoke.generationSpeed.check=true` and the fake backend's `CODEX_SMOKE_MODEL_SWITCH=1`. The fixture sends one second of output and a separate tool wait through the real backend connection. It writes `generation-speed-result.json`. Run `check-native-generation-speed.mjs` against that profile's `CODEX_SMOKE_CDP` address to check the measured value in JCEF. No model calls are made.

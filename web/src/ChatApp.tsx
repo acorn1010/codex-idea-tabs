@@ -14,6 +14,7 @@ import { ProviderIcon } from './ProviderIcon';
 import { ImagePreview } from './Markdown';
 import { ContextInspector } from './ContextInspector';
 import { ChatStatus } from './ChatStatus';
+import { GenerationSpeed } from './GenerationSpeed';
 import { ClaudeStatus } from './ClaudeStatus';
 import { useSlashCommands, slashQuery } from './SlashCommands';
 import type { SlashItem, Skill, CommandName } from './SlashCommands';
@@ -355,6 +356,7 @@ export function ChatApp() {
   const chat = state?.chat;
   const working = chat?.working;
   const attention = chat?.requests.length || 0;
+  const workingLabel = `${providerName} is working${attention ? ' · Your answer can help guide it' : ''}`;
   const archiveBlocked = !chat || changingProvider || !!chat.providerSwitching || !!working || attention > 0 || sending || uploads > 0 || !!editingItemId;
   const setArchived = async (archived: boolean) => {
     if (archivePending || (archived && archiveBlocked)) { return; }
@@ -483,7 +485,6 @@ export function ChatApp() {
         {isClaude && <p className="mt-4 text-xs text-muted">Uses your Claude Code login. Run <code>claude</code> in a terminal to sign in.</p>}
         <p className="mt-5 text-[11px] text-muted/70">Ctrl+Alt+N · New chat <span className="px-2">/</span> Ctrl+K · Find chat</p>
       </div> : <>{chat.historyCursor && <button className="mb-3 w-full rounded-lg py-2 text-xs text-muted hover:bg-raised active:bg-line" onClick={() => { setFollow(false); void run('older', { cursor: chat.historyCursor }); }}>Load earlier history</button>}<Transcript editable={!changingProvider && !chat.providerSwitching && (!isClaude || (!!chat.claudeSettingsSupported && !working))} items={chat.items} editingItemId={editingItemId} onEdit={editMessage} onEditing={onEditing} /></>}
-      {working && <div className="mt-4 flex items-center gap-2 text-xs text-muted"><span className="size-1.5 rounded-full bg-accent" />{providerName} is working{attention ? ' · Your answer can help guide it' : ''}</div>}
       <div ref={end} />
     </div>
 
@@ -500,6 +501,10 @@ export function ChatApp() {
       {!!chat?.requests.length && <div className="max-h-[40vh] space-y-2 overflow-y-auto">{chat.requests.map((pending) => <RequestCard key={pending.key} pending={pending} />)}</div>}
       {chat?.plan && chat.plan.length > 0 && <details className="rounded-lg bg-raised px-3 py-1.5 text-xs text-muted"><summary className="cursor-pointer rounded hover:text-ink active:bg-line">Plan · {chat.plan.filter((step) => step.status === 'completed').length}/{chat.plan.length} complete</summary><ol className="mt-2 space-y-1.5 pb-1">{chat.plan.map((step, index) => <li key={index} className="flex items-start gap-2">{step.status === 'completed' ? <Icon name="check" size={12} /> : <span className="size-3 text-center">{index + 1}</span>}<span>{step.step}</span></li>)}</ol></details>}
       {isClaude && <ClaudeActivity activity={chat?.claudeActivity} />}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 px-1 empty:hidden">
+        {working && <div className="flex min-w-0 items-center gap-2 text-xs text-muted"><span className="size-1.5 shrink-0 rounded-full bg-accent" /><span className="truncate" title={workingLabel}>{workingLabel}</span></div>}
+        <GenerationSpeed speed={chat?.generationSpeed} />
+      </div>
       <div className="@container/composer cursor-text overflow-hidden rounded-xl bg-input shadow-input focus-within:shadow-input-focus">
         {isClaude && chat?.claudeNotice && <p role="status" className="px-3 py-2 text-xs text-muted">{chat.claudeNotice}</p>}
         {isClaude && !!chat?.claudeQueue?.length && <section aria-label="Queued messages" className="max-h-36 space-y-1 overflow-y-auto border-b border-line px-3 py-2 text-xs">

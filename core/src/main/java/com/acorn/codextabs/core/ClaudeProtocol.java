@@ -128,6 +128,10 @@ public final class ClaudeProtocol {
                     event("turn/started", object("turn", object("id", turnId)));
                     activity.resumed();
                 }
+                if (activity != null) { event("model/responseStarted", object()); }
+            }
+            case "message_delta" -> {
+                if (activity != null) { event("model/responseCompleted", object("outputTokens", obj(event, "usage").get("output_tokens"))); }
             }
             case "content_block_start" -> {
                 var content = obj(event, "content_block").deepCopy(); blocks.put(index, content);
