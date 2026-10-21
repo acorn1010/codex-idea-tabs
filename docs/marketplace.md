@@ -10,13 +10,25 @@ The listing has a Getting Started section for installation, executable paths, cu
 
 Use the test-only `MarketplaceDemo` fixture described in `scripts/native-smoke/README.md`. It opens real IDEA editor panes and the production plugin UI with fictional conversations. No model is called. The fixture belongs only in a disposable IDE profile.
 
-Capture the same IDE window size for all three views:
+Use the same IDE window size for each capture. The fixture provides these views:
 
 - **overview:** A chat beside the search source file, with the chat sidebar visible.
 - **diagram:** A Mermaid flowchart rendered inside a native chat tab.
 - **claude:** A running Claude demo with a queued follow-up, Steer and Remove controls, and a draft.
 
 Use the default dark IDE theme. Keep text readable and exclude other windows, desktop backgrounds, private chats, account details, and machine paths. Check each image before uploading. Demo conversations illustrate the interface and are not performance measurements.
+
+## Published gallery
+
+The Marketplace gallery uses two unedited 1586 x 993 captures from IntelliJ IDEA with the default dark theme and fictional demo conversations.
+
+### Native tabs beside code
+
+![A Codex conversation beside the source file, with the chat sidebar visible.](images/marketplace/01-native-tabs.png)
+
+### Codex and Claude side by side
+
+![Separate Codex and Claude tabs, with a queued Claude follow-up and Steer control.](images/marketplace/02-codex-and-claude.png)
 
 ## Release validation
 
