@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.21
+
+- Keep chat virtual files out of text analysis and index-backed editor notifications. This avoids the Kubernetes config check that could block opening a chat during a WSL indexing stall.
+- Use Ctrl+Enter or Cmd+Enter to steer Claude. Keep Shift+Enter for new lines and Enter for queued follow-ups.
+- Add custom Responses API connections with secure key storage, connection checks, and cancellable rate-limit retries that continue every 60 seconds.
+- Show output speed beside chat status, inspect context usage, and track local model token usage.
+- Recover repeated output with distinct corrective messages and reset the recovery count after progress.
+- Configure additional writable folders and improve session approvals, Claude background tasks, and goal controls.
+- Refresh the Marketplace description and add screenshots from an isolated demo project.
+
 ## 1.0.20
 
 - Add a bundled HTTP readiness tool. It polls inside one call, stops at a deadline, supports WSL and Windows localhost servers, and cancels on disconnect.
@@ -18,6 +28,29 @@
 
 - Lower local GLM to 96K context and compact at 73,728 tokens to leave more system RAM available.
 - Preserve the local GLM prompt prefix during compaction so the server can reuse its cached context. Keep tool calls disabled while summarizing.
+
+## 1.0.16
+
+- Give local GLM a compaction prompt that keeps verified progress and the next step in a text checkpoint.
+- Display Claude image-reader results as pictures with preview controls. Hide generated resize notes and encoded image bytes from activity details.
+
+## 1.0.15
+
+- Match local GLM’s 128K context window and start automatic compaction at 98,304 tokens. Existing chats keep their saved history when resumed.
+
+## 1.0.14
+
+- Enable Approve for me for local GLM through the Codex automatic reviewer.
+- Sync the six upstream commits, including Approve all for session and the color-coded permission menu.
+- Keep local model switching, Claude steering, and goal controls with the upstream approval and background-task changes.
+
+## 1.0.13
+
+- Show native Claude command replies that arrive only in a final result, including goal status and clear confirmations.
+- Restore Claude goal controls in the command picker. Check, set, or clear a goal through Claude, with a Stop turn action before changing an active goal.
+- Add GLM 5.3 Flash through the Codex harness, with local API settings, a 64K context limit, tool approvals and saved sessions.
+- Connect WSL Codex to a Windows localhost model server through Windows curl and process pipes.
+- Hide cloud reasoning, Fast, sign-in and quota controls for GLM. Restore cloud settings when switching models.
 
 ## 1.0.11
 

@@ -3,39 +3,48 @@
     <name>Codex Tabs</name>
     <vendor url="https://github.com/acorn1010/codex-idea-tabs">Acorn</vendor>
     <description><![CDATA[
-        <p>Keep independent Codex and Claude Code conversations in native editor tabs. Split chats beside your code and see which tasks need your attention.</p>
+        <p>Codex, Claude Code, and your own API connections in native IntelliJ IDEA tabs. Keep a chat beside the code it changes, split tasks across editor groups, and return to saved conversations when you need them.</p>
+        <h3>Make room for more than one task</h3>
         <ul>
-            <li>Stream replies, commands, file changes, and generated images.</li>
-            <li>Create shared Git worktrees with native diffs and terminals.</li>
-            <li>Use slash commands, skills, context inspection, and immediate turn steering.</li>
-            <li>Edit earlier messages, preview attachments, and restore chats and drafts.</li>
-            <li>Work with local projects or Windows projects backed by WSL.</li>
+            <li><b>Real editor tabs.</b> Split, move, pin, and restore chats with the IDE. Keep independent conversations open beside source files.</li>
+            <li><b>See what needs you.</b> A chat sidebar and colored tab icons distinguish active work, pending approvals, and unread results. Search, pin, or archive conversations.</li>
+            <li><b>Keep changes in context.</b> Create and share Git worktrees, review native diffs, open terminals, and include selected code or open files in a prompt.</li>
         </ul>
-        <p>Requires IntelliJ IDEA 2026.1 or newer with JCEF and a current Codex CLI or Claude Code CLI. Each provider uses its own CLI sign-in. The plugin has no separate cloud service and does not ask for an API key.</p>
-        <p><a href="https://github.com/acorn1010/codex-idea-tabs#install">Setup and usage</a> · <a href="https://github.com/acorn1010/codex-idea-tabs/issues">Report an issue</a></p>
-        <p>This is an independent, MIT-licensed project. It is not affiliated with OpenAI, Anthropic, or JetBrains.</p>
+        <h3>Choose the connection. Keep the workflow.</h3>
+        <ul>
+            <li><b>Codex and Claude Code.</b> Use your existing CLI sign-in, select models, and switch providers in an idle chat while keeping the conversation text and draft.</li>
+            <li><b>Custom and local models.</b> Add a compatible Responses API connection in settings, or use the built-in local GLM option. API keys are stored in the IDE credential store.</li>
+            <li><b>Control the next step.</b> Review tool approvals, stop a turn, or steer it. In Claude, Enter queues a follow-up, Ctrl+Enter (Cmd+Enter on macOS) steers, and Shift+Enter adds a new line.</li>
+        </ul>
+        <h3>Read the work, not a wall of tool output</h3>
+        <ul>
+            <li>Stream Markdown, code, file changes, plans, and images. Group tool activity into expandable rows.</li>
+            <li>Render Mermaid diagrams with source and expanded views. Preview image attachments and copy conversations as Markdown.</li>
+            <li>Inspect context usage and output speed when the provider supplies token counts. Custom API rate limits retry with a visible countdown and a Stop control.</li>
+            <li>Edit an earlier prompt into a new chat while keeping the original. Restore history, drafts, and attachments across IDE restarts.</li>
+        </ul>
+        <h3>Get started</h3>
+        <ol>
+            <li>Install the plugin and restart IntelliJ IDEA.</li>
+            <li>Install and sign in to the Codex CLI or Claude Code CLI. For a custom API, install Codex CLI and add the connection in <b>Settings &gt; Tools &gt; Codex Tabs</b>.</li>
+            <li>Choose <b>Tools &gt; Codex Tabs &gt; New Chat Tab</b>, or press <b>Ctrl+Alt+N</b> with the default keymap.</li>
+        </ol>
+        <p>Requires IntelliJ IDEA 2026.1 or newer with its bundled JCEF runtime. Supports local projects and Windows projects backed by WSL. Custom endpoints must support the Responses API with tool calling. Chat Completions alone is not enough.</p>
+        <p>Free and open source under the MIT license. Provider subscriptions or API charges may apply. The plugin runs no separate cloud service. Conversations are sent through the provider you select.</p>
+        <p><a href="https://github.com/acorn1010/codex-idea-tabs#install">Setup guide</a> · <a href="https://github.com/acorn1010/codex-idea-tabs#api-connections">API connections</a> · <a href="https://github.com/acorn1010/codex-idea-tabs/issues">Report an issue</a> · <a href="https://github.com/acorn1010/codex-idea-tabs/blob/main/CHANGELOG.md">Changelog</a></p>
+        <p>Independent project. Not affiliated with OpenAI, Anthropic, or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <p>1.0.20 adds bounded HTTP readiness waits for WSL and Windows servers. Successful waits are excluded from the loop guard, while repeated timeouts still stop the turn.</p>
-        <p>1.0.19 adds a local GLM loop guard. It steers after three unchanged tool results and stops after five, while keeping the chat and goal. Local GLM now requests low reasoning effort.</p>
-        <p>1.0.18 adds a context usage ring beside the model. Hover to see exact token counts and percentage.</p>
-        <p>1.0.17 adds local GLM and keeps its prompt cache available during compaction.</p>
+        <h3>1.0.21</h3>
         <ul>
-            <li>Use a 96K context window and compact at 73,728 tokens to leave more system RAM available.</li>
-            <li>Keep the prior tool definitions during compaction with tool calls disabled.</li>
-            <li>Connect WSL Codex to the Windows model API through a private relay and keep saved chat history.</li>
+            <li>Keep chat panels out of source-file analysis and index-backed editor notifications. This avoids the Kubernetes config check that could freeze new chat tabs while WSL indexing was blocked.</li>
+            <li>Use Ctrl+Enter or Cmd+Enter to steer Claude. Shift+Enter now inserts a new line. Enter still queues a follow-up during a running turn.</li>
+            <li>Add custom Responses API connections with secure key storage, connection checks, and automatic rate-limit retries.</li>
+            <li>Show output speed beside chat status, inspect context usage, and track local model token usage.</li>
+            <li>Improve loop recovery with distinct corrective messages and reset the recovery count after progress.</li>
+            <li>Configure additional writable folders, use session approvals, and inspect Claude background tasks and goals.</li>
         </ul>
-        <p>Previous improvements:</p>
-        <p>1.0.12 adds Claude Code, provider switching, and Mermaid diagrams.</p>
-        <ul>
-            <li>Use Claude Code with streamed replies, tools, approvals, models, effort controls, session history, and shared project guidance.</li>
-            <li>Switch idle chats between Codex and Claude while keeping conversation text, drafts, and the selected checkout.</li>
-            <li>Remember the last selected provider for every new chat in the project, including split tabs and chats started from files.</li>
-            <li>Render Mermaid diagrams in chat with zoom and source views.</li>
-            <li>Copy just the conversation as Markdown by default, or include tool activity from the Copy menu.</li>
-            <li>Improve provider menus with icons, clearer spacing, and richer status and error colors.</li>
-            <li>Fix Claude startup on macOS when multiple Node installations are present, and explain unsupported CLI startup failures.</li>
-        </ul>
+        <p>See the <a href="https://github.com/acorn1010/codex-idea-tabs/blob/main/CHANGELOG.md">full changelog</a> for earlier releases.</p>
     ]]></change-notes>
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.jcef</depends>

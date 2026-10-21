@@ -2,7 +2,7 @@
 
 Independent Codex and Claude Code chats in native editor tabs. Keep several tasks beside your code, split them into groups, and see which conversations need your attention.
 
-This is an independent client for the [Codex app server](https://developers.openai.com/codex/app-server/). It also supports [Claude Code CLI](https://code.claude.com/docs/en/cli-reference) through its streaming protocol. Each provider uses its own CLI sign-in. The plugin does not ask for an API key, copy credentials, or run its own cloud service.
+This is an independent client for the [Codex app server](https://developers.openai.com/codex/app-server/). It also supports [Claude Code CLI](https://code.claude.com/docs/en/cli-reference) through its streaming protocol. Codex and Claude use their own CLI sign-in. Custom API connections use keys stored in the IDE credential store. The plugin does not run its own cloud service.
 
 ## What it does
 
