@@ -77,6 +77,9 @@ public final class Smoke implements StartupActivity.DumbAware {
                 if (Boolean.getBoolean("codex.smoke.apiSettings.check")) {
                     com.acorn.codextabs.ApiSettingsSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }
+                if (Boolean.getBoolean("codex.smoke.marketplace")) {
+                    MarketplaceDemo.run(project, Path.of(System.getProperty("idea.log.path"))); return;
+                }
                 if (Boolean.getBoolean("codex.smoke.chatFile.check")) {
                     ChatFileSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }
