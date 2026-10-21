@@ -7,13 +7,23 @@ import com.intellij.openapi.fileEditor.ex.FileEditorManagerEx;
 import com.intellij.openapi.fileEditor.impl.EditorTabTitleProvider;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ide.FileIconProvider;
-import com.intellij.openapi.fileTypes.PlainTextFileType;
+import com.intellij.openapi.fileTypes.FileType;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.swing.*;
 import java.awt.*;
 
 /** Stable virtual URLs let IDEA restore chats into its own editor groups. No project files are created. */
 public final class ChatFiles extends DeprecatedVirtualFileSystem {
+    // Chats have no source document. Binary classification keeps text analysis and index-backed
+    // editor notifications (including Kubernetes config detection) out of the chat-opening path.
+    private static final FileType CHAT_FILE_TYPE = new FileType() {
+        @Override public String getName() { return "Codex Chat"; }
+        @Override public String getDescription() { return "Codex chat panel"; }
+        @Override public String getDefaultExtension() { return ""; }
+        @Override public Icon getIcon() { return null; }
+        @Override public boolean isBinary() { return true; }
+        @Override public boolean isReadOnly() { return true; }
+    };
     private final ConcurrentHashMap<String, ChatFile> files = new ConcurrentHashMap<>();
     @Override public String getProtocol() { return "codex-chat"; }
     @Override public VirtualFile findFileByPath(String path) {
@@ -45,7 +55,7 @@ public final class ChatFiles extends DeprecatedVirtualFileSystem {
         private final String path;
         private final ChatFiles fs;
         private ChatFile(String path, ChatFiles fs) {
-            super("Codex", PlainTextFileType.INSTANCE, "");
+            super("Codex", CHAT_FILE_TYPE, "");
             this.path = path; this.fs = fs; id = path.substring(path.indexOf('/') + 1);
         }
         @Override public String getPath() { return path; }
