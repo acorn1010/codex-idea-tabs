@@ -466,7 +466,7 @@ public final class CodexService implements Disposable {
                         } else {
                             var rpc = connect().join();
                             var params = object("threadId", source.get("threadId"), "cwd", path, "excludeTurns", true);
-                            if (source.get("apiConnectionId").isBlank() && source.get("modelProvider").equals(LocalModel.PROVIDER)) { requireLocalModel(); applyLocalModel(params, LocalModel.MODEL); }
+                            if (source.get("apiConnectionId").isBlank() && source.get("modelProvider").equals(LocalModel.PROVIDER)) { requireLocalModel(); applyLocalModel(params, settings().localModelId); }
                             var fork = rpc.request("thread/fork", configureThread(source, params)).join();
                             target = importThread(obj(fork, "thread"));
                             target.set("modelProvider", text(fork, "modelProvider", target.get("modelProvider")));
@@ -631,10 +631,8 @@ public final class CodexService implements Disposable {
         for (var listener : listeners) { listener.accept(id); }
     }
     private void applyLocalModel(JsonObject params, String model) {
-        LocalModel.apply(params, model);
-        if (LocalModel.selected(model)) {
-            obj(params, "config").add("mcp_servers.codex_tabs_readiness", ReadinessTool.config(distro(), SystemInfo.isWindows));
-        }
+        LocalModel.apply(params, model, settings().localModelContextWindow, settings().localModelProfile);
+        obj(params, "config").add("mcp_servers.codex_tabs_readiness", ReadinessTool.config(distro(), SystemInfo.isWindows));
     }
     public synchronized CompletableFuture<RpcClient> connect() {
         if (disposed) { return CompletableFuture.failedFuture(new IllegalStateException("Project is closed")); }
@@ -652,6 +650,7 @@ public final class CodexService implements Disposable {
                 if (settings().localModelEnabled) {
                     String url = settings().localModelUrl;
                     LocalModel.validateUrl(url);
+                    LocalModel.validate(settings().localModelId, settings().localModelContextWindow, settings().localModelProfile);
                     relay = new LocalModelRelay(distro(), url, Objects.toString(System.getenv("SystemRoot"), "C:\\Windows"), SystemInfo.isWindows);
                     url = relay.baseUrl();
                     arguments.addAll(LocalModel.overrides(url));
@@ -701,8 +700,8 @@ public final class CodexService implements Disposable {
                 connectionError = "";
                 connectionStatus = "connected";
                 rpc.request("account/read", object("refreshToken", false)).thenAccept(value -> { account = value; changed(""); });
-                models = settings().localModelEnabled ? GSON.toJsonTree(List.of(LocalModel.catalog())).getAsJsonArray() : new JsonArray();
-                rpc.request("model/list", object("limit", 100)).thenAccept(value -> { models = array(value, "data").deepCopy(); if (settings().localModelEnabled) { models.add(LocalModel.catalog()); } initializeModelPreferences(); changed(""); });
+                models = settings().localModelEnabled ? LocalModel.withLocal(new JsonArray(), settings().localModelId) : new JsonArray();
+                rpc.request("model/list", object("limit", 100)).thenAccept(value -> { models = array(value, "data").deepCopy(); if (settings().localModelEnabled) { models = LocalModel.withLocal(models, settings().localModelId); } initializeModelPreferences(); changed(""); });
                 changed("");
                 return rpc;
             } catch (Exception error) {
@@ -876,7 +875,7 @@ public final class CodexService implements Disposable {
             if (!chat.get("modelProvider").isBlank()) { resume.addProperty("modelProvider", chat.get("modelProvider")); }
             if (!chat.get("model").isBlank()) { resume.addProperty("model", chat.get("model")); }
             if (chat.get("apiConnectionId").isBlank() && chat.get("modelProvider").equals(LocalModel.PROVIDER)) {
-                requireLocalModel(); applyLocalModel(resume, LocalModel.MODEL); resume.addProperty("model", LocalModel.MODEL);
+                requireLocalModel(); applyLocalModel(resume, settings().localModelId);
             }
             return rpc.request("thread/resume", configureThread(chat, resume)).thenComposeAsync(result -> {
                 if (client != rpc || !rpc.isAlive()) { throw new CancellationException("Connection was replaced"); }
@@ -923,7 +922,7 @@ public final class CodexService implements Disposable {
         });
     }
     private void requireLocalModel() {
-        if (!settings().localModelEnabled) { throw new IllegalStateException("Enable local GLM in Settings > Tools > Codex Tabs and start the model server."); }
+        if (!settings().localModelEnabled) { throw new IllegalStateException("Enable a local model in Settings > Tools > Codex Tabs > Local model and start its server."); }
     }
     public CompletableFuture<JsonObject> send(String id, JsonObject payload) {
         var chat = chat(id);
@@ -973,7 +972,7 @@ public final class CodexService implements Disposable {
                     if (entry != null) { model = entry.model(text(payload, "model", entry.selectedModel)); effort = ""; }
                     String permissions = chat.approvals.resolve(text(payload, "permissions", chat.approvals.mode(entry == null ? options.permissions : entry.permissions)));
                     if (entry != null && permissions.equals("auto")) { permissions = "ask"; }
-                    boolean local = entry == null && LocalModel.selected(model);
+                    boolean local = entry == null && LocalModel.selected(model, settings().localModelId);
                     if (local) { requireLocalModel(); effort = ""; }
                     if (chat.get("threadId").isBlank()) {
                         var start = object("cwd", chat.get("cwd"), "sandbox", permissions.equals("read") ? "read-only" : "workspace-write", "approvalPolicy", "on-request", "approvalsReviewer", permissions.equals("auto") ? "auto_review" : "user");
@@ -1100,7 +1099,7 @@ public final class CodexService implements Disposable {
                 params.addProperty("excludeTurns", true);
             }
             String model = entry == null ? text(payload, "model", settings().model) : entry.model(text(payload, "model", entry.selectedModel));
-            if (entry == null && LocalModel.selected(model)) { requireLocalModel(); applyLocalModel(params, model); }
+            if (entry == null && LocalModel.selected(model, settings().localModelId)) { requireLocalModel(); applyLocalModel(params, model); }
             var branch = rpc.request(method, configureThread(source, params)).join();
             var revised = importThread(obj(branch, "thread"));
             revised.set("modelProvider", text(branch, "modelProvider", revised.get("modelProvider")));
@@ -1241,7 +1240,11 @@ public final class CodexService implements Disposable {
                 String home = attachmentRoot().replace("/codex-idea-tabs/attachments", "");
                 var source = java.nio.file.Path.of(com.acorn.codextabs.core.Paths.host(home, distro(), SystemInfo.isWindows));
                 var index = java.nio.file.Path.of(PathManager.getConfigPath(), "codex-tabs", "local-usage-" + Integer.toHexString(source.toString().hashCode()) + ".json");
-                return LocalUsageHistory.read(source, index, thread, java.time.Clock.systemDefaultZone());
+                var localModels = new HashSet<>(settings().localModelHistory); localModels.add(settings().localModelId);
+                for (var saved : chats.values()) {
+                    if (saved.get("modelProvider").equals(LocalModel.PROVIDER) && !saved.get("model").isBlank()) { localModels.add(saved.get("model")); }
+                }
+                return LocalUsageHistory.read(source, index, thread, java.time.Clock.systemDefaultZone(), localModels);
             } catch (Exception error) { throw new CompletionException(error); }
         }, io);
     }

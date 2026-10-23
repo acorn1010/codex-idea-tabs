@@ -13,7 +13,7 @@
         <h3>Choose the connection. Keep the workflow.</h3>
         <ul>
             <li><b>Codex and Claude Code.</b> Use your existing CLI sign-in, select models, and switch providers in an idle chat while keeping the conversation text and draft.</li>
-            <li><b>Custom and local models.</b> Add a compatible Responses API connection in settings, or use the built-in local GLM option. API keys are stored in the IDE credential store.</li>
+            <li><b>Custom and local models.</b> Add a compatible Responses API connection in settings, or configure a local model by its server URL, model ID, and context size. GLM compatibility settings remain available. API keys are stored in the IDE credential store.</li>
             <li><b>Control the next step.</b> Review tool approvals, stop a turn, or steer it. In Claude, Enter queues a follow-up, Ctrl+Enter (Cmd+Enter on macOS) steers, and Shift+Enter adds a new line.</li>
         </ul>
         <h3>Read the work, not a wall of tool output</h3>

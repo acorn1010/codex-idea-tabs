@@ -27,6 +27,17 @@ class LocalUsageHistoryTest {
     private JsonObject period(JsonObject usage, String name) { return obj(obj(usage, "periods"), name); }
     private long input(JsonObject usage, String period) { return period(usage, period).get("input").getAsLong(); }
 
+    @Test void includesConfiguredLocalIdsAndKeepsThemAfterChangingModels() throws Exception {
+        var file = file("other-local"); model(file, "qwen-coder");
+        usage(file, "2026-10-19T10:00:00Z", counts(100, 20, 70), counts(100, 20, 70));
+        assertEquals(0, input(read("other-local"), "allTime"));
+        var result = LocalUsageHistory.read(root, root.resolve("index.json"), "other-local", clock, java.util.Set.of("qwen-coder"));
+        assertEquals(100, input(result, "allTime"));
+        usage(file, "2026-10-19T11:00:00Z", counts(150, 30, 90), counts(50, 10, 20));
+        result = LocalUsageHistory.read(root, root.resolve("index.json"), "other-local", clock, java.util.Set.of("llama-coder"));
+        assertEquals(150, input(result, "allTime"));
+        assertEquals(result.get("periods"), read("other-local").get("periods"));
+    }
     @Test void countsNewUsageOnceAcrossRepeatedReadsDuplicateEventsAndAppends() throws Exception {
         var file = file("local"); var first = counts(100, 20, 70);
         usage(file, "2026-10-19T10:00:00Z", first, first);

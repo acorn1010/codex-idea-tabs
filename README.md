@@ -53,21 +53,32 @@ If Codex is not on the IDE's PATH, set its full executable path under **Settings
 
 The plugin reads the available models from Codex. New workspaces start with **GPT-6-Astra / xhigh** when available. Model and reasoning choices are saved as soon as you select them, before sending a message, and return in new tabs and after an IDEA restart. These preferences are kept per workspace. Choosing **Codex default** is also remembered. Switching models keeps a supported reasoning level or uses the new model's default. Sign in through the plugin's ChatGPT sign-in button if the CLI has no account yet.
 
-### Local GLM with the Codex harness
+### Local models with the Codex harness
 
-Start a local llama.cpp server with the model alias `glm-flash-uncensored`, 98,304 tokens of context, and an OpenAI-compatible Responses API at `http://127.0.0.1:30001/v1`. Under **Settings → Tools → Codex Tabs**, select **Enable local GLM with Codex** and check the API URL. Keep **Codex** selected in the header, then choose **GLM 5.3 Flash (local)** in the model menu.
+Start a local server with a Responses API and JSON function tool support. In **Settings > Tools > Codex Tabs > Local model**:
 
-Codex supplies the tools, file access, approvals, streaming, and saved conversation history. GLM supplies the model replies on your computer. Local inference needs no OpenAI API key or ChatGPT sign-in. The plugin registers the local provider for its own app-server process and keeps the user's global Codex configuration intact.
+1. Select **Enable a local model with Codex**.
+2. Enter the local **API URL**, such as `http://127.0.0.1:30001/v1`.
+3. Set **Model ID** to the exact ID or alias served by your server.
+4. Set **Context tokens** to the context window configured on the server, not the model's maximum advertised size.
+5. Leave **Compatibility** on **Auto**. It keeps the existing GLM tuning for IDs containing the GLM family name. Choose **GLM** if you gave a GLM model a different alias. **Standard** disables the GLM reasoning setting for other models.
+6. Apply, keep **Codex** selected in the chat header, and choose your model's **(local)** entry.
+
+The local slot can use any model ID that meets those API and tool requirements. Changing its settings updates local chats when they are idle. Chat history stays in place. A server that only offers Chat Completions needs a Responses adapter before it can be used here.
+
+Existing installations keep `glm-flash-uncensored`, 98,304 context tokens, and automatic GLM tuning. The old provider ID stays unchanged so saved conversations still load.
+
+Codex supplies the tools, file access, approvals, streaming, and saved conversation history. Your local model supplies the replies on your computer. Local inference needs no OpenAI API key or ChatGPT sign-in. The plugin registers the local provider for its own app-server process and keeps the user's global Codex configuration intact.
 
 On Windows with a WSL project, use a current WSL Codex executable and install Python 3 inside WSL. A private WSL relay uses Windows curl through process pipes to reach the Windows model server. Both APIs stay on localhost.
 
-The current GLM option uses a 96K context window and starts automatic compaction at 73,728 tokens. Codex reserves 5% of the window, so its status panel reports 93,388 usable tokens. It uses JSON function tools and supports **Read only**, **Ask me**, **Approve for me**, and **Approve all for session**. Approve for me sends requests through Codex’s automatic reviewer with the local provider. Approve all for session grants each eligible request without review until reconnect or close. Reasoning effort and cloud Fast mode are not offered for this local model. Switching an idle chat between GLM and a cloud model releases and resumes its Codex thread with the selected provider. A running turn keeps its current model until it finishes.
+Automatic compaction starts at 75% of your configured context window. With the original GLM settings, that is 73,728 tokens out of 98,304. Codex reserves 5% of the window, so the status panel reports 93,388 usable tokens for that setup. It uses JSON function tools and supports **Read only**, **Ask me**, **Approve for me**, and **Approve all for session**. Approve for me sends requests through Codex’s automatic reviewer with the local provider. Approve all for session grants each eligible request without review until reconnect or close. Reasoning effort and cloud Fast mode are not offered for this local model. Switching an idle chat between a local and a cloud model releases and resumes its Codex thread with the selected provider. A running turn keeps its current model until it finishes.
 
-Long prompts can take several minutes before output begins. Keep the server running while the harness works. GLM can make invalid tool calls and need retries.
+Long prompts can take several minutes before output begins. Keep the server running while the harness works. Tool-call quality depends on the model and its server template. The GLM profile retains the existing reasoning setting, JSON tools, compaction prompt, cache handling, and loop recovery. Changing labels and model selection does not replace those settings.
 
 Compaction creates a text checkpoint with verified progress and the next step. The relay keeps the preceding tool definitions on compaction requests and disables tool calls. This lets the server reuse its cached prompt prefix. Reuse still depends on the history in the server slot.
 
-Local GLM and custom API chats have a loop guard. The third and fourth matching
+Local model and custom API chats have a loop guard. The third and fourth matching
 tool calls with unchanged results each trigger a different request to change
 approach. Five stop the turn. Tool comparison history survives compaction and
 reconnect. The guard also checks streamed replies and reasoning for repeated
@@ -81,13 +92,15 @@ Text comparisons restart after a tool result, a new turn, or a disconnect.
 A stopped turn stays stopped across automatic continuations and reconnects until
 you send a new instruction. The guard keeps your chat and goal, and does not count
 running processes or MCP status and wait polls as repeated tool calls.
-The plugin requests low reasoning effort. Set a bounded thinking budget in the
-model server, such as `--reasoning-budget 1024`, to allow thinking without an
-unlimited delay.
+The GLM profile requests low reasoning effort. For the original llama.cpp setup,
+keep a bounded thinking budget such as `--reasoning-budget 1024`. The Standard
+profile requests no reasoning effort. Other models use their server settings for thinking.
+
+Local token totals use the model IDs configured here and remember earlier IDs after a change. Use distinct aliases for local models if a remote provider serves the same ID. Saved Codex turn records do not include a provider for each request.
 
 ### Waiting for a local server
 
-For local GLM chats, Codex Tabs supplies the `wait_http` MCP tool
+For local model chats, Codex Tabs supplies the `wait_http` MCP tool
 through the bundled `codex_tabs_readiness` server. It uses Python and curl in the
 Codex environment. Start the server once, then wait for its health URL with one
 call. The defaults are HTTP 200, a 60 second deadline, and a 2 second interval.

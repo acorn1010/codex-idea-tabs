@@ -13,14 +13,14 @@ public final class ComposerOptions {
     }
     public static void apply(JsonObject params, JsonObject payload, JsonArray models, String model, String effort, boolean previousPlan) {
         // Astra's automatic summary setting can return no text even for long reasoning steps.
-        boolean local = LocalModel.selected(model);
-        if (local) { effort = ""; }
-        params.addProperty("summary", local ? "none" : "detailed");
         JsonObject selected = new JsonObject();
         for (var entry : models) {
             var candidate = entry.getAsJsonObject();
             if ((!model.isBlank() && (text(candidate, "model").equals(model) || text(candidate, "id").equals(model))) || (model.isBlank() && flag(candidate, "isDefault"))) { selected = candidate; break; }
         }
+        boolean local = flag(selected, "isLocal");
+        if (local) { effort = ""; }
+        params.addProperty("summary", local ? "none" : "detailed");
         if (payload.has("fast") && !local) {
             String tier = "default";
             if (flag(payload, "fast")) {

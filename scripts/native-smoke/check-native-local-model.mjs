@@ -14,7 +14,7 @@ try {
   const field = page.getByRole('textbox', { name: 'Message Codex', exact: true });
   await field.fill('/status'); await page.getByRole('option', { name: /^Status/ }).click();
   const status = page.getByRole('region', { name: 'Session status' });
-  await status.getByText('Local GLM uses your computer. No account quota applies.', { exact: true }).waitFor();
+  await status.getByText('Local models use your computer. No account quota applies.', { exact: true }).waitFor();
   mkdirSync('output/playwright', { recursive: true });
   await page.screenshot({ path: 'output/playwright/native-local-glm.png' });
   writeFileSync('output/playwright/native-local-glm.json', JSON.stringify({ model: state.settings.model, provider: state.chat.modelProvider, context: state.chat.tokenUsage?.modelContextWindow, status: state.chat.status }, null, 2));

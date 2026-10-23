@@ -41,7 +41,7 @@ function LocalUsageTable({ threadId }: { threadId: string }) {
     return () => window.clearTimeout(timer);
   }, [usage]);
   return <div className="mt-3 border-t border-line pt-2" aria-label="Local token usage">
-    <div className="mb-2 flex items-center gap-2"><strong className="flex-1">Local GLM token usage</strong><button type="button" disabled={loading} className="rounded px-1 text-muted hover:bg-line hover:text-ink active:bg-input disabled:opacity-40" onClick={() => void refresh()}>{loading ? 'Reading…' : 'Refresh usage'}</button></div>
+    <div className="mb-2 flex items-center gap-2"><strong className="flex-1">Local model token usage</strong><button type="button" disabled={loading} className="rounded px-1 text-muted hover:bg-line hover:text-ink active:bg-input disabled:opacity-40" onClick={() => void refresh()}>{loading ? 'Reading…' : 'Refresh usage'}</button></div>
     {usage ? <>
       <div className="overflow-x-auto"><table className="w-full text-right font-mono text-[10px]" aria-label="Local token totals">
         <thead className="text-muted"><tr><th scope="col" className="py-1 text-left font-normal">Period</th><th scope="col" className="px-2 py-1 font-normal">Input</th><th scope="col" className="px-2 py-1 font-normal">Output</th><th scope="col" className="px-2 py-1 font-normal" title="Reported cached input tokens. These are already included in Input.">Cached</th><th scope="col" className="py-1 font-normal">Total</th></tr></thead>
@@ -51,7 +51,7 @@ function LocalUsageTable({ threadId }: { threadId: string }) {
         })}</tbody>
       </table></div>
       <p className="mt-2 text-muted">Cached is part of input. Total is input + output.</p>
-      <p className="mt-1 text-muted">All saved local GLM chats. Calendar periods in {usage.timeZone}. Weeks start Monday.</p>
+      <p className="mt-1 text-muted">All saved local model chats. Calendar periods in {usage.timeZone}. Weeks start Monday.</p>
       <p className="mt-1 text-muted">{usage.since ? `Available dated history starts ${usage.since}.` : 'No dated local usage records found yet.'} {usage.indexing ? 'Indexing saved history. Totals are incomplete and update automatically.' : 'Counts refresh every 15 seconds.'}</p>
       {(usage.unreadRecords > 0 || usage.counterResets > 0) && <p className="mt-1 text-attention">{usage.unreadRecords > 0 ? `${number.format(usage.unreadRecords)} records could not be read. ` : ''}{usage.counterResets > 0 ? `${number.format(usage.counterResets)} counter resets excluded unknown differences.` : ''} Totals may be incomplete.</p>}
     </> : loading && <p className="text-muted">Reading saved local usage…</p>}

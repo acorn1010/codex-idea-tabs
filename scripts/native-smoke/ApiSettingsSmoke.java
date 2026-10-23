@@ -26,7 +26,10 @@ public final class ApiSettingsSmoke {
             check(!ui(config::isModified), "Opening settings changed stored values");
             ui(() -> { button(root, "Add custom API").doClick();
                 ((JCheckBox) field(config, "localModelEnabled")).doClick();
-                ((JTextField) field(config, "localModelUrl")).setText("http://127.0.0.1:30002/v1"); return null; });
+                ((JTextField) field(config, "localModelUrl")).setText("http://127.0.0.1:30002/v1");
+                ((JTextField) field(config, "localModelId")).setText("qwen-coder");
+                ((JSpinner) field(config, "localModelContextWindow")).setValue(32768);
+                return null; });
             check(ui(config::isModified), "Adding a connection did not enable Apply");
             var panel = field(config, "connections");
             ui(() -> {
@@ -44,7 +47,8 @@ public final class ApiSettingsSmoke {
             ui(() -> { config.apply(); return null; });
             var waiting = service.create(); await(() -> !flag(service.snapshot(waiting.id), "settingsPending"));
             check(!ui(config::isModified), "Apply left the form modified");
-            check(service.settings().localModelEnabled && service.settings().localModelUrl.equals("http://127.0.0.1:30002/v1"), "Apply lost local GLM settings");
+            check(service.settings().localModelEnabled && service.settings().localModelUrl.equals("http://127.0.0.1:30002/v1"), "Apply lost local model settings");
+            check(service.settings().localModelId.equals("qwen-coder") && service.settings().localModelContextWindow == 32768 && service.settings().localModelProfile.equals("auto"), "Apply lost generic model settings");
             check(service.settings().apiConnectionId.equals(entry.id), "New chat preference was not saved");
             var chat = service.create(); check(chat.get("apiConnectionId").equals(entry.id), "New chat lost the API connection");
             String originalPermissions = service.settings().permissions;
@@ -90,14 +94,52 @@ public final class ApiSettingsSmoke {
             check(text(started, "modelProvider").equals(entry.providerId()) && !obj(started, "config").has("model_context_window"), "Remote alias inherited local GLM routing or context");
             service.selectProvider(aliased.id, "codex").get(10, TimeUnit.SECONDS);
             check(array(service.snapshot(aliased.id), "models").asList().stream().anyMatch(value -> flag(value.getAsJsonObject(), "isLocal")), "Custom connection hid local GLM from Codex");
+            checkLocalModel(service, service.chat(aliased.id), config, root, output);
             var xml = XmlSerializer.serialize(service.settings()); var restored = XmlSerializer.deserialize(xml, CodexSettings.State.class);
             check(restored.apiConnections.size() == 1 && restored.apiConnections.getFirst().equals(service.settings().apiConnections.getFirst()), "IDE settings serialization lost connection metadata");
+            check(restored.localModelId.equals("qwen-coder") && restored.localModelContextWindow == 32768 && restored.localModelProfile.equals("auto") && restored.localModelHistory.contains("qwen-coder"), "IDE settings serialization lost generic model settings");
             JDOMUtil.write(xml, output.resolve("api-settings.xml"));
             ui(() -> { config.reset(); button(root, "Add custom API").doClick(); config.disposeUIResources(); return null; });
             check(service.settings().apiConnections.size() == 1, "Cancel saved a draft connection");
             Files.writeString(output.resolve("api-settings-result.json"), GSON.toJson(object("apiCheckIcons", true, "customConnection", true, "localSettings", true, "localAliasIsolation", true, "applyWithoutRestart", true, "cancel", true, "customModels", true,
                 "noChatGptLogin", true, "searchSettingPreserved", true, "perChatRouting", true, "staleModelGuard", true, "handoffDraft", true, "deferredReconnect", true, "resume", true, "settingsRoundTrip", true)));
         } finally { ui(() -> { config.disposeUIResources(); frame.dispose(); return null; }); }
+    }
+    private static void checkLocalModel(CodexService service, com.acorn.codextabs.core.Conversation chat, CodexConfigurable config, JComponent root, Path output) throws Exception {
+        service.send(chat.id, object("text", "Generic local model", "model", "qwen-coder", "permissions", "ask", "fast", true, "effort", "xhigh")).get(20, TimeUnit.SECONDS);
+        await(() -> !chat.busy());
+        var stats = service.rpc("fixture/stats", object()).get(10, TimeUnit.SECONDS);
+        var start = obj(stats, "lastStart");
+        check(text(start, "model").equals("qwen-coder") && text(start, "modelProvider").equals(LocalModel.PROVIDER), "Generic local model was not routed locally");
+        var settings = obj(start, "config");
+        check(settings.get("model_context_window").getAsInt() == 32768 && settings.get("model_auto_compact_token_limit").getAsInt() == 24576, "Generic model used GLM context limits");
+        check(text(settings, "model_reasoning_effort").equals("none"), "Generic model inherited GLM reasoning");
+        check(!obj(stats, "lastTurn").has("serviceTierForTurn") && !obj(stats, "lastTurn").has("effort"), "Generic turn inherited cloud controls");
+        String thread = chat.get("threadId");
+        service.reconnect(); service.load(chat.id).get(20, TimeUnit.SECONDS);
+        stats = service.rpc("fixture/stats", object()).get(10, TimeUnit.SECONDS);
+        check(text(obj(stats, "lastResume"), "model").equals("qwen-coder") && chat.get("threadId").equals(thread), "Reconnect replaced the local model or history");
+        ui(() -> {
+            config.reset();
+            for (var tabs : descendants(root, JTabbedPane.class)) { tabs.setSelectedIndex(1); }
+            return null;
+        });
+        capture(root, output.resolve("local-model-settings.png"));
+        ui(() -> { ((JComboBox<?>) field(config, "localModelProfile")).setSelectedItem("GLM"); config.apply(); return null; });
+        await(() -> !flag(service.snapshot(chat.id), "settingsPending"));
+        service.load(chat.id).get(20, TimeUnit.SECONDS);
+        stats = service.rpc("fixture/stats", object()).get(10, TimeUnit.SECONDS);
+        check(text(obj(obj(stats, "lastResume"), "config"), "model_reasoning_effort").equals("low"), "Explicit GLM profile lost its tuning");
+        ui(() -> { ((JComboBox<?>) field(config, "localModelProfile")).setSelectedItem("Auto"); config.apply(); return null; });
+        await(() -> !flag(service.snapshot(chat.id), "settingsPending"));
+    }
+    private static <T extends Component> java.util.List<T> descendants(Container root, Class<T> type) {
+        var result = new java.util.ArrayList<T>();
+        for (var child : root.getComponents()) {
+            if (type.isInstance(child)) { result.add(type.cast(child)); }
+            if (child instanceof Container nested) { result.addAll(descendants(nested, type)); }
+        }
+        return result;
     }
     private static void checkApiStatus(Object panel, JComponent root, Path output) throws Exception {
         var server = com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);

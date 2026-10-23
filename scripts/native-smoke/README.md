@@ -211,9 +211,13 @@ Path(__file__).with_name("opened-url.json").write_text(json.dumps(sys.argv[1:]))
 
 The check creates only fixture files and writes `links-result.json` in the profile's log directory. It verifies browser dispatch with an anchor and query, encoded filenames, explicit source opening, line and column navigation, a missing file, and a retained chat connection.
 
-## Local GLM
+## Local models
 
-Run `check-local-model.mjs` after building the UI with `CODEX_SMOKE_CHROME` set. It checks the GLM picker entry, the upstream permission menu, automatic review selection and send settings, hidden cloud controls, local status, narrow layouts and switching back to cloud controls. It makes no model calls.
+The API settings fixture also checks model ID and context edits, Auto and explicit GLM profiles, persistence, and reconnecting a generic local chat. It saves `local-model-settings.png` from the native settings panel.
+
+Set `CODEX_RETRY_TEST_BINARY` to your Codex executable and run `:core:test --tests com.acorn.codextabs.core.LocalModelTransportTest` to check both GLM and generic IDs through the real app-server. The test uses an empty Codex home and an isolated local Responses fixture, with no inference or account credentials.
+
+Run `check-local-model.mjs` after building the UI with `CODEX_SMOKE_CHROME` set. It checks both GLM and a generic local model picker entry, the upstream permission menu, automatic review selection and send settings, hidden cloud controls, local status, narrow layouts and switching back to cloud controls. It makes no model calls.
 
 For a live check, launch a disposable Windows IDEA profile with the smoke plugin and `-Dcodex.smoke.localModel.check=true`. Set `codex.smoke.binary` to the WSL Codex executable, `codex.smoke.distro` to the distribution, `codex.smoke.cwd` to a disposable fixture directory as seen from WSL, and `codex.smoke.localModel.fixture` to that same directory as seen from Windows. The optional `codex.smoke.localModel.url` defaults to `http://127.0.0.1:30001/v1`.
 

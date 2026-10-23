@@ -5,6 +5,65 @@ import static com.acorn.codextabs.core.Json.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class LocalModelTest {
+    @Test void keepsLocalControlsWhenTheServerAliasMatchesACloudModel() {
+        var cloud = new com.google.gson.JsonArray();
+        cloud.add(object("id", "same-id", "model", "same-id", "isDefault", true));
+        cloud.add(object("id", "other", "model", "other"));
+        var models = LocalModel.withLocal(cloud, "same-id");
+        assertEquals(2, models.size());
+        assertFalse(cloud.get(0).getAsJsonObject().has("isLocal"));
+        var turn = object();
+        ComposerOptions.apply(turn, object("fast", true), models, "same-id", "high", false);
+        assertEquals("none", text(turn, "summary"));
+        assertFalse(turn.has("serviceTierForTurn"));
+    }
+    @Test void configuresOtherLocalModelsWithoutGlmReasoning() {
+        var params = object("config", ComposerOptions.threadConfig("xhigh"));
+        LocalModel.apply(params, "qwen-coder", 32768, "auto");
+        assertEquals(LocalModel.PROVIDER, text(params, "modelProvider"));
+        assertEquals("qwen-coder", text(params, "model"));
+        var config = obj(params, "config");
+        assertEquals(32768, config.get("model_context_window").getAsInt());
+        assertEquals(24576, config.get("model_auto_compact_token_limit").getAsInt());
+        assertEquals("none", text(config, "model_reasoning_effort"));
+        assertFalse(flag(config, "features.unified_exec"));
+        assertFalse(flag(config, "features.apply_patch_freeform"));
+        assertTrue(text(config, "compact_prompt").contains("Do not call tools"));
+    }
+    @Test void preservesGlmTuningAndAllowsAnExplicitProfileForAliases() {
+        for (String model : java.util.List.of(LocalModel.MODEL, "zai-org/GLM-4.7-Flash-GGUF", "glm4:latest")) {
+            var params = object();
+            LocalModel.apply(params, model, 98304, "auto");
+            assertEquals("low", text(obj(params, "config"), "model_reasoning_effort"));
+            assertEquals(73728, obj(params, "config").get("model_auto_compact_token_limit").getAsInt());
+        }
+        var alias = object();
+        LocalModel.apply(alias, "my-model", 65536, "glm");
+        assertEquals("low", text(obj(alias, "config"), "model_reasoning_effort"));
+        LocalModel.apply(alias, LocalModel.MODEL, 65536, "standard");
+        assertEquals("none", text(obj(alias, "config"), "model_reasoning_effort"));
+    }
+    @Test void recognizesOnlyTheConfiguredLocalIdAndPublishesItsName() {
+        assertTrue(LocalModel.selected("qwen-coder", "qwen-coder"));
+        assertFalse(LocalModel.selected(LocalModel.MODEL, "qwen-coder"));
+        assertFalse(LocalModel.selected("", ""));
+        var model = LocalModel.catalog("qwen-coder");
+        assertEquals("qwen-coder (local)", text(model, "displayName"));
+        var turn = object();
+        var catalog = new com.google.gson.JsonArray(); catalog.add(model);
+        ComposerOptions.apply(turn, object("fast", true, "planMode", true), catalog, "qwen-coder", "xhigh", false);
+        assertEquals("none", text(turn, "summary"));
+        assertFalse(turn.has("serviceTierForTurn"));
+        assertFalse(obj(obj(turn, "collaborationMode"), "settings").has("reasoning_effort"));
+    }
+    @Test void validatesModelContextAndProfileBeforeConnecting() {
+        LocalModel.validate("Qwen/model:latest", 8192, "auto");
+        for (String model : java.util.List.of("", "two\nmodels", " leading")) {
+            assertThrows(IllegalArgumentException.class, () -> LocalModel.validate(model, 8192, "auto"));
+        }
+        assertThrows(IllegalArgumentException.class, () -> LocalModel.validate("model", 0, "auto"));
+        assertThrows(IllegalArgumentException.class, () -> LocalModel.validate("model", 8192, "unknown"));
+    }
     @Test void keepsLocalRequestsWithinTheConfiguredContextAndUsesFunctionTools() {
         var params = object("config", ComposerOptions.threadConfig("xhigh"));
         LocalModel.apply(params, LocalModel.MODEL);
@@ -59,7 +118,8 @@ class LocalModelTest {
     }
     @Test void omitsCloudTurnSettingsForLocalModelsEvenWithStalePreferences() {
         var turn = object();
-        ComposerOptions.apply(turn, object("fast", true, "planMode", true), new com.google.gson.JsonArray(), LocalModel.MODEL, "xhigh", false);
+        var models = new com.google.gson.JsonArray(); models.add(LocalModel.catalog());
+        ComposerOptions.apply(turn, object("fast", true, "planMode", true), models, LocalModel.MODEL, "xhigh", false);
         assertEquals("none", text(turn, "summary"));
         assertFalse(turn.has("serviceTierForTurn"));
         assertFalse(obj(obj(turn, "collaborationMode"), "settings").has("reasoning_effort"));

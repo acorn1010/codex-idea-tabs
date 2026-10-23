@@ -24,7 +24,10 @@ public final class CodexConfigurable implements Configurable {
     private final JBTextField cwd = new JBTextField();
     private final JBTextArea additionalWritableFolders = new JBTextArea(4, 30);
     private final JBTextField localModelUrl = new JBTextField();
-    private final JBCheckBox localModelEnabled = new JBCheckBox("Enable local GLM with Codex");
+    private final JBCheckBox localModelEnabled = new JBCheckBox("Enable a local model with Codex");
+    private final JBTextField localModelId = new JBTextField();
+    private final JSpinner localModelContextWindow = new JSpinner(new SpinnerNumberModel(98304, 4096, Integer.MAX_VALUE, 1024));
+    private final JComboBox<String> localModelProfile = new JComboBox<>(new String[]{"Auto", "Standard", "GLM"});
     private final JBTextField sharedGuidance = new JBTextField();
     private final JBCheckBox sharedGuidanceEnabled = new JBCheckBox("Use shared project guidance");
     private ApiConnectionsPanel connections;
@@ -40,12 +43,15 @@ public final class CodexConfigurable implements Configurable {
         var tabs = new JBTabbedPane();
         connections = new ApiConnectionsPanel(project); connections.setBorder(JBUI.Borders.empty(16, 0));
         tabs.addTab("Connections", new JBScrollPane(connections));
-        var local = section("Local GLM", "Add GLM 5.3 Flash to the Codex model menu. Start your model server before chatting.");
+        var local = section("Local model", "Use a local model through Codex. The server must support the Responses API and function tools.");
         fullRow(local, localModelEnabled);
         row(local, "API URL", localModelUrl, "Use a local Responses server, such as http://127.0.0.1:30001/v1. No sign-in needed.");
+        row(local, "Model ID", localModelId, "Enter the exact model ID or alias from your server. Start the server before chatting.");
+        row(local, "Context tokens", localModelContextWindow, "Match the context size configured on the server. Compaction starts at 75% of this value.");
+        row(local, "Compatibility", localModelProfile, "Auto keeps GLM tuning for GLM model IDs. Select GLM for a renamed GLM model, or Standard for other models.");
         if (SystemInfo.isWindows) { fullRow(local, hint("WSL needs Python 3. Windows curl forwards requests to the Windows API.")); }
-        localModelEnabled.addActionListener(event -> localModelUrl.setEnabled(localModelEnabled.isSelected()));
-        tabs.addTab("Local GLM", page(local));
+        localModelEnabled.addActionListener(event -> enableLocalFields());
+        tabs.addTab("Local model", page(local));
         var tools = section("Command-line tools", "Codex Tabs uses your installed agents and their existing sign-ins.");
         row(tools, "Codex executable", binary, "Use codex for automatic detection, or enter its full path.");
         row(tools, "Claude executable", claudeBinary, "Use claude, or enter its full path. Sign in from a terminal.");
@@ -64,6 +70,15 @@ public final class CodexConfigurable implements Configurable {
         tabs.addTab("Workspace", page(workspace)); root.add(tabs, BorderLayout.CENTER);
         root.add(hint("Changes apply when chats are idle. No restart needed."), BorderLayout.SOUTH);
         reset(); return root;
+    }
+    private void enableLocalFields() {
+        for (var field : new JComponent[]{localModelUrl, localModelId, localModelContextWindow, localModelProfile}) { field.setEnabled(localModelEnabled.isSelected()); }
+    }
+    private String localProfile() { return Objects.toString(localModelProfile.getSelectedItem(), "Auto").toLowerCase(java.util.Locale.ROOT); }
+    private boolean localSettingsModified(CodexSettings.State state) {
+        return localModelEnabled.isSelected() != state.localModelEnabled || !localModelUrl.getText().trim().equals(state.localModelUrl)
+            || !localModelId.getText().trim().equals(state.localModelId) || (int) localModelContextWindow.getValue() != state.localModelContextWindow
+            || !localProfile().equals(state.localModelProfile);
     }
     private static JComponent page(JPanel content) {
         var page = new JPanel(new BorderLayout()); page.setBorder(JBUI.Borders.empty(16)); page.add(content, BorderLayout.NORTH); return new JBScrollPane(page);
@@ -96,7 +111,7 @@ public final class CodexConfigurable implements Configurable {
         return !claudeBinary.getText().equals(state.claudeBinary) || !binary.getText().equals(state.binary) || !distro.getText().equals(state.distro) || !cwd.getText().equals(state.cwd)
             || !additionalWritableFolders.getText().equals(state.additionalWritableFolders)
             || !sharedGuidance.getText().equals(state.sharedGuidanceFolder) || sharedGuidanceEnabled.isSelected() != state.sharedGuidanceEnabled
-            || localModelEnabled.isSelected() != state.localModelEnabled || !localModelUrl.getText().equals(state.localModelUrl)
+            || localSettingsModified(state)
             || !connections.connections().equals(state.apiConnections) || connections.keysModified()
             || !connections.provider().equals(state.provider) || !connections.preferredId().equals(state.apiConnectionId);
     }
@@ -106,13 +121,21 @@ public final class CodexConfigurable implements Configurable {
         additionalWritableFolders.setText(state.additionalWritableFolders); additionalWritableFolders.setCaretPosition(0);
         sharedGuidance.setText(state.sharedGuidanceFolder); sharedGuidanceEnabled.setSelected(state.sharedGuidanceEnabled);
         sharedGuidance.setEnabled(state.sharedGuidanceEnabled);
-        localModelEnabled.setSelected(state.localModelEnabled); localModelUrl.setText(state.localModelUrl); localModelUrl.setEnabled(state.localModelEnabled);
+        localModelEnabled.setSelected(state.localModelEnabled); localModelUrl.setText(state.localModelUrl);
+        localModelId.setText(state.localModelId); localModelContextWindow.setValue(state.localModelContextWindow);
+        localModelProfile.setSelectedItem(switch (state.localModelProfile) { case "glm" -> "GLM"; case "standard" -> "Standard"; default -> "Auto"; });
+        enableLocalFields();
         if (connections != null) { connections.reset(state); }
     }
     @Override public void apply() throws ConfigurationException {
         var entries = connections.connections();
         try {
-            if (localModelEnabled.isSelected()) { com.acorn.codextabs.core.LocalModel.validateUrl(localModelUrl.getText().trim()); }
+            if (localModelEnabled.isSelected()) {
+                try { localModelContextWindow.commitEdit(); }
+                catch (java.text.ParseException error) { throw new IllegalArgumentException("Enter a whole number of context tokens."); }
+                com.acorn.codextabs.core.LocalModel.validateUrl(localModelUrl.getText().trim());
+                com.acorn.codextabs.core.LocalModel.validate(localModelId.getText().trim(), (int) localModelContextWindow.getValue(), localProfile());
+            }
             for (var entry : entries) { entry.validate(); }
             String selectedDistro = SystemInfo.isWindows ? (distro.getText().isBlank() ? com.acorn.codextabs.core.Paths.distro(Objects.toString(project.getBasePath(), "")) : distro.getText().trim()) : "";
             for (String folder : SandboxSettings.folders(additionalWritableFolders.getText(), selectedDistro, SystemInfo.isWindows)) {
@@ -127,7 +150,7 @@ public final class CodexConfigurable implements Configurable {
             || !state.cwd.equals(cwd.getText().trim()) || !state.sharedGuidanceFolder.equals(sharedGuidance.getText().trim()) || state.sharedGuidanceEnabled != sharedGuidanceEnabled.isSelected();
         boolean api = !state.apiConnections.equals(entries) || connections.keysModified()
             || !state.additionalWritableFolders.equals(additionalWritableFolders.getText())
-            || state.localModelEnabled != localModelEnabled.isSelected() || !state.localModelUrl.equals(localModelUrl.getText().trim());
+            || localSettingsModified(state);
         var keys = new java.util.HashMap<>(connections.keyChanges());
         for (var entry : state.apiConnections) { if (entries.stream().noneMatch(value -> value.id.equals(entry.id))) { keys.put(entry.id, ""); } }
         var failure = new AtomicReference<RuntimeException>();
@@ -139,7 +162,12 @@ public final class CodexConfigurable implements Configurable {
         state.claudeBinary = claudeBinary.getText().trim(); state.binary = binary.getText().trim(); state.distro = distro.getText().trim(); state.cwd = cwd.getText().trim();
         state.additionalWritableFolders = additionalWritableFolders.getText();
         state.sharedGuidanceEnabled = sharedGuidanceEnabled.isSelected(); state.sharedGuidanceFolder = sharedGuidance.getText().trim();
+        // Keep usage identities even if the status panel was never opened for the previous model.
+        if (state.localModelEnabled && !state.localModelHistory.contains(state.localModelId)) { state.localModelHistory.add(state.localModelId); }
+        if (localModelEnabled.isSelected() && !state.localModelHistory.contains(localModelId.getText().trim())) { state.localModelHistory.add(localModelId.getText().trim()); }
+        if (state.model.equals(state.localModelId)) { state.model = localModelId.getText().trim(); }
         state.localModelEnabled = localModelEnabled.isSelected(); state.localModelUrl = localModelUrl.getText().trim();
+        state.localModelId = localModelId.getText().trim(); state.localModelContextWindow = (int) localModelContextWindow.getValue(); state.localModelProfile = localProfile();
         state.apiConnections = new java.util.ArrayList<>(entries); state.provider = connections.provider(); state.apiConnectionId = connections.preferredId();
         service.settingsApplied(all, api); connections.reset(state);
     }

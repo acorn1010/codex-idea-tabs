@@ -24,6 +24,10 @@ public final class CodexSettings implements PersistentStateComponent<CodexSettin
         public String sharedGuidanceFolder = "";
         public boolean localModelEnabled;
         public String localModelUrl = "http://127.0.0.1:30001/v1";
+        public String localModelId = com.acorn.codextabs.core.LocalModel.MODEL;
+        public int localModelContextWindow = 98304;
+        public String localModelProfile = "auto";
+        public java.util.List<String> localModelHistory = new java.util.ArrayList<>();
         public String model = "";
         public String effort = "";
         public boolean modelSelectionSaved;

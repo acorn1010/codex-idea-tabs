@@ -16,7 +16,11 @@ public final class LocalUsageHistory {
     private LocalUsageHistory() {}
 
     /** Return calendar totals and continue an interrupted index from complete JSON lines. */
-    public static synchronized JsonObject read(Path home, Path cache, String thread, Clock clock) throws IOException {
+    public static JsonObject read(Path home, Path cache, String thread, Clock clock) throws IOException {
+        return read(home, cache, thread, clock, Set.of(LocalModel.MODEL));
+    }
+    /** Remember local aliases so past usage survives changing the configured model. */
+    public static synchronized JsonObject read(Path home, Path cache, String thread, Clock clock, Set<String> modelIds) throws IOException {
         String source = home.toAbsolutePath().normalize().toString();
         var state = object("version", 1, "source", source, "zone", clock.getZone().getId(), "files", object());
         if (Files.exists(cache)) {
@@ -25,6 +29,11 @@ public final class LocalUsageHistory {
                 if (text(saved, "version").equals("1") && text(saved, "source").equals(source) && text(saved, "zone").equals(clock.getZone().getId())) { state = saved; }
             } catch (JsonParseException | IllegalStateException error) { throw new IOException("Saved local usage index could not be read.", error); }
         }
+        var knownModels = new TreeSet<String>(); knownModels.add(LocalModel.MODEL);
+        for (var value : array(state, "models")) { knownModels.add(value.getAsString()); }
+        // Newly registered aliases may already have records excluded by an earlier scan.
+        if (knownModels.addAll(modelIds)) { state.add("files", object()); }
+        state.add("models", GSON.toJsonTree(knownModels));
         var files = obj(state, "files");
         var paths = new TreeMap<String, Path>(Comparator.reverseOrder());
         for (String directory : List.of("sessions", "archived_sessions")) {
@@ -46,7 +55,7 @@ public final class LocalUsageHistory {
             long position = value(saved, "position", 0);
             if (Files.size(entry.getValue()) < position) { saved = object(); position = 0; }
             if (remaining > 0 && Files.size(entry.getValue()) > position) {
-                long scanned = scan(entry.getValue(), saved, position, remaining, clock.getZone());
+                long scanned = scan(entry.getValue(), saved, position, remaining, clock.getZone(), knownModels);
                 remaining -= scanned;
                 files.add(entry.getKey(), saved);
             }
@@ -64,7 +73,7 @@ public final class LocalUsageHistory {
         return summarize(files, thread, clock, indexing);
     }
 
-    private static long scan(Path path, JsonObject saved, long start, long budget, ZoneId zone) throws IOException {
+    private static long scan(Path path, JsonObject saved, long start, long budget, ZoneId zone, Set<String> modelIds) throws IOException {
         long committed = start, consumed = 0;
         var line = new ByteArrayOutputStream();
         boolean oversized = false;
@@ -80,7 +89,7 @@ public final class LocalUsageHistory {
                     consumed += length + 1;
                     if (!oversized && line.size() + length <= MAX_LINE_BYTES) {
                         line.write(buffer, from, length);
-                        accept(saved, line.toString(StandardCharsets.UTF_8), zone);
+                        accept(saved, line.toString(StandardCharsets.UTF_8), zone, modelIds);
                     } else { saved.addProperty("unreadRecords", value(saved, "unreadRecords", 0) + 1); }
                     committed += consumed; consumed = 0; line.reset(); oversized = false; from = at + 1;
                     if (committed - start >= budget) { saved.addProperty("position", committed); return committed - start; }
@@ -95,7 +104,7 @@ public final class LocalUsageHistory {
         return committed - start;
     }
 
-    private static void accept(JsonObject saved, String line, ZoneId zone) {
+    private static void accept(JsonObject saved, String line, ZoneId zone, Set<String> modelIds) {
         if (!line.contains("token_count") && !line.contains("session_meta") && !line.contains("turn_context")) { return; }
         try {
             var frame = JsonParser.parseString(line).getAsJsonObject();
@@ -126,7 +135,7 @@ public final class LocalUsageHistory {
                         if (delta == null || flag(saved, "forked") && !delta.equals(total)) { return; }
                     } else {
                         if (value(total, "input", 0) < value(previous, "input", 0) || value(total, "output", 0) < value(previous, "output", 0)) {
-                            if (local(saved)) { saved.addProperty("counterResets", value(saved, "counterResets", 0) + 1); } return;
+                            if (local(saved, modelIds)) { saved.addProperty("counterResets", value(saved, "counterResets", 0) + 1); } return;
                         }
                         delta = object("input", value(total, "input", 0) - value(previous, "input", 0), "output", value(total, "output", 0) - value(previous, "output", 0));
                         Long now = count(total, "cached"), before = count(previous, "cached");
@@ -134,7 +143,7 @@ public final class LocalUsageHistory {
                     }
                     long input = value(delta, "input", 0), output = value(delta, "output", 0);
                     if (input == 0 && output == 0) { return; }
-                    if (!local(saved)) { return; }
+                    if (!local(saved, modelIds)) { return; }
                     Long cached = count(delta, "cached");
                     if (cached != null && cached > input) { delta.add("cached", JsonNull.INSTANCE); }
                     String day = Instant.parse(text(frame, "timestamp")).atZone(zone).toLocalDate().toString();
@@ -146,9 +155,9 @@ public final class LocalUsageHistory {
         } catch (RuntimeException error) { saved.addProperty("unreadRecords", value(saved, "unreadRecords", 0) + 1); }
     }
 
-    private static boolean local(JsonObject saved) {
+    private static boolean local(JsonObject saved, Set<String> modelIds) {
         String model = text(saved, "model");
-        return model.isBlank() ? text(saved, "provider").equals(LocalModel.PROVIDER) : LocalModel.selected(model);
+        return model.isBlank() ? text(saved, "provider").equals(LocalModel.PROVIDER) : modelIds.contains(model);
     }
     private static JsonObject counters(JsonObject input) {
         Long incoming = count(input, "input_tokens"), outgoing = count(input, "output_tokens");
