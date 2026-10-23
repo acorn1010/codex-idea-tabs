@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.22
+
+- Configure local model IDs and context sizes, with Auto, Standard, and GLM compatibility profiles. Keep existing GLM tuning and chat history.
+- Track token usage across saved local model IDs.
+- Add project-specific Claude allow rules and an all-domain download option that keeps automatic safety review for shell commands.
+- Remove X-Robots-Tag and TDM-Reservation from recognized HTTP headers before tool results reach Claude. Keep response bodies, other headers, and errors intact. The filter can be turned off in settings.
+
 ## 1.0.21
 
 - Keep chat virtual files out of text analysis and index-backed editor notifications. This avoids the Kubernetes config check that could block opening a chat during a WSL indexing stall.

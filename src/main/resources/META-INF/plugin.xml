@@ -35,14 +35,12 @@
         <p>Independent project. Not affiliated with OpenAI, Anthropic, or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
-        <h3>1.0.21</h3>
+        <h3>1.0.22</h3>
         <ul>
-            <li>Keep chat panels out of source-file analysis and index-backed editor notifications. This avoids the Kubernetes config check that could freeze new chat tabs while WSL indexing was blocked.</li>
-            <li>Use Ctrl+Enter or Cmd+Enter to steer Claude. Shift+Enter now inserts a new line. Enter still queues a follow-up during a running turn.</li>
-            <li>Add custom Responses API connections with secure key storage, connection checks, and automatic rate-limit retries.</li>
-            <li>Show output speed beside chat status, inspect context usage, and track local model token usage.</li>
-            <li>Improve loop recovery with distinct corrective messages and reset the recovery count after progress.</li>
-            <li>Configure additional writable folders, use session approvals, and inspect Claude background tasks and goals.</li>
+            <li>Configure local model IDs, context sizes, and compatibility profiles while keeping existing GLM tuning.</li>
+            <li>Track usage across saved local models and keep chat history when changing models.</li>
+            <li>Add Claude permission rules and allow ordinary downloads from all domains while keeping shell safety review.</li>
+            <li>Filter the two AI-use HTTP headers before tool results reach Claude. Keep response bodies and other headers intact, with an option to disable filtering.</li>
         </ul>
         <p>See the <a href="https://github.com/acorn1010/codex-idea-tabs/blob/main/CHANGELOG.md">full changelog</a> for earlier releases.</p>
     ]]></change-notes>
