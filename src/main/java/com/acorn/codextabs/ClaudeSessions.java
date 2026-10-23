@@ -166,13 +166,13 @@ final class ClaudeSessions implements AutoCloseable {
                 session.sessionId = chat.get("threadId").isBlank() ? UUID.randomUUID().toString() : chat.get("threadId");
                 refreshHistory(chat);
                 var shared = guidance.get();
-                var builder = ClaudeClient.process(binary, chat.get("cwd"), distro.get(), session.sessionId, resume, fork, fork ? chat.get("claudeResumeAt") : "");
+                var builder = ClaudeClient.process(binary, chat.get("cwd"), distro.get(), session.sessionId, resume, fork, fork ? chat.get("claudeResumeAt") : "", settings.get().claudeAllowRules, settings.get().claudeAllowWebDownloads);
                 session.client = ClaudeClient.start(builder, distro.get(), shared.claudeContext(), event -> session.event(event, generation), reason -> {
                     if (session.closed || session.generation.get() != generation) { return; }
                     chat.disconnected(); chat.set("claudeConnection", "disconnected"); chat.loadFailed(reason); changed.accept(chat);
                 });
                 if (session.closed || session.generation.get() != generation) { session.client.close(); throw new CancellationException("Claude connection was replaced"); }
-                var initialized = session.client.initialize().join();
+                var initialized = session.client.initialize(settings.get().claudeFilterResponseHeaders).join();
                 if (!session.client.isAlive()) { throw new IllegalStateException("Claude exited during startup."); }
                 if (session.closed || session.generation.get() != generation) { throw new CancellationException("Claude connection was replaced"); }
                 chat.set("claudeModels", ClaudeProtocol.models(initialized));

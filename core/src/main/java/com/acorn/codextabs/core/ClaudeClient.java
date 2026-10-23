@@ -19,6 +19,7 @@ public final class ClaudeClient implements AutoCloseable {
     // Native process pipes can occupy virtual-thread carriers indefinitely, starving sends and reconnects.
     private final ExecutorService workers = Executors.newFixedThreadPool(3, Thread.ofPlatform().daemon().name("codex-tabs-claude-io-", 0).factory());
     private final AtomicBoolean closed = new AtomicBoolean();
+    private volatile boolean filterResponseHeaders;
     private final Consumer<String> disconnected;
     private final StringBuilder stderr = new StringBuilder();
     private final ArrayBlockingQueue<String> outbound = new ArrayBlockingQueue<>(256);
@@ -57,6 +58,10 @@ public final class ClaudeClient implements AutoCloseable {
                         if (future == null) { continue; }
                         if (text(response, "subtype").equals("error")) { future.completeExceptionally(new IOException(text(response, "error", "Claude request failed"))); }
                         else { future.complete(obj(response, "response")); }
+                    } else if (filterResponseHeaders && text(event, "type").equals("control_request")
+                        && text(obj(event, "request"), "subtype").equals("hook_callback")
+                        && text(obj(event, "request"), "callback_id").equals(ClaudeResponseHeaders.CALLBACK)) {
+                        respond(text(event, "request_id"), ClaudeResponseHeaders.reply(obj(obj(event, "request"), "input")));
                     } else { events.accept(event); }
                 }
                 fail("Claude disconnected. Reconnect to resume this chat." + diagnostics());
@@ -83,9 +88,15 @@ public final class ClaudeClient implements AutoCloseable {
     }
     private String diagnostics() { synchronized (stderr) { return stderr.isEmpty() ? "" : "\n" + stderr.toString().strip(); } }
     /** Startup must fail visibly when an old CLI cannot answer the control protocol. */
-    public CompletableFuture<JsonObject> initialize() { return initialize(30, TimeUnit.SECONDS); }
-    CompletableFuture<JsonObject> initialize(long timeout, TimeUnit unit) {
-        return control(object("subtype", "initialize"), timeout, unit).exceptionallyCompose(error -> {
+    public CompletableFuture<JsonObject> initialize() { return initialize(false); }
+    /** Enable output filtering through Claude's SDK hook instead of changing displayed chat text. */
+    public CompletableFuture<JsonObject> initialize(boolean filterHeaders) { return initialize(30, TimeUnit.SECONDS, filterHeaders); }
+    CompletableFuture<JsonObject> initialize(long timeout, TimeUnit unit) { return initialize(timeout, unit, false); }
+    private CompletableFuture<JsonObject> initialize(long timeout, TimeUnit unit, boolean filterHeaders) {
+        filterResponseHeaders = filterHeaders;
+        var request = object("subtype", "initialize");
+        if (filterHeaders) { request.add("hooks", ClaudeResponseHeaders.hooks()); }
+        return control(request, timeout, unit).exceptionallyCompose(error -> {
             while (error instanceof CompletionException && error.getCause() != null) { error = error.getCause(); }
             if (error instanceof TimeoutException) {
                 return CompletableFuture.failedFuture(new IOException("Claude did not answer the startup handshake. Update Claude Code or select its current executable in Settings > Tools > Codex Tabs, then reconnect.", error));
@@ -152,9 +163,40 @@ public final class ClaudeClient implements AutoCloseable {
         return process(binary, cwd, distro, session, resume, fork, "");
     }
     public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork, String anchor) {
+        return process(binary, cwd, distro, session, resume, fork, anchor, "");
+    }
+    /** Parse one native Claude allow rule per line without splitting commands on spaces or commas. */
+    public static List<String> permissionRules(String value) {
+        var rules = value.lines().map(String::strip).filter(line -> !line.isBlank()).distinct().toList();
+        for (String rule : rules) {
+            if (!rule.matches("[A-Za-z][A-Za-z0-9_.*-]*(?:\\(.+\\))?") || rule.chars().anyMatch(Character::isISOControl)) {
+                throw new IllegalArgumentException("Enter one Claude permission rule per line, such as WebFetch(domain:example.com) or Bash(curl https://example.com/file). Invalid rule: " + rule);
+            }
+        }
+        return rules;
+    }
+    /** Apply project allow rules as extra CLI settings while keeping Claude's existing permission sources. */
+    public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork, String anchor, String allowRules) {
+        return process(binary, cwd, distro, session, resume, fork, anchor, allowRules, false);
+    }
+    /** Keep shell safety review active while allowing ordinary downloads from any domain. */
+    public static JsonObject permissionSettings(String allowRules, boolean allowWebDownloads) {
+        var rules = new ArrayList<>(permissionRules(allowRules));
+        var settings = new JsonObject();
+        if (allowWebDownloads) {
+            if (!rules.contains("WebFetch")) { rules.add("WebFetch"); }
+            settings.add("autoMode", object("allow", List.of("$defaults",
+                "Web downloads: Allow ordinary HTTP GET and HEAD requests to any domain, including curl and wget, when needed for the user's task. Website X-Robots-Tag noai/noimageai and TDM-Reservation headers alone are not a tool-safety reason to block such a download. This exception does not cover sending secrets or private data, state-changing requests, destructive file overwrites, or executing downloaded code. Evaluate those risks under the existing safety rules.")));
+        }
+        if (!rules.isEmpty()) { settings.add("permissions", object("allow", rules)); }
+        return settings;
+    }
+    public static ProcessBuilder process(String binary, String cwd, String distro, String session, String resume, boolean fork, String anchor, String allowRules, boolean allowWebDownloads) {
         UUID.fromString(session);
         if (!resume.isBlank()) { UUID.fromString(resume); }
         var arguments = new ArrayList<>(List.of(binary, "--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--replay-user-messages", "--permission-prompt-tool", "stdio"));
+        var permissions = permissionSettings(allowRules, allowWebDownloads);
+        if (!permissions.isEmpty()) { arguments.addAll(List.of("--settings", GSON.toJson(permissions))); }
         if (!resume.isBlank()) { arguments.add("--resume=" + resume); }
         if (resume.isBlank() || fork) { arguments.add("--session-id=" + session); }
         if (fork) { arguments.add("--fork-session"); }

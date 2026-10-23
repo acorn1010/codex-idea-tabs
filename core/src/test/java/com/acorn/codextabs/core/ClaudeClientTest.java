@@ -89,6 +89,48 @@ class ClaudeClientTest {
         assertEquals(shell.toString(), ClaudeClient.executable("", shell.getParent().toString(), home, List.of(nativeInstall)));
         assertEquals(nativeInstall.toString(), ClaudeClient.executable("", "", home, List.of(nativeInstall)));
     }
+    @Test void passesPermissionRulesAsJsonForNativeAndWslLaunches() {
+        String rule = "Bash(curl --output 'a file.png' https://isilwy.com/a,b.png)";
+        String source = "  WebFetch(domain:isilwy.com)  \r\n\n" + rule + "\n" + rule;
+        assertEquals(List.of("WebFetch(domain:isilwy.com)", rule), ClaudeClient.permissionRules(source));
+        for (String distro : List.of("", "Ubuntu")) {
+            var command = ClaudeClient.process("claude", "/tmp", distro, java.util.UUID.randomUUID().toString(), "", false, "", source).command();
+            int index = command.indexOf("--settings"); assertTrue(index >= 0);
+            var settings = JsonParser.parseString(command.get(index + 1)).getAsJsonObject();
+            assertEquals(List.of("WebFetch(domain:isilwy.com)", rule), array(obj(settings, "permissions"), "allow").asList().stream().map(JsonElement::getAsString).toList());
+            assertEquals(1, settings.size()); assertEquals(1, obj(settings, "permissions").size());
+            assertTrue(command.contains("--permission-prompt-tool"));
+            assertFalse(command.contains("--dangerously-skip-permissions"));
+            assertFalse(command.contains("--setting-sources"));
+            if (!distro.isBlank()) { assertEquals("cd -- \"$1\" && shift && exec \"$@\"", command.get(6)); }
+        }
+        assertFalse(ClaudeClient.process("claude", "/tmp", "", java.util.UUID.randomUUID().toString(), "", false).command().contains("--settings"));
+    }
+    @Test void rejectsMalformedRulesWithoutTreatingThemAsCliOptions() {
+        for (String value : List.of("--dangerously-skip-permissions", "Bash(curl", "WebFetch(domain:example.com) extra", "Bash(curl\u0000host)")) {
+            assertThrows(IllegalArgumentException.class, () -> ClaudeClient.permissionRules(value));
+        }
+        String rule = "Bash(echo '$(id)' \"quoted, text\")";
+        var command = ClaudeClient.process("claude", "/tmp", "Ubuntu", java.util.UUID.randomUUID().toString(), "", false, "", rule).command();
+        var settings = JsonParser.parseString(command.get(command.indexOf("--settings") + 1)).getAsJsonObject();
+        assertEquals(rule, array(obj(settings, "permissions"), "allow").get(0).getAsString());
+    }
+    @Test void answersPostToolHooksBeforeForwardingTranscriptEvents() throws Exception {
+        var process = new FixtureProcess(); var events = new LinkedBlockingQueue<JsonObject>();
+        try (var client = new ClaudeClient(process, events::offer, ignored -> {})) {
+            var initialized = client.initialize(true);
+            var sent = process.written.poll(2, TimeUnit.SECONDS); assertNotNull(sent);
+            assertEquals(ClaudeResponseHeaders.hooks(), obj(obj(sent, "request"), "hooks"));
+            process.emit(object("type", "control_response", "response", object("request_id", text(sent, "request_id"), "subtype", "success", "response", object())));
+            initialized.get(2, TimeUnit.SECONDS);
+            process.emit(object("type", "control_request", "request_id", "filter", "request", object("subtype", "hook_callback", "callback_id", ClaudeResponseHeaders.CALLBACK,
+                "input", object("hook_event_name", "PostToolUse", "tool_name", "WebFetch", "tool_response", object("headers", object("x-robots-tag", "noai", "Server", "test"), "body", "unchanged")))));
+            var reply = process.written.poll(2, TimeUnit.SECONDS); assertNotNull(reply);
+            var output = obj(obj(obj(obj(reply, "response"), "response"), "hookSpecificOutput"), "updatedToolOutput");
+            assertEquals(object("Server", "test"), obj(output, "headers")); assertEquals("unchanged", text(output, "body"));
+            assertTrue(events.isEmpty(), "SDK callbacks must not become chat permission cards");
+        }
+    }
     private static Path executable(Path path) throws IOException {
         Files.createDirectories(path.getParent()); Files.writeString(path, "#!/bin/sh\nexit 0\n");
         assertTrue(path.toFile().setExecutable(true)); return path;

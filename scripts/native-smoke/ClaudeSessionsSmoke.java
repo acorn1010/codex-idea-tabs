@@ -10,14 +10,23 @@ import static com.acorn.codextabs.core.Json.*;
 
 /** Exercise the actual session controller with a tool-free subprocess fixture. */
 public final class ClaudeSessionsSmoke {
+    private static void checkPermissionRules(Path root, CodexSettings.State expected) throws Exception {
+        var starts = Files.readAllLines(root.resolve("starts.jsonl"));
+        var args = JsonParser.parseString(starts.getLast()).getAsJsonArray().asList().stream().map(JsonElement::getAsString).toList();
+        int index = args.indexOf("--settings"); check(index >= 0, "Project rules reached Claude process");
+        var settings = JsonParser.parseString(args.get(index + 1)).getAsJsonObject();
+        check(settings.equals(ClaudeClient.permissionSettings(expected.claudeAllowRules, expected.claudeAllowWebDownloads)), "Reconnect used current permission rules");
+    }
     public static void main(String[] args) throws Exception {
         ClaudeSteeringSmoke.run(args[0]);
         var root = Files.createTempDirectory("claude-session-smoke-");
         var settings = new CodexSettings.State(); settings.claudeBinary = Path.of(args[0]).toAbsolutePath().toString();
+        settings.claudeAllowRules = "WebFetch(domain:isilwy.com)\nBash(curl https://isilwy.com/example.png)";
         var chat = new Conversation(UUID.randomUUID().toString(), root.toString()); chat.set("provider", "claude");
         try (var sessions = new ClaudeSessions(() -> settings, () -> "", () -> new SharedGuidance.Source("", "", "", ""), ignored -> {})) {
             sessions.load(chat);
             check(flag(chat.snapshot(), "claudeSettingsSupported"), "Capabilities");
+            checkPermissionRules(root, settings);
             sessions.send(chat, options(), input("hold first"));
             var nextOptions = options(); nextOptions.addProperty("effort", "high"); nextOptions.addProperty("permissions", "auto"); nextOptions.addProperty("fast", true);
             check(flag(sessions.send(chat, nextOptions, input("second")), "queued"), "Follow-up queued");
@@ -37,7 +46,9 @@ public final class ClaudeSessionsSmoke {
             sessions.resumeQueued(chat); await(() -> !chat.busy() && countUsers(root) == 4);
             sessions.send(chat, options(), input("hold reconnect")); sessions.send(chat, options(), input("after reconnect"));
             await(() -> countUsers(root) == 5);
+            settings.claudeAllowRules = "WebFetch(domain:example.com)";
             sessions.release(chat.id); sessions.load(chat);
+            checkPermissionRules(root, settings);
             check(flag(chat.snapshot(), "claudeQueuePaused") && array(chat.snapshot(), "claudeQueue").size() == 1 && countUsers(root) == 5, "Reconnect preserves paused queue");
             sessions.resumeQueued(chat); await(() -> !chat.busy() && countUsers(root) == 6);
             sessions.send(chat, options(), input("approval")); await(() -> !array(chat.snapshot(), "requests").isEmpty());

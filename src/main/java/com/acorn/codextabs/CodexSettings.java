@@ -16,6 +16,9 @@ public final class CodexSettings implements PersistentStateComponent<CodexSettin
         public String claudeEffort = "";
         public boolean claudeFast;
         public String claudePermissions = "ask";
+        public String claudeAllowRules = "";
+        public boolean claudeAllowWebDownloads = true;
+        public boolean claudeFilterResponseHeaders = true;
         public java.util.List<String> claudeApprovals = new java.util.ArrayList<>();
         public String distro = "";
         public String cwd = "";

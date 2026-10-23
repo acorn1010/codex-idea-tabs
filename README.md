@@ -53,6 +53,18 @@ If Codex is not on the IDE's PATH, set its full executable path under **Settings
 
 The plugin reads the available models from Codex. New workspaces start with **GPT-6-Astra / xhigh** when available. Model and reasoning choices are saved as soon as you select them, before sending a message, and return in new tabs and after an IDEA restart. These preferences are kept per workspace. Choosing **Codex default** is also remembered. Switching models keeps a supported reasoning level or uses the new model's default. Sign in through the plugin's ChatGPT sign-in button if the CLI has no account yet.
 
+### Claude permission rules
+
+Open **Settings > Tools > Codex Tabs > Claude permissions** to add one native Claude Code allow rule per line. Rules apply only to Claude chats in this IDEA project and take effect when active chats are idle. They are passed as additional CLI settings. The plugin does not edit your global or repository Claude settings.
+
+For example, `WebFetch(domain:isilwy.com)` approves Claude's WebFetch tool for that hostname. A rule such as `Bash(curl https://isilwy.com/example.png)` approves that exact command. Replace the example path with the download you want. Curl flags, other URLs, and different command forms need matching rules of their own. Bash patterns match command text and are not a strict domain filter. Leave the field empty to add no custom tool-pattern rules. The two options below are separate from this field.
+
+**Allow web downloads from all domains** is enabled by default. It preapproves WebFetch and adds a download-specific exception to Claude's automatic reviewer for ordinary GET and HEAD requests, including curl and wget. The exception says the two AI-use headers alone are not a tool-safety reason to block a requested download. It keeps the built-in rules and does not grant blanket shell approval, trust every domain with private data, or remove checks on destructive actions and execution of downloaded code. Shell downloads use this exception when the chat is in **Approve for me** mode. Explicit ask and deny rules still apply.
+
+**Remove AI-use headers from tool results** is also enabled by default. A synchronous Claude SDK `PostToolUse` callback removes `X-Robots-Tag` and `TDM-Reservation` from recognized HTTP response-header blocks and structured header fields before the next model request. It handles curl and wget response headers and supported WebFetch and MCP results. Response bodies, other headers, command errors, and binary data stay intact. It does not rewrite downloaded files, filter arbitrary mentions of those header names, or remove headers from earlier conversation history. This requires a Claude Code version with `updatedToolOutput` support. Turning the option off restores unfiltered results after the next idle reconnect.
+
+The output hook runs after the tool succeeds. It cannot make a blocked tool run, change an upstream server's decision, or filter an internal model request made within a tool. See [Claude Code permissions](https://code.claude.com/docs/en/permissions), [auto-mode configuration](https://code.claude.com/docs/en/auto-mode-config), and [PostToolUse hooks](https://code.claude.com/docs/en/hooks#posttooluse-decision-control).
+
 ### Local models with the Codex harness
 
 Start a local server with a Responses API and JSON function tool support. In **Settings > Tools > Codex Tabs > Local model**:

@@ -20,6 +20,9 @@ public final class CodexConfigurable implements Configurable {
     private final Project project;
     private final JBTextField binary = new JBTextField();
     private final JBTextField claudeBinary = new JBTextField();
+    private final JBTextArea claudeAllowRules = new JBTextArea(5, 30);
+    private final JBCheckBox claudeAllowWebDownloads = new JBCheckBox("Allow web downloads from all domains");
+    private final JBCheckBox claudeFilterResponseHeaders = new JBCheckBox("Remove AI-use headers from tool results");
     private final JBTextField distro = new JBTextField();
     private final JBTextField cwd = new JBTextField();
     private final JBTextArea additionalWritableFolders = new JBTextArea(4, 30);
@@ -57,6 +60,16 @@ public final class CodexConfigurable implements Configurable {
         row(tools, "Claude executable", claudeBinary, "Use claude, or enter its full path. Sign in from a terminal.");
         if (SystemInfo.isWindows) { row(tools, "WSL distribution", distro, "Leave blank to detect it from the project path."); }
         tabs.addTab("Command-line tools", page(tools));
+        var permissions = section("Claude permissions", "Approve selected tools and commands for Claude chats in this project.");
+        fullRow(permissions, claudeAllowWebDownloads);
+        fullRow(permissions, hint("Allows WebFetch and adds an auto-mode rule for ordinary downloads. Shell commands still receive safety review."));
+        fullRow(permissions, claudeFilterResponseHeaders);
+        fullRow(permissions, hint("Removes X-Robots-Tag and TDM-Reservation from recognized HTTP headers before tool results reach Claude. Keeps bodies and other headers intact. Requires a current Claude Code CLI."));
+        claudeAllowRules.getAccessibleContext().setAccessibleName("Claude allow rules");
+        row(permissions, "Allow rules", new JBScrollPane(claudeAllowRules), "One Claude Code rule per line. For example: WebFetch(domain:example.com) or Bash(curl https://example.com/file).");
+        fullRow(permissions, hint("Rules use Claude's native matching. Bash rules match command text, not a strict list of download hosts. Only add commands you want to approve."));
+        fullRow(permissions, hint("Additional rules control tool approval. They do not override deny rules or sandbox limits. Existing Claude settings still apply."));
+        tabs.addTab("Claude permissions", page(permissions));
         var workspace = section("Workspace", "Keep shared instructions available to subrepos and worktrees.");
         cwd.getEmptyText().setText("Current IntelliJ project"); sharedGuidance.getEmptyText().setText("Detect from the IntelliJ project folder");
         row(workspace, "Working directory", cwd, null);
@@ -108,7 +121,8 @@ public final class CodexConfigurable implements Configurable {
     @Override public boolean isModified() {
         if (connections == null) { return false; }
         var state = CodexService.get(project).settings();
-        return !claudeBinary.getText().equals(state.claudeBinary) || !binary.getText().equals(state.binary) || !distro.getText().equals(state.distro) || !cwd.getText().equals(state.cwd)
+        return claudeAllowWebDownloads.isSelected() != state.claudeAllowWebDownloads || claudeFilterResponseHeaders.isSelected() != state.claudeFilterResponseHeaders
+            || !claudeAllowRules.getText().equals(state.claudeAllowRules) || !claudeBinary.getText().equals(state.claudeBinary) || !binary.getText().equals(state.binary) || !distro.getText().equals(state.distro) || !cwd.getText().equals(state.cwd)
             || !additionalWritableFolders.getText().equals(state.additionalWritableFolders)
             || !sharedGuidance.getText().equals(state.sharedGuidanceFolder) || sharedGuidanceEnabled.isSelected() != state.sharedGuidanceEnabled
             || localSettingsModified(state)
@@ -117,6 +131,8 @@ public final class CodexConfigurable implements Configurable {
     }
     @Override public void reset() {
         var state = CodexService.get(project).settings();
+        claudeAllowWebDownloads.setSelected(state.claudeAllowWebDownloads); claudeFilterResponseHeaders.setSelected(state.claudeFilterResponseHeaders);
+        claudeAllowRules.setText(state.claudeAllowRules); claudeAllowRules.setCaretPosition(0);
         claudeBinary.setText(state.claudeBinary); binary.setText(state.binary); distro.setText(state.distro); cwd.setText(state.cwd);
         additionalWritableFolders.setText(state.additionalWritableFolders); additionalWritableFolders.setCaretPosition(0);
         sharedGuidance.setText(state.sharedGuidanceFolder); sharedGuidanceEnabled.setSelected(state.sharedGuidanceEnabled);
@@ -130,6 +146,7 @@ public final class CodexConfigurable implements Configurable {
     @Override public void apply() throws ConfigurationException {
         var entries = connections.connections();
         try {
+            com.acorn.codextabs.core.ClaudeClient.permissionRules(claudeAllowRules.getText());
             if (localModelEnabled.isSelected()) {
                 try { localModelContextWindow.commitEdit(); }
                 catch (java.text.ParseException error) { throw new IllegalArgumentException("Enter a whole number of context tokens."); }
@@ -146,7 +163,8 @@ public final class CodexConfigurable implements Configurable {
             SharedGuidance.resolve(sharedGuidanceEnabled.isSelected(), sharedGuidance.getText().trim(), Objects.toString(project.getBasePath(), ""), selectedDistro, SystemInfo.isWindows);
         } catch (RuntimeException error) { throw new ConfigurationException(error.getMessage()); }
         var service = CodexService.get(project); var state = service.settings();
-        boolean all = !state.binary.equals(binary.getText().trim()) || !state.claudeBinary.equals(claudeBinary.getText().trim()) || !state.distro.equals(distro.getText().trim())
+        boolean all = claudeAllowWebDownloads.isSelected() != state.claudeAllowWebDownloads || claudeFilterResponseHeaders.isSelected() != state.claudeFilterResponseHeaders
+            || !state.claudeAllowRules.equals(claudeAllowRules.getText()) || !state.binary.equals(binary.getText().trim()) || !state.claudeBinary.equals(claudeBinary.getText().trim()) || !state.distro.equals(distro.getText().trim())
             || !state.cwd.equals(cwd.getText().trim()) || !state.sharedGuidanceFolder.equals(sharedGuidance.getText().trim()) || state.sharedGuidanceEnabled != sharedGuidanceEnabled.isSelected();
         boolean api = !state.apiConnections.equals(entries) || connections.keysModified()
             || !state.additionalWritableFolders.equals(additionalWritableFolders.getText())
@@ -159,6 +177,8 @@ public final class CodexConfigurable implements Configurable {
             catch (RuntimeException error) { failure.set(error); }
         }, "Saving API credentials", false, project);
         if (failure.get() != null) { throw new ConfigurationException("Could not save the API key in the IDE credential store. Your settings have not been applied."); }
+        state.claudeAllowRules = claudeAllowRules.getText();
+        state.claudeAllowWebDownloads = claudeAllowWebDownloads.isSelected(); state.claudeFilterResponseHeaders = claudeFilterResponseHeaders.isSelected();
         state.claudeBinary = claudeBinary.getText().trim(); state.binary = binary.getText().trim(); state.distro = distro.getText().trim(); state.cwd = cwd.getText().trim();
         state.additionalWritableFolders = additionalWritableFolders.getText();
         state.sharedGuidanceEnabled = sharedGuidanceEnabled.isSelected(); state.sharedGuidanceFolder = sharedGuidance.getText().trim();

@@ -24,6 +24,8 @@ public final class ApiSettingsSmoke {
         var frame = ui(() -> { var window = new JFrame("Codex Tabs settings check"); window.setContentPane(root); window.setSize(900, 820); window.setVisible(true); return window; });
         try {
             check(!ui(config::isModified), "Opening settings changed stored values");
+            checkClaudePermissions(config, root, service, output);
+            if (Boolean.getBoolean("codex.smoke.claudePermissions.only")) { return; }
             ui(() -> { button(root, "Add custom API").doClick();
                 ((JCheckBox) field(config, "localModelEnabled")).doClick();
                 ((JTextField) field(config, "localModelUrl")).setText("http://127.0.0.1:30002/v1");
@@ -98,12 +100,50 @@ public final class ApiSettingsSmoke {
             var xml = XmlSerializer.serialize(service.settings()); var restored = XmlSerializer.deserialize(xml, CodexSettings.State.class);
             check(restored.apiConnections.size() == 1 && restored.apiConnections.getFirst().equals(service.settings().apiConnections.getFirst()), "IDE settings serialization lost connection metadata");
             check(restored.localModelId.equals("qwen-coder") && restored.localModelContextWindow == 32768 && restored.localModelProfile.equals("auto") && restored.localModelHistory.contains("qwen-coder"), "IDE settings serialization lost generic model settings");
+            check(restored.claudeAllowRules.equals(service.settings().claudeAllowRules) && restored.claudeAllowRules.contains("WebFetch(domain:isilwy.com)"), "IDE settings serialization lost Claude allow rules");
             JDOMUtil.write(xml, output.resolve("api-settings.xml"));
             ui(() -> { config.reset(); button(root, "Add custom API").doClick(); config.disposeUIResources(); return null; });
             check(service.settings().apiConnections.size() == 1, "Cancel saved a draft connection");
-            Files.writeString(output.resolve("api-settings-result.json"), GSON.toJson(object("apiCheckIcons", true, "customConnection", true, "localSettings", true, "localAliasIsolation", true, "applyWithoutRestart", true, "cancel", true, "customModels", true,
+            Files.writeString(output.resolve("api-settings-result.json"), GSON.toJson(object("claudeAllowRules", true, "apiCheckIcons", true, "customConnection", true, "localSettings", true, "localAliasIsolation", true, "applyWithoutRestart", true, "cancel", true, "customModels", true,
                 "noChatGptLogin", true, "searchSettingPreserved", true, "perChatRouting", true, "staleModelGuard", true, "handoffDraft", true, "deferredReconnect", true, "resume", true, "settingsRoundTrip", true)));
         } finally { ui(() -> { config.disposeUIResources(); frame.dispose(); return null; }); }
+    }
+    private static void checkClaudePermissions(CodexConfigurable config, JComponent root, CodexService service, Path output) throws Exception {
+        var rules = (JTextArea) field(config, "claudeAllowRules");
+        var downloads = (JCheckBox) field(config, "claudeAllowWebDownloads");
+        var headers = (JCheckBox) field(config, "claudeFilterResponseHeaders");
+        check(ui(downloads::isSelected) && ui(headers::isSelected), "Download and header-filter defaults are off");
+        ui(() -> { downloads.doClick(); headers.doClick(); return null; });
+        check(ui(config::isModified), "Download settings did not enable Apply");
+        ui(() -> { config.reset(); return null; });
+        check(ui(downloads::isSelected) && ui(headers::isSelected), "Reset lost download settings");
+        String value = "WebFetch(domain:isilwy.com)\nBash(curl https://isilwy.com/example.png)";
+        ui(() -> { rules.setText(value); return null; });
+        check(ui(config::isModified) && service.settings().claudeAllowRules.isBlank(), "Draft permission rules escaped before Apply");
+        ui(() -> { config.reset(); return null; });
+        check(ui(rules::getText).isBlank() && !ui(config::isModified), "Reset did not discard permission rules");
+        ui(() -> {
+            rules.setText("--dangerously-skip-permissions");
+            try { config.apply(); throw new AssertionError("Invalid permission rule was accepted"); }
+            catch (com.intellij.openapi.options.ConfigurationException expected) { /* Invalid settings must remain a draft. */ }
+            check(service.settings().claudeAllowRules.isBlank(), "Invalid permission rule changed saved settings");
+            rules.setText(value); downloads.setSelected(false); headers.setSelected(false); config.apply();
+            check(!service.settings().claudeAllowWebDownloads && !service.settings().claudeFilterResponseHeaders, "Apply did not disable download options");
+            downloads.setSelected(true); headers.setSelected(true); config.apply();
+            for (var tabs : descendants(root, JTabbedPane.class)) {
+                int index = tabs.indexOfTab("Claude permissions"); if (index >= 0) { tabs.setSelectedIndex(index); }
+            }
+            return null;
+        });
+        check(service.settings().claudeAllowRules.equals(value) && !ui(config::isModified), "Apply lost Claude permission rules");
+        var restored = XmlSerializer.deserialize(XmlSerializer.serialize(service.settings()), CodexSettings.State.class);
+        check(restored.claudeAllowRules.equals(value) && restored.claudeAllowWebDownloads && restored.claudeFilterResponseHeaders, "IDE settings serialization lost Claude permission rules or download options");
+        capture(root, output.resolve("claude-permissions.png"));
+        Files.writeString(output.resolve("claude-permissions-result.json"), GSON.toJson(object("draft", true, "reset", true, "invalidInput", true, "apply", true, "downloadOptions", true, "settingsRoundTrip", true)));
+        ui(() -> {
+            for (var tabs : descendants(root, JTabbedPane.class)) { tabs.setSelectedIndex(0); }
+            return null;
+        });
     }
     private static void checkLocalModel(CodexService service, com.acorn.codextabs.core.Conversation chat, CodexConfigurable config, JComponent root, Path output) throws Exception {
         service.send(chat.id, object("text", "Generic local model", "model", "qwen-coder", "permissions", "ask", "fast", true, "effort", "xhigh")).get(20, TimeUnit.SECONDS);
