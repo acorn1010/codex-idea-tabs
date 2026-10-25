@@ -14,6 +14,12 @@ import static com.acorn.codextabs.core.Json.*;
 /** Exercise file links in a disposable profile whose browser executable only records its arguments. */
 final class LinkSmoke {
     static void run(Project project, Path output) throws Exception {
+        FileLinkLookupSmoke.run();
+        if (Boolean.getBoolean("codex.smoke.links.onlyLookup")) {
+            checkSourceLink(project, System.getProperty("codex.smoke.links.source"));
+            Files.writeString(output.resolve("links-result.json"), GSON.toJson(object("cachedLookup", true, "freshLookup", true, "missingFile", true, "timeoutCancelsWorker", true, "lateNavigationBlocked", true, "wslEditorNavigation", true)));
+            return;
+        }
         var service = CodexService.get(project); service.restoreReady().get(10, TimeUnit.SECONDS); service.connect().get(10, TimeUnit.SECONDS);
         var root = Path.of(service.cwd()); var html = root.resolve("page with #.html"); var source = root.resolve("notes.txt");
         Files.writeString(html, "<!doctype html><h1 id='overview'>Overview</h1>");
@@ -45,6 +51,22 @@ final class LinkSmoke {
             }
             check(service.connectionStatus().equals("connected") && chat.get("error").isBlank(), "Link failure changed the chat connection");
             Files.writeString(output.resolve("links-result.json"), GSON.toJson(object("htmlBrowserAnchorAndQuery", true, "encodedFilename", true, "literalSourceFilename", true, "sourceLineAndColumn", true, "firstLine", true, "missingFile", true, "connectionKept", true)));
+        } finally { ui(() -> { editor.dispose(); return null; }); }
+    }
+    private static void checkSourceLink(Project project, String path) throws Exception {
+        if (path == null) { throw new IllegalArgumentException("Set codex.smoke.links.source to a fixture file"); }
+        var service = CodexService.get(project); service.restoreReady().get(10, TimeUnit.SECONDS);
+        var chat = service.create();
+        var file = (ChatFiles.ChatFile) VirtualFileManager.getInstance().getFileSystem("codex-chat").findFileByPath(project.getLocationHash() + "/" + chat.id);
+        var editor = ui(() -> new ChatEditor(project, file));
+        var handle = ChatEditor.class.getDeclaredMethod("handle", String.class, JsonObject.class); handle.setAccessible(true);
+        String host = com.acorn.codextabs.core.Paths.host(path, service.distro(), com.intellij.openapi.util.SystemInfo.isWindows);
+        try {
+            ((CompletableFuture<?>) handle.invoke(editor, "openLink", object("path", path + ":2:3"))).get(10, TimeUnit.SECONDS);
+            check(ui(() -> java.util.Arrays.stream(FileEditorManager.getInstance(project).getOpenFiles()).anyMatch(open -> open.getPath().equals(host))), "WSL file did not open in the editor");
+            check(ui(() -> FileEditorManager.getInstance(project).getSelectedTextEditor().getCaretModel().getLogicalPosition().line) == 1, "WSL file line navigation failed");
+            check(ui(() -> FileEditorManager.getInstance(project).getSelectedTextEditor().getCaretModel().getLogicalPosition().column) == 2, "WSL file column navigation failed");
+            ((CompletableFuture<?>) handle.invoke(editor, "openLink", object("path", path))).get(10, TimeUnit.SECONDS);
         } finally { ui(() -> { editor.dispose(); return null; }); }
     }
     private static void check(boolean condition, String message) { if (!condition) { throw new AssertionError(message); } }

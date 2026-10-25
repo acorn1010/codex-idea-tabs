@@ -17,13 +17,17 @@ try {
   const page = await browser.newPage(); const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
     const chat = { id: 'links', threadId: 'links', title: 'Links', cwd: '/repo', draft: 'Keep this draft', items: [
-      { id: 'answer', type: 'agentMessage', text: '[Overview](/repo/output/index.html#overview)\n\n[Code](/repo/app.java#L12)\n\n[Missing page](/repo/output/a-long-missing-folder/missing.html#overview)\n\n[Website](https://example.com/page#overview)' },
+      { id: 'answer', type: 'agentMessage', text: '[Overview](/repo/output/index.html#overview)\n\n[Code](/repo/app.java#L12)\n\n[Missing page](/repo/output/a-long-missing-folder/missing.html#overview)\n\n[Website](https://example.com/page#overview)\n\n[Pending file](/repo/pending.java)' },
       { id: 'change', type: 'fileChange', status: 'completed', changes: [{ path: '/repo/missing.java', kind: { type: 'update' }, diff: '+ changed' }] },
     ], requests: [], status: 'idle', working: false, unread: false, pinned: false, revision: 1 };
     const snapshot = { connection: 'connected', error: '', project: 'Project', cwd: '/repo', settings: { permissions: 'ask' }, models: [], account: {}, sessions: [chat], chat };
     window.__calls = []; let failures = 0;
     window.__codexSend = raw => {
       const call = JSON.parse(raw); const { id, method, params } = call; window.__calls.push(call);
+      if (method === 'openLink' && params.path === '/repo/pending.java') {
+        window.__finishLink = () => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, result: {} } }));
+        return;
+      }
       const error = method === 'openLink' && (params.path === '/repo/missing.java' || params.path.includes('missing.html') && failures++ === 0) ? `File not found: ${params.path.split('#')[0]}` : undefined;
       queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, error, result: method === 'ready' ? snapshot : method === 'context' ? { files: [], selection: '' } : { data: [] } } })));
     };
@@ -35,6 +39,14 @@ try {
     await page.getByRole('link', { name: 'Code', exact: true }).click();
     await page.getByRole('link', { name: 'Website', exact: true }).click();
     assert.deepEqual(await page.evaluate(() => window.__calls.filter(call => call.method === 'openLink').map(call => call.params.path)), ['/repo/output/index.html#overview', '/repo/app.java#L12', 'https://example.com/page#overview']);
+    const pending = page.getByRole('link', { name: 'Pending file', exact: true }); await pending.click();
+    await page.getByRole('status').filter({ hasText: 'Opening link' }).waitFor();
+    assert.equal(await pending.getAttribute('aria-busy'), 'true');
+    // Dispatch repeated clicks even though the pending control is marked disabled.
+    await pending.evaluate(link => { link.click(); link.click(); });
+    assert.equal(await page.evaluate(() => window.__calls.filter(call => call.method === 'openLink' && call.params.path === '/repo/pending.java').length), 1);
+    await page.evaluate(() => window.__finishLink());
+    await page.waitForFunction(() => !document.querySelector('a[aria-busy="true"]'));
     const missing = page.getByRole('link', { name: 'Missing page', exact: true }); await missing.click();
     const answer = page.locator('[data-message-id="answer"]'); await answer.getByRole('alert').waitFor();
     assert.equal(await page.getByRole('button', { name: 'Reconnect', exact: true }).count(), 0);

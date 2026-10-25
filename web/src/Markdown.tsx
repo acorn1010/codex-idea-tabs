@@ -99,11 +99,16 @@ function CopyCodeBlock({ text, children }: { text: string; children: ReactNode }
 /** File and web link failures stay beside the link and never change the chat connection. */
 export const ChatLink = memo(function ChatLink({ path, children, source = false, className = 'text-accent underline decoration-accent/30 underline-offset-2 hover:decoration-accent active:bg-accent/15 active:text-ink' }: { path: string; children: ReactNode; source?: boolean; className?: string }) {
   const [error, setError] = useState('');
+  const [opening, setOpening] = useState(false);
+  const pending = useRef(false);
   return <span className="min-w-0">
-    <a href="#" title={path} className={className} onClick={(event) => {
-      event.preventDefault(); setError('');
-      if (path) { void request('openLink', { path, ...(source ? { source: true } : {}) }).catch((error: Error) => setError(error.message)); }
+    <a href="#" title={path} aria-busy={opening} aria-disabled={opening} className={className} onClick={(event) => {
+      event.preventDefault();
+      if (!path || pending.current) { return; }
+      pending.current = true; setOpening(true); setError('');
+      void request('openLink', { path, ...(source ? { source: true } : {}) }).catch((error: Error) => setError(error.message)).finally(() => { pending.current = false; setOpening(false); });
     }}>{children}</a>
+    {opening && <span role="status" className="ml-1 text-xs text-muted">Opening link…</span>}
     {error && <span role="alert" className="mt-1 flex items-start gap-2 text-xs text-danger"><span className="min-w-0 break-words">Could not open link: {error}</span><button type="button" onClick={() => setError('')} className="shrink-0 rounded px-1 hover:bg-danger/10 active:bg-danger/20">Dismiss</button></span>}
   </span>;
 });

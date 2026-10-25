@@ -339,12 +339,8 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         var link = source ? new com.acorn.codextabs.core.FileLink(com.acorn.codextabs.core.Paths.link(value, cwd), -1, 0, null, null)
             : com.acorn.codextabs.core.FileLink.parse(value, cwd);
         String hostPath = com.acorn.codextabs.core.Paths.host(link.path(), service.distro(), SystemInfo.isWindows);
-        // WSL file refresh can block. Only editor navigation belongs on the UI thread.
-        return CompletableFuture.supplyAsync(() -> {
-            var target = LocalFileSystem.getInstance().refreshAndFindFileByPath(hostPath);
-            if (target == null) { throw new IllegalArgumentException("File not found: " + hostPath); }
-            return target;
-        }).thenCompose(target -> uiResult(() -> {
+        // Keep WSL lookup off the UI thread and reuse known files before requesting a refresh.
+        return FileLinkLookup.find(hostPath).thenCompose(target -> uiResult(() -> {
             if (!source && link.preview()) { BrowserUtil.browse(link.browserUrl(target.toNioPath().toUri().toASCIIString())); }
             else if (link.line() >= 0) { new OpenFileDescriptor(project, target, link.line(), link.column()).navigate(true); }
             else { FileEditorManager.getInstance(project).openFile(target, true); }
