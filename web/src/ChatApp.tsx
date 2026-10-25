@@ -91,8 +91,9 @@ export function ChatApp() {
   const [permissionPreference, setPermissionPreference] = useState('auto');
   const selectedModel = state?.models.find((item) => model ? item.model === model || item.id === model : item.isDefault);
   const isLocal = !!selectedModel?.isLocal;
-  // An unsupported model uses Ask me without forgetting the user's saved choice.
-  const permissions = permissionPreference === 'auto' && (customApi || (isClaude && !selectedModel?.supportsAutoMode)) ? 'ask' : permissionPreference;
+  // Keep the saved mode while capabilities load. The host validates it before sending.
+  const autoApprovalUnavailable = customApi || (isClaude && !!selectedModel && !selectedModel.supportsAutoMode);
+  const permissions = permissionPreference === 'auto' && autoApprovalUnavailable ? 'ask' : permissionPreference;
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [sending, setSending] = useState(false);
   const [archivePending, setArchivePending] = useState(false);
@@ -555,7 +556,7 @@ export function ChatApp() {
             { value: 'read', label: isClaude ? 'Plan mode' : 'Read only', shortLabel: isClaude ? 'Plan' : 'Read', description: isClaude ? 'Explore and plan' : 'No file changes', tone: 'success', icon: <Icon name="search" size={16} /> },
             { value: 'ask', label: 'Ask me', shortLabel: 'Ask', description: 'You review requests', tone: 'accent', icon: <Icon name="shield" size={16} /> },
             ...(isClaude ? [{ value: 'edit', label: 'Accept edits', shortLabel: 'Edit', description: 'File edits without asking', tone: 'attention' as const, icon: <Icon name="edit" size={16} /> }] : []),
-            ...(!customApi && (!isClaude || selectedModel?.supportsAutoMode) ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'AI reviews requests', tone: 'warning' as const, icon: <Icon name="reasoning" size={16} /> }] : []),
+            ...(!autoApprovalUnavailable ? [{ value: 'auto', label: 'Approve for me', shortLabel: 'Auto', description: 'AI reviews requests', tone: 'warning' as const, icon: <Icon name="reasoning" size={16} /> }] : []),
             { value: 'session', label: 'Approve all for session', shortLabel: 'Session', description: 'No review until reconnect or close', tone: 'danger', icon: <Icon name="bolt" size={16} /> },
           ]} />
           </div>
