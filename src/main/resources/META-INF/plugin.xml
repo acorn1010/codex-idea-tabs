@@ -35,6 +35,10 @@
         <p>Independent project. Not affiliated with OpenAI, Anthropic, or JetBrains.</p>
     ]]></description>
     <change-notes><![CDATA[
+        <h3>1.0.24</h3>
+        <ul>
+            <li>Fix Claude startup from Windows into WSL by passing settings through a temporary file and preserving paths with spaces.</li>
+        </ul>
         <h3>1.0.22</h3>
         <ul>
             <li>Configure local model IDs, context sizes, and compatibility profiles while keeping existing GLM tuning.</li>

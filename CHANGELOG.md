@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.24
+
+- Fix Claude startup from Windows into WSL when settings JSON loses its quotes. Pass settings in a temporary file and keep paths with spaces intact.
+
 ## 1.0.23
 
 - Keep Claude auto approval when a new chat sends before its model list finishes loading.

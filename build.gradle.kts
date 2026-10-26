@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "com.acorn.codextabs"
-version = "1.0.23"
+version = "1.0.24"
 
 repositories {
     mavenCentral()
