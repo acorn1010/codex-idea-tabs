@@ -14,7 +14,7 @@ public final class ClaudeSessionsSmoke {
         var starts = Files.readAllLines(root.resolve("starts.jsonl"));
         var args = JsonParser.parseString(starts.getLast()).getAsJsonArray().asList().stream().map(JsonElement::getAsString).toList();
         int index = args.indexOf("--settings"); check(index >= 0, "Project rules reached Claude process");
-        var settings = JsonParser.parseString(args.get(index + 1)).getAsJsonObject();
+        var settings = JsonParser.parseString(Files.readString(Path.of(args.get(index + 1)))).getAsJsonObject();
         check(settings.equals(ClaudeClient.permissionSettings(expected.claudeAllowRules, expected.claudeAllowWebDownloads)), "Reconnect used current permission rules");
     }
     public static void main(String[] args) throws Exception {

@@ -180,8 +180,10 @@ The check sends only the startup handshake and does not send a prompt to a model
 
 The fixture checks the actual Windows-to-WSL process, preserving quotes,
 Markdown separators, shell characters, Unicode, and instructions longer than
-Windows' command-line limit. It also checks that closing a client removes its
-temporary instruction file. An instruction block previously became 225 separate
+Windows' command-line limit. It checks JSON settings, project and executable paths
+with spaces, and temporary paths with spaces when set through `java.io.tmpdir`.
+Closing a client or failing to start it must remove its temporary settings and
+instruction files. An instruction block previously became 225 separate
 arguments in this check, which made Claude report an unknown `---` option.
 
 ## PR search

@@ -13,7 +13,7 @@ import static com.acorn.codextabs.core.Json.*;
 /** Claude Code's stream-json transport. Each process owns one resumable conversation. */
 public final class ClaudeClient implements AutoCloseable {
     private final Process process;
-    private final Path guidanceFile;
+    private final List<Path> launchFiles;
     private final BufferedWriter writer;
     private final ConcurrentMap<String, CompletableFuture<JsonObject>> pending = new ConcurrentHashMap<>();
     // Native process pipes can occupy virtual-thread carriers indefinitely, starving sends and reconnects.
@@ -24,27 +24,36 @@ public final class ClaudeClient implements AutoCloseable {
     private final StringBuilder stderr = new StringBuilder();
     private final ArrayBlockingQueue<String> outbound = new ArrayBlockingQueue<>(256);
 
-    /** Keep shared instructions out of Windows command-line parsing and its size limit. */
+    /** Keep JSON settings and shared instructions out of Windows command-line parsing and its size limit. */
     public static ClaudeClient start(ProcessBuilder builder, String distro, String guidance,
                                      Consumer<JsonObject> events, Consumer<String> disconnected) throws IOException {
-        Path guidanceFile = null;
+        var files = new ArrayList<Path>();
         try {
-            if (!guidance.isBlank()) {
-                guidanceFile = Files.createTempFile("codex-tabs-claude-", ".txt");
-                Files.writeString(guidanceFile, guidance, StandardCharsets.UTF_8);
-                builder.command().addAll(List.of("--append-system-prompt-file", distro.isBlank() ? guidanceFile.toString() : Paths.linux(guidanceFile.toString())));
+            var command = builder.command();
+            int settings = command.indexOf("--settings");
+            if (settings >= 0 && settings + 1 < command.size() && command.get(settings + 1).startsWith("{")) {
+                command.set(settings + 1, launchFile(files, distro, ".json", command.get(settings + 1)));
             }
-            return new ClaudeClient(builder.start(), events, disconnected, guidanceFile);
+            if (!guidance.isBlank()) {
+                command.addAll(List.of("--append-system-prompt-file", launchFile(files, distro, ".txt", guidance)));
+            }
+            return new ClaudeClient(builder.start(), events, disconnected, List.copyOf(files));
         } catch (IOException | RuntimeException error) {
-            removeGuidance(guidanceFile);
+            removeLaunchFiles(files);
             throw error;
         }
     }
-    public ClaudeClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected) {
-        this(process, events, disconnected, null);
+    private static String launchFile(List<Path> files, String distro, String suffix, String content) throws IOException {
+        var file = Files.createTempFile("codex-tabs-claude-", suffix);
+        files.add(file);
+        Files.writeString(file, content, StandardCharsets.UTF_8);
+        return distro.isBlank() ? file.toString() : Paths.linux(file.toString());
     }
-    private ClaudeClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected, Path guidanceFile) {
-        this.process = process; this.disconnected = disconnected; this.guidanceFile = guidanceFile;
+    public ClaudeClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected) {
+        this(process, events, disconnected, List.of());
+    }
+    private ClaudeClient(Process process, Consumer<JsonObject> events, Consumer<String> disconnected, List<Path> launchFiles) {
+        this.process = process; this.disconnected = disconnected; this.launchFiles = launchFiles;
         writer = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
         workers.submit(() -> {
             try (var lines = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
@@ -124,14 +133,15 @@ public final class ClaudeClient implements AutoCloseable {
         pending.values().forEach(future -> future.completeExceptionally(new IOException(reason))); pending.clear();
         outbound.clear();
         CompletableFuture.delayedExecutor(2, TimeUnit.SECONDS).execute(() -> { if (process.isAlive()) { process.destroyForcibly(); } });
-        process.destroy(); removeGuidance(guidanceFile);
+        process.destroy(); removeLaunchFiles(launchFiles);
         workers.shutdownNow(); disconnected.accept(reason);
     }
     @Override public void close() { fail("Disconnected"); }
-    private static void removeGuidance(Path file) {
-        if (file == null) { return; }
-        try { Files.deleteIfExists(file); }
-        catch (IOException ignored) { file.toFile().deleteOnExit(); }
+    private static void removeLaunchFiles(List<Path> files) {
+        for (var file : files) {
+            try { Files.deleteIfExists(file); }
+            catch (IOException ignored) { file.toFile().deleteOnExit(); }
+        }
     }
 
     /** Find native and npm installations without depending on the desktop IDE's shell PATH. */
@@ -203,7 +213,10 @@ public final class ClaudeClient implements AutoCloseable {
         if (!anchor.isBlank()) { UUID.fromString(anchor); arguments.add("--resume-session-at=" + anchor); }
         ProcessBuilder builder;
         if (!distro.isBlank()) {
-            var command = new ArrayList<>(List.of("wsl.exe", "--distribution", distro, "--exec", "/bin/sh", "-lc", "cd -- \"$1\" && shift && exec \"$@\"", "codex-tabs", cwd));
+            String script = "cd -- \"$1\" && shift && exec \"$@\"";
+            // WSL parses the Windows command line again, so its shell script needs literal quotes.
+            if (System.getProperty("os.name").startsWith("Windows")) { script = script.replace("\"", "\\\""); }
+            var command = new ArrayList<>(List.of("wsl.exe", "--distribution", distro, "--exec", "/bin/sh", "-lc", script, "codex-tabs", cwd));
             command.addAll(arguments); builder = new ProcessBuilder(command);
         } else {
             builder = new ProcessBuilder(arguments).directory(Path.of(cwd).toFile());

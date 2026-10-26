@@ -102,7 +102,6 @@ class ClaudeClientTest {
             assertTrue(command.contains("--permission-prompt-tool"));
             assertFalse(command.contains("--dangerously-skip-permissions"));
             assertFalse(command.contains("--setting-sources"));
-            if (!distro.isBlank()) { assertEquals("cd -- \"$1\" && shift && exec \"$@\"", command.get(6)); }
         }
         assertFalse(ClaudeClient.process("claude", "/tmp", "", java.util.UUID.randomUUID().toString(), "", false).command().contains("--settings"));
     }
