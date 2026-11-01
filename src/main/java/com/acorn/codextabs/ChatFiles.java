@@ -52,11 +52,14 @@ public final class ChatFiles extends DeprecatedVirtualFileSystem {
     }
     public static final class ChatFile extends LightVirtualFile {
         public final String id;
+        public final String projectId;
         private final String path;
         private final ChatFiles fs;
         private ChatFile(String path, ChatFiles fs) {
             super("Codex", CHAT_FILE_TYPE, "");
-            this.path = path; this.fs = fs; id = path.substring(path.indexOf('/') + 1);
+            this.path = path; this.fs = fs;
+            int separator = path.indexOf('/');
+            projectId = path.substring(0, separator); id = path.substring(separator + 1);
         }
         @Override public String getPath() { return path; }
         @Override public VirtualFileSystem getFileSystem() { return fs; }

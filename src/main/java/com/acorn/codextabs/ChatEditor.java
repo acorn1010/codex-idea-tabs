@@ -29,6 +29,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     private final Project project;
     private final ChatFiles.ChatFile file;
     private final CodexService service;
+    private final CompletableFuture<Void> restored;
     private final JPanel panel = new JPanel(new BorderLayout());
     private final Consumer<String> listener;
     private final javax.swing.Timer updates;
@@ -48,6 +49,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
     public ChatEditor(Project project, ChatFiles.ChatFile file) {
         this.project = project; this.file = file; service = CodexService.get(project);
         service.editorOpened(file.id);
+        restored = service.restoreReady(file.projectId, file.id);
         panel.add(new JLabel("Opening chat…", SwingConstants.CENTER));
         listener = id -> { dirty = true; };
         service.listen(listener);
@@ -189,7 +191,7 @@ public final class ChatEditor extends UserDataHolderBase implements FileEditor {
         }
         switch (method) {
             case "provider": return service.selectProvider(file.id, text(params, "provider"));
-            case "ready": return service.restoreReady().thenApply(ignored -> {
+            case "ready": return restored.thenApply(ignored -> {
                 ready = true; dirty = true; service.load(file.id); return service.snapshot(file.id);
             });
             case "composerReady": return uiResult(() -> { composerReady = true; focusComposer(); });

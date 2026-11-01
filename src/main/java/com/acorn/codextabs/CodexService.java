@@ -32,6 +32,7 @@ public final class CodexService implements Disposable {
     private final java.nio.file.Path cache;
     private final ConversationStore store;
     private final CompletableFuture<Void> restored;
+    private final ConcurrentMap<String, CompletableFuture<Void>> projectRestores = new ConcurrentHashMap<>();
     private volatile boolean dirty;
     private volatile boolean disposed;
     private volatile boolean chatRestoreFailed;
@@ -852,6 +853,36 @@ public final class CodexService implements Disposable {
     }
     /** Restored editors must read their saved identity and draft before publishing or resuming. */
     public CompletableFuture<Void> restoreReady() { return restored; }
+    /** A saved tab URL can name an older cache after IDEA changes a project's path or name. */
+    public CompletableFuture<Void> restoreReady(String projectId, String id) {
+        if (projectId.equals(project.getLocationHash())) { return restored; }
+        if (!projectId.matches("[A-Za-z0-9_-]+")) { return CompletableFuture.failedFuture(new IllegalArgumentException("Invalid saved chat project.")); }
+        return restored.thenCompose(ignored -> {
+            var current = chats.get(id);
+            if (current != null && (!current.get("threadId").isBlank() || !current.items().isEmpty())) { return CompletableFuture.completedFuture(null); }
+            return projectRestores.computeIfAbsent(projectId, key -> CompletableFuture.runAsync(() -> {
+                var source = cache.getParent().getParent().resolve(key).resolve("chats.json");
+                var fallback = java.nio.file.Path.of(PathManager.getSystemPath(), "codex-tabs", key, "chats.json");
+                try {
+                    for (var saved : new ConversationStore(source).load(fallback)) {
+                        chats.compute(saved.id, (chatId, existing) -> {
+                            if (existing == null) { return saved; }
+                            if (existing.busy() || !existing.get("threadId").isBlank() || !existing.items().isEmpty()) { return existing; }
+                            var snapshot = existing.snapshot();
+                            if (!existing.get("draft").isBlank() || !array(snapshot, "draftAttachments").isEmpty()) {
+                                for (String field : List.of("draft", "draftInput", "draftSkills", "draftAttachments")) {
+                                    if (snapshot.has(field)) { saved.set(field, snapshot.get(field)); }
+                                }
+                            }
+                            saved.replaceAfter(existing.revision());
+                            return saved;
+                        });
+                    }
+                    changed("");
+                } catch (Exception error) { throw new IllegalStateException("Could not restore chats from the saved tab's project cache.", error); }
+            }, io));
+        });
+    }
     public CompletableFuture<Void> load(String id) {
         return restored.thenComposeAsync(ignored -> loadRestored(id), io);
     }
