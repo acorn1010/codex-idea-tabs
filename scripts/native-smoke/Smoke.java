@@ -106,6 +106,9 @@ public final class Smoke implements StartupActivity.DumbAware {
                     LifecycleSmoke.run(project, Path.of(System.getProperty("idea.log.path")));
                     return;
                 }
+                if (Boolean.getBoolean("codex.smoke.sidebar.renderer.check")) {
+                    SidebarRendererSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
+                }
                 if (Boolean.getBoolean("codex.smoke.sidebar.actions.check")) {
                     service.reconnect(); SidebarActionsSmoke.run(project, Path.of(System.getProperty("idea.log.path"))); return;
                 }

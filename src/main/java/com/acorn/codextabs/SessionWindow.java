@@ -75,6 +75,9 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private String undoId = "";
         private String workspace = "";
         private SessionButton workspaceFilter;
+        // List layout retains renderer roots until painting, including while the sidebar is hidden.
+        private final RowRenderer renderer = new RowRenderer();
+        private final RowRenderer measurementRenderer = new RowRenderer();
 
         Sessions(Project project) {
             this.project = project; service = CodexService.get(project);
@@ -211,79 +214,115 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
             archives.setIcon(SessionIcons.icon(value ? "back" : "archive"));
             dirty = true; refresh(false);
         }
-        private JComponent row(Row value, int index, boolean selected) { return row(value, index, selected, false); }
-        private JComponent row(Row value, int index, boolean selected, boolean showActions) {
-            var chat = value.chat();
-            boolean archived = flag(chat, "archived");
-            boolean hover = index == hoverIndex, pressed = index == pressedIndex;
-            boolean active = text(chat, "id").equals(activeId);
-            var outer = plain(new BorderLayout());
-            // IDEA paints list selection under the renderer. Cover it so only the chat body is highlighted.
-            outer.setOpaque(true); outer.setBackground(list.getBackground());
-            if (!value.group().isBlank()) {
-                var group = label(value.group() + "  " + value.count(), groupColor(value.group()));
-                group.setFont(group.getFont().deriveFont(Font.BOLD, group.getFont().getSize2D() - 1));
-                group.setBorder(JBUI.Borders.empty(10, 8, 5, 8)); outer.add(group, BorderLayout.NORTH);
-            }
-            var body = new JPanel(new BorderLayout(JBUI.scale(8), 0)) {
+        private JComponent row(Row value, int index, boolean selected) { return renderer.configure(value, index, selected, false); }
+
+        /** Reuse one component tree across rows instead of retaining a tree for each layout pass. */
+        private final class RowRenderer extends JPanel {
+            private boolean hover;
+            private boolean pressed;
+            private boolean active;
+            private boolean selected;
+            private final JBLabel group = label("", SessionTheme.MUTED);
+            private final JBLabel icon = label("", SessionTheme.MUTED);
+            private final JBLabel name = label("", SessionTheme.TEXT);
+            private final JBLabel preview = label("", SessionTheme.MUTED);
+            private final JBLabel ageLabel = label("", SessionTheme.MUTED);
+            private final JPanel copy = plain(new BorderLayout());
+            private final JPanel actions = plain(new FlowLayout(FlowLayout.RIGHT, 0, 0));
+            private final ActionIcon archiveAction = new ActionIcon();
+            private final ActionIcon moreAction = new ActionIcon();
+            private final JPanel body = new JPanel(new BorderLayout()) {
                 @Override protected void paintComponent(Graphics graphics) {
                     var g = (Graphics2D) graphics.create();
                     g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    Color fill = pressed && pressedAction == 0 ? SessionTheme.PRESSED : hover ? SessionTheme.HOVER : active || selected && list.hasFocus() ? SessionTheme.SELECTED : null;
+                    Color fill = pressed && pressedAction == 0 ? SessionTheme.PRESSED : hover ? SessionTheme.HOVER : active || selected ? SessionTheme.SELECTED : null;
                     if (fill != null) { g.setColor(fill); g.fillRoundRect(0, 0, getWidth(), getHeight(), JBUI.scale(8), JBUI.scale(8)); }
                     if (active) { g.setColor(SessionTheme.ACCENT); g.fillRoundRect(0, JBUI.scale(12), JBUI.scale(2), getHeight() - JBUI.scale(24), 2, 2); }
                     g.dispose();
                 }
             };
-            body.setOpaque(false); body.setBorder(JBUI.Borders.empty(8, 8, 8, 6));
-            var icon = label("", SessionTheme.MUTED);
-            icon.setIcon(archived ? SessionIcons.icon("archive") : ChatFiles.icon(text(chat, "status")));
-            icon.setVerticalAlignment(SwingConstants.TOP); body.add(icon, BorderLayout.WEST);
-            var copy = plain(new BorderLayout(0, JBUI.scale(3)));
-            var name = label(text(chat, "title", "New chat"), SessionTheme.TEXT);
-            if (Set.of("attention", "complete").contains(text(chat, "status"))) { name.setFont(name.getFont().deriveFont(Font.BOLD)); }
-            copy.add(name, BorderLayout.NORTH);
-            String detail = switch (text(chat, "status")) {
-                case "attention" -> "Waiting for your input";
-                case "working" -> "Working on this task";
-                case "complete" -> "New response";
-                case "error" -> "Needs a retry";
-                default -> flag(chat, "hasDraft") ? "Draft saved" : text(chat, "preview").isBlank() ? text(chat, "threadId").isBlank() ? "No messages yet" : "Open conversation" : text(chat, "preview");
-            };
-            if (!text(chat, "matchedPullRequest").isBlank()) { detail = text(chat, "matchedPullRequest") + (archived ? " · Archived" : ""); }
-            detail = (text(chat, "provider").equals("claude") ? "Claude · " : "") + text(chat, "workspaceLabel") + " · " + detail;
-            var preview = label(detail, text(chat, "status").equals("attention") ? SessionTheme.ATTENTION : SessionTheme.MUTED);
-            preview.setFont(preview.getFont().deriveFont(preview.getFont().getSize2D() - 1)); copy.add(preview, BorderLayout.SOUTH);
-            body.add(copy, BorderLayout.CENTER);
-            var actions = plain(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-            actions.setPreferredSize(JBUI.size(56, 28));
-            if (showActions || hover || selected && list.hasFocus()) {
-                actions.add(actionIcon(archived ? "restore" : "archive", archived || canArchive(chat), hoverAction == 1 && hover, pressedAction == 1 && pressed));
-                actions.add(actionIcon("more", true, hoverAction == 2 && hover, pressedAction == 2 && pressed));
-            } else {
-                var age = label(age(chat), SessionTheme.MUTED);
-                age.setFont(age.getFont().deriveFont(age.getFont().getSize2D() - 2));
-                if (flag(chat, "pinned")) { age.setIcon(SessionIcons.icon("pin")); }
-                actions.add(age);
+            private Font normalFont;
+            private Font boldFont;
+            private float scale;
+            private boolean showingActions;
+
+            RowRenderer() {
+                super(new BorderLayout());
+                // Cover IDEA's list selection so only the chat body is highlighted.
+                setOpaque(true); body.setOpaque(false);
+                icon.setVerticalAlignment(SwingConstants.TOP);
+                copy.add(name, BorderLayout.NORTH); copy.add(preview, BorderLayout.SOUTH);
+                actions.add(ageLabel);
+                body.add(icon, BorderLayout.WEST); body.add(copy, BorderLayout.CENTER); body.add(actions, BorderLayout.EAST);
+                add(group, BorderLayout.NORTH); add(body, BorderLayout.CENTER);
             }
-            body.add(actions, BorderLayout.EAST); outer.add(body, BorderLayout.CENTER);
-            outer.getAccessibleContext().setAccessibleName(text(chat, "title") + ", " + detail + (archived ? ", archived" : ""));
-            return outer;
-        }
-        private JComponent actionIcon(String name, boolean enabled, boolean hover, boolean pressed) {
-            var icon = new JBLabel(SessionIcons.icon(name)) {
-                @Override protected void paintComponent(Graphics graphics) {
-                    if (enabled && (hover || pressed)) {
-                        var g = (Graphics2D) graphics.create();
-                        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                        g.setColor(pressed ? SessionTheme.PRESSED : SessionTheme.SELECTED); g.fillRoundRect(1, 0, getWidth() - 2, getHeight(), 6, 6); g.dispose();
-                    }
-                    super.paintComponent(graphics);
+            JComponent configure(Row value, int index, boolean selected, boolean showActions) {
+                updateMetrics();
+                var chat = value.chat();
+                boolean archived = flag(chat, "archived");
+                String status = text(chat, "status");
+                hover = index == hoverIndex; pressed = index == pressedIndex;
+                active = text(chat, "id").equals(activeId); this.selected = selected && list.hasFocus();
+                setBackground(list.getBackground());
+                group.setVisible(!value.group().isBlank());
+                group.setText(value.group() + "  " + value.count()); group.setForeground(groupColor(value.group()));
+                icon.setIcon(archived ? SessionIcons.icon("archive") : ChatFiles.icon(status));
+                name.setText(text(chat, "title", "New chat")); name.setFont(Set.of("attention", "complete").contains(status) ? boldFont : normalFont);
+                String detail = switch (status) {
+                    case "attention" -> "Waiting for your input";
+                    case "working" -> "Working on this task";
+                    case "complete" -> "New response";
+                    case "error" -> "Needs a retry";
+                    default -> flag(chat, "hasDraft") ? "Draft saved" : text(chat, "preview").isBlank() ? text(chat, "threadId").isBlank() ? "No messages yet" : "Open conversation" : text(chat, "preview");
+                };
+                if (!text(chat, "matchedPullRequest").isBlank()) { detail = text(chat, "matchedPullRequest") + (archived ? " · Archived" : ""); }
+                detail = (text(chat, "provider").equals("claude") ? "Claude · " : "") + text(chat, "workspaceLabel") + " · " + detail;
+                preview.setText(detail); preview.setForeground(status.equals("attention") ? SessionTheme.ATTENTION : SessionTheme.MUTED);
+                boolean nextActions = showActions || hover || this.selected;
+                if (nextActions != showingActions) {
+                    actions.removeAll();
+                    if (nextActions) { actions.add(archiveAction); actions.add(moreAction); }
+                    else { actions.add(ageLabel); }
+                    showingActions = nextActions;
                 }
-            };
-            icon.setPreferredSize(JBUI.size(28, 28)); icon.setHorizontalAlignment(SwingConstants.CENTER);
-            icon.setForeground(enabled ? SessionTheme.TEXT : SessionTheme.MUTED); icon.setEnabled(enabled);
-            return icon;
+                if (nextActions) {
+                    archiveAction.configure(archived ? "restore" : "archive", archived || canArchive(chat), hoverAction == 1 && hover, pressedAction == 1 && pressed);
+                    moreAction.configure("more", true, hoverAction == 2 && hover, pressedAction == 2 && pressed);
+                } else {
+                    ageLabel.setText(age(chat)); ageLabel.setIcon(flag(chat, "pinned") ? SessionIcons.icon("pin") : null);
+                }
+                getAccessibleContext().setAccessibleName(text(chat, "title") + ", " + detail + (archived ? ", archived" : ""));
+                return this;
+            }
+            private void updateMetrics() {
+                var font = UIManager.getFont("Label.font");
+                if (font == null) { font = list.getFont(); }
+                float nextScale = JBUI.scale(1f);
+                if (font.equals(normalFont) && scale == nextScale) { return; }
+                normalFont = font; boldFont = font.deriveFont(Font.BOLD); scale = nextScale;
+                group.setFont(font.deriveFont(Font.BOLD, font.getSize2D() - 1));
+                icon.setFont(font); preview.setFont(font.deriveFont(font.getSize2D() - 1)); ageLabel.setFont(font.deriveFont(font.getSize2D() - 2));
+                group.setBorder(JBUI.Borders.empty(10, 8, 5, 8)); body.setBorder(JBUI.Borders.empty(8, 8, 8, 6));
+                ((BorderLayout) body.getLayout()).setHgap(JBUI.scale(8)); ((BorderLayout) copy.getLayout()).setVgap(JBUI.scale(3));
+                actions.setPreferredSize(JBUI.size(56, 28)); archiveAction.setPreferredSize(JBUI.size(28, 28)); moreAction.setPreferredSize(JBUI.size(28, 28));
+            }
+        }
+        private static final class ActionIcon extends JBLabel {
+            private boolean hover;
+            private boolean pressed;
+            ActionIcon() { setHorizontalAlignment(SwingConstants.CENTER); }
+            void configure(String name, boolean enabled, boolean hover, boolean pressed) {
+                this.hover = hover; this.pressed = pressed;
+                setIcon(SessionIcons.icon(name)); setForeground(enabled ? SessionTheme.TEXT : SessionTheme.MUTED); setEnabled(enabled);
+            }
+            @Override protected void paintComponent(Graphics graphics) {
+                if (isEnabled() && (hover || pressed)) {
+                    var g = (Graphics2D) graphics.create();
+                    g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                    g.setColor(pressed ? SessionTheme.PRESSED : SessionTheme.SELECTED); g.fillRoundRect(1, 0, getWidth() - 2, getHeight(), 6, 6); g.dispose();
+                }
+                super.paintComponent(graphics);
+            }
         }
         private void open() { if (list.getSelectedValue() != null) { ChatFiles.open(project, text(list.getSelectedValue().chat(), "id"), false); } }
         // Measure the same renderer used for painting. Font size, cell insets, and UI scaling can
@@ -291,7 +330,7 @@ public final class SessionWindow implements ToolWindowFactory, DumbAware {
         private HitAreas hitAreas(int index) {
             var cell = list.getCellBounds(index, index);
             if (hitAreas != null && hitAreas.index() == index && hitAreas.cell().equals(cell) && hitAreas.scale() == JBUI.scale(1f)) { return hitAreas; }
-            var renderer = row(model.get(index), index, false, true);
+            var renderer = measurementRenderer.configure(model.get(index), index, false, true);
             renderer.setBounds(0, 0, cell.width, cell.height); renderer.doLayout();
             var body = (JPanel) ((BorderLayout) renderer.getLayout()).getLayoutComponent(BorderLayout.CENTER);
             body.doLayout();

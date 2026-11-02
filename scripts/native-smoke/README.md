@@ -68,6 +68,8 @@ Set `-Dcodex.smoke.sidebar.check=true` to run the native sidebar checks. They cl
 
 Set `-Dcodex.smoke.sidebar.actions.check=true` to check long-title tooltips, both sidebar button targets at multiple widths and display scales, clicks during list refreshes, Undo, and protection when a different chat moves under a held click. This opens only the native sidebar with fresh fake chats. Results and captures use the `sidebar-actions-` prefix in the test log directory.
 
+Set `-Dcodex.smoke.sidebar.renderer.check=true` to stress sidebar layout while it is hidden. The check runs 200 layout passes over 60 fake chats and records retained renderer roots, render calls, thread allocations, and elapsed time in `sidebar-renderer-result.json`. It rejects a renderer that creates new component trees or accumulates children in Swing’s renderer pane. Run it against the original and fixed plugin ZIPs in separate disposable profiles for comparison.
+
 Also check the native sidebar at a narrow width. Rows and toolbar buttons must have distinct hover and pressed states. Clicking a row once should open it. The context menu can open to the side, rename, pin, or archive an idle chat.
 
 Close and restart the test profile normally. Verify that the native split layout, draft, attachment, and image preview return. Inspect the IDEA log for errors naming this plugin. The opt-in real subscription test is separate, under `core/src/test`.
