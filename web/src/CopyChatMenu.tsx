@@ -37,7 +37,7 @@ export function CopyChatMenu({ disabled, onError }: { disabled: boolean; onError
     if (copyState === 'copying') { return; }
     close(); window.clearTimeout(copyTimer.current); setCopyState('copying'); onError('');
     try {
-      const transcript = await request<Pick<Chat, 'title' | 'items' | 'requests' | 'provider'>>('chatTranscript');
+      const transcript = await request<Pick<Chat, 'title' | 'items' | 'requests' | 'provider'>>('chatTranscript', { mode });
       await request('copy', { text: chatMarkdown(transcript, mode) });
       setCopyState('copied'); copyTimer.current = window.setTimeout(() => setCopyState('idle'), 1500);
     } catch (error) { setCopyState('idle'); onError(`Could not copy chat: ${(error as Error).message}`); }

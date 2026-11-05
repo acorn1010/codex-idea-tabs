@@ -138,10 +138,36 @@ public final class ClaudeSessionsSmoke {
             checkSessionApprovalLifetime(sessions, root);
             checkBackgroundActivity(sessions, root);
             checkAccountRefresh(settings, root.resolve("account-refresh"));
+            checkTranscriptExport(sessions, root);
             System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands, native goal replies.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
         }
+    }
+    private static void checkTranscriptExport(ClaudeSessions sessions, Path root) throws Exception {
+        String thread = UUID.randomUUID().toString();
+        var directory = Files.createDirectories(Path.of(System.getenv("CLAUDE_CONFIG_DIR"), "projects", "copy-fixture"));
+        var file = directory.resolve(thread + ".jsonl");
+        var frames = List.of(
+            object("uuid", "old", "type", "user", "message", object("content", "The original prompt")),
+            object("uuid", "reply", "parentUuid", "old", "type", "assistant", "message", object("id", "original-answer", "content", List.of(object("type", "text", "text", "The original reply")))),
+            object("uuid", "compact", "type", "system", "subtype", "compact_boundary", "logicalParentUuid", "reply"),
+            object("uuid", "summary", "parentUuid", "compact", "type", "user", "isCompactSummary", true, "message", object("content", "This session is being continued from a previous conversation")),
+            object("uuid", "latest", "parentUuid", "summary", "type", "user", "message", object("content", "The latest prompt")));
+        Files.writeString(file, String.join("\n", frames.stream().map(GSON::toJson).toList()) + "\n");
+        var chat = new Conversation(UUID.randomUUID().toString(), root.toString());
+        chat.set("provider", "claude"); chat.set("threadId", thread); chat.set("archived", true); chat.set("draft", "Do not copy this draft");
+        var before = chat.snapshot(); int starts = Files.readAllLines(root.resolve("starts.jsonl")).size();
+        try {
+            String exported = GSON.toJson(sessions.exportTranscript(before, true));
+            check(exported.contains("The original prompt") && exported.contains("The original reply") && exported.contains("The latest prompt"), "Copy reads the complete on-disk conversation");
+            check(!exported.contains("This session is being continued") && !exported.contains("Do not copy this draft"), "Conversation copy excludes generated summaries and unsent drafts");
+            check(before.equals(chat.snapshot()) && Files.readAllLines(root.resolve("starts.jsonl")).size() == starts, "Copy does not resume or modify an archived chat");
+            Files.delete(file);
+            try { sessions.exportTranscript(before, true); throw new AssertionError("Copied incomplete history"); }
+            catch (IllegalStateException expected) { check(expected.getMessage().contains("whole Claude conversation"), "Missing history reports a copy error"); }
+        } finally { Files.deleteIfExists(file); Files.delete(directory); }
+        System.out.println("Claude transcript copy: pre-compaction prompts and replies, generated-summary filtering, archived state, no process launch, and missing-history errors passed.");
     }
     private static void checkAccountRefresh(CodexSettings.State settings, Path root) throws Exception {
         Files.createDirectories(root);

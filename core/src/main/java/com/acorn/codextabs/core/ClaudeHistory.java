@@ -37,20 +37,40 @@ public final class ClaudeHistory {
         found.sort(Comparator.comparingLong((JsonObject value) -> value.get("updatedAt").getAsLong()).reversed());
         return GSON.toJsonTree(found).getAsJsonArray();
     }
-    public JsonArray read(String id) throws IOException {
+    public JsonArray read(String id) throws IOException { return read(id, false); }
+    /** Export original ancestry across compactions, keeping resume's compacted view unchanged. */
+    public JsonArray transcript(String id) throws IOException { return read(id, true); }
+    private JsonArray read(String id, boolean complete) throws IOException {
         UUID.fromString(id);
         var file = files().stream().filter(path -> path.getFileName().toString().equals(id + ".jsonl")).max(Comparator.comparingLong(path -> path.toFile().lastModified()));
-        if (file.isEmpty()) { return new JsonArray(); }
+        if (file.isEmpty()) {
+            if (complete) { throw new IOException("Claude's saved transcript was not found. Retry after Claude saves this chat."); }
+            return new JsonArray();
+        }
         var nodes = new LinkedHashMap<String, JsonObject>();
         String[] leaf = {""};
         lines(file.get(), frame -> {
             String uuid = text(frame, "uuid");
             if (uuid.isBlank() || flag(frame, "isSidechain")) { return; }
-            nodes.put(uuid, frame);
+            if (complete && text(frame, "subtype").equals("compact_boundary")) {
+                var boundary = frame.deepCopy();
+                String previous = text(frame, "logicalParentUuid");
+                if (!nodes.containsKey(previous)) { previous = leaf[0]; }
+                boundary.addProperty("parentUuid", previous); nodes.putIfAbsent(uuid, boundary);
+            } else if (complete) {
+                // Compaction can append the same UUID with a new parent. Keep its original ancestry.
+                nodes.putIfAbsent(uuid, frame);
+            } else { nodes.put(uuid, frame); }
             if (Set.of("user", "assistant", "system").contains(text(frame, "type"))) { leaf[0] = uuid; }
         });
         var chain = new ArrayList<JsonObject>(); var seen = new HashSet<String>();
-        for (String at = leaf[0]; nodes.containsKey(at) && seen.add(at); at = text(nodes.get(at), "parentUuid")) { chain.add(nodes.get(at)); }
+        for (String at = leaf[0]; !at.isBlank(); at = text(nodes.get(at), "parentUuid")) {
+            if (!nodes.containsKey(at) || !seen.add(at)) {
+                if (complete) { throw new IOException("Claude's saved transcript has a missing or repeated history link. The whole conversation could not be copied."); }
+                break;
+            }
+            chain.add(nodes.get(at));
+        }
         Collections.reverse(chain); return GSON.toJsonTree(chain).getAsJsonArray();
     }
     private static void lines(Path file, java.util.function.Consumer<JsonObject> consume) throws IOException {

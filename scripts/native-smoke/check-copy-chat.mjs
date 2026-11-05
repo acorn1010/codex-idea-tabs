@@ -18,8 +18,9 @@ try {
   const errors = []; page.on('pageerror', error => errors.push(error.message));
   await page.addInitScript(() => {
     const mode = new URLSearchParams(location.search).get('mode');
+    const provider = new URLSearchParams(location.search).get('provider') || 'codex';
     const items = [{ id: 'latest', type: 'agentMessage', text: '**Latest reply** with Markdown.' }];
-    const chat = { id: 'copy', threadId: mode === 'empty' ? '' : 'copy', title: 'Whole chat', cwd: '/project', draft: 'Unsent draft',
+    const chat = { id: 'copy', provider, threadId: mode === 'empty' ? '' : 'copy', title: 'Whole chat', cwd: '/project', draft: 'Unsent draft',
       items: mode === 'empty' ? [] : items, requests: [], status: 'idle', working: false, archived: mode === 'archived', unread: false, pinned: false, revision: 1, historyCursor: 'earlier' };
     const snapshot = { connection: 'connected', error: '', project: 'Project', cwd: '/project', settings: { model: '', effort: '', permissions: 'auto' }, models: [], account: {}, sessions: [], chat };
     window.__requests = []; window.__copies = [];
@@ -27,8 +28,12 @@ try {
       const { id, method, params } = JSON.parse(raw); window.__requests.push({ method, params });
       const reply = (result, error) => queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, result, error } })));
       if (method === 'chatTranscript') {
-        window.__finishCopy = error => reply({ title: chat.title, items: [
-          { id: 'first', type: 'userMessage', content: [{ type: 'text', text: 'Oldest message from history.' }] },
+        window.__finishCopy = error => reply({ title: chat.title, provider, items: [
+          { id: 'first', type: 'userMessage', content: [{ type: 'text', text: '<system-reminder>CONTEXT_REMINDER</system-reminder>\nOldest message from history.' }] },
+          { id: 'old-reply', type: 'agentMessage', text: 'First useful reply before compaction.' },
+          { id: 'summary', type: 'userMessage', isCompactSummary: true, text: 'This session is being continued from a previous conversation that ran out of context.' },
+          { id: 'meta', type: 'userMessage', isMeta: true, text: 'SYNTHETIC_CONTEXT' },
+          { id: 'task', type: 'userMessage', promptSource: 'system', text: 'BACKGROUND_NOTIFICATION' },
           { id: 'command', type: 'commandExecution', command: 'git status', aggregatedOutput: 'working tree clean', exitCode: 0 }, ...items,
         ], requests: [] }, error);
         return;
@@ -47,8 +52,8 @@ try {
   };
   for (const width of [360, 900]) {
     await page.setViewportSize({ width, height: 720 });
-    for (const mode of ['active', 'archived']) {
-      await page.goto(`${url}?mode=${mode}`);
+    for (const [mode, provider] of ['active', 'archived'].flatMap(mode => ['codex', 'claude'].map(provider => [mode, provider]))) {
+      await page.goto(`${url}?mode=${mode}&provider=${provider}`);
       await copy.waitFor();
       assert.equal(await page.getByRole('button', { name: 'Find chat (Ctrl+K)', exact: true }).count(), 0);
       assert.equal(await page.getByRole('button', { name: 'New chat to side', exact: true }).count(), 0);
@@ -62,7 +67,7 @@ try {
       await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label') === 'Copy conversation');
       const bounds = await menu.boundingBox();
       assert.ok(bounds.x >= 0 && bounds.x + bounds.width <= width && bounds.y >= 0 && bounds.y + bounds.height <= 720);
-      await page.screenshot({ path: `${output}/copy-chat-menu-${mode}-${width}.png` });
+      await page.screenshot({ path: `${output}/copy-chat-menu-${mode}-${provider}-${width}.png` });
       await page.keyboard.press('ArrowDown');
       assert.equal(await menu.getByRole('menuitem', { name: 'Copy full chat', exact: true }).evaluate(element => element === document.activeElement), true);
       await page.keyboard.press('Home');
@@ -93,14 +98,17 @@ try {
       assert.ok(text.includes('## User\n\nOldest message from history.'));
       assert.ok(!text.includes('git status'));
       assert.ok(!text.includes('working tree clean'));
-      assert.ok(text.includes('## Codex\n\n**Latest reply** with Markdown.'));
+      assert.ok(text.includes(`## ${provider === 'claude' ? 'Claude' : 'Codex'}\n\n**Latest reply** with Markdown.`));
+      assert.ok(text.includes('First useful reply before compaction.'));
+      for (const hidden of ['system-reminder', 'CONTEXT_REMINDER', 'SYNTHETIC_CONTEXT', 'This session is being continued', 'BACKGROUND_NOTIFICATION']) { assert.ok(!text.includes(hidden)); }
+      assert.equal(await page.evaluate(() => window.__requests.filter(call => call.method === 'chatTranscript').at(-1).params.mode), 'conversation');
       assert.ok(text.indexOf('Oldest message') < text.indexOf('Latest reply'));
       assert.ok(!text.includes('Unsent draft'));
       assert.equal(await page.getByRole('button', { name: 'Load earlier history', exact: true }).locator('..').innerText(), before, 'Copy does not change the visible transcript');
-      if (mode === 'active') { assert.equal(await page.getByRole('textbox', { name: 'Message Codex', exact: true }).inputValue(), 'Unsent draft'); }
+      if (mode === 'active') { assert.equal(await page.getByRole('textbox', { name: provider === 'claude' ? 'Message Claude' : 'Message Codex', exact: true }).inputValue(), 'Unsent draft'); }
       else { assert.ok(await page.getByRole('button', { name: 'Restore chat', exact: true }).isVisible()); }
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-      await page.screenshot({ path: `${output}/copy-chat-${mode}-${width}.png` });
+      await page.screenshot({ path: `${output}/copy-chat-${mode}-${provider}-${width}.png` });
       await copy.click(); await menu.getByRole('menuitem', { name: 'Copy full chat', exact: true }).click();
       await page.evaluate(() => window.__finishCopy());
       await page.waitForFunction(() => window.__copies.length === 2);
@@ -108,6 +116,8 @@ try {
       const full = await page.evaluate(() => window.__copies[1]);
       assert.ok(full.includes('```shell\ngit status\n```'));
       assert.ok(full.includes('working tree clean'));
+      assert.ok(full.includes('CONTEXT_REMINDER') && full.includes('This session is being continued'));
+      assert.equal(await page.evaluate(() => window.__requests.filter(call => call.method === 'chatTranscript').at(-1).params.mode), 'full');
       assert.ok(full.includes('Oldest message from history.'));
       assert.ok(full.includes('Latest reply'));
       // A history failure must leave the clipboard untouched and allow a retry.

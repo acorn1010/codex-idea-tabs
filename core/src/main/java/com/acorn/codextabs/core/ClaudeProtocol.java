@@ -64,7 +64,7 @@ public final class ClaudeProtocol {
                 String uuid = text(frame, "uuid");
                 unacknowledgedSteers.remove(uuid);
                 // Replayed input can contain hidden handoff context. Preserve the original visible message.
-                boolean known = chat.items().asList().stream().anyMatch(value -> text(value.getAsJsonObject(), "id").equals(uuid));
+                boolean known = chat.hasItem(uuid);
                 if (!userInput.isEmpty() && !uuid.isBlank() && !known) { item(object("id", uuid, "type", "userMessage", "content", userInput), true); }
                 for (var content : array(obj(frame, "message"), "content")) {
                     var result = content.getAsJsonObject();

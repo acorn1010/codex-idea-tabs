@@ -2,6 +2,31 @@ import { describe, expect, it } from 'vitest';
 import { chatMarkdown } from './chatMarkdown';
 
 describe('chat Markdown', () => {
+  it('removes generated context and reminders without dropping the actual prompts and useful replies', () => {
+    const chat = { provider: 'claude' as const, title: 'Readable chat', items: [
+      { id: 'summary', type: 'userMessage', isCompactSummary: true, text: 'This session is being continued from a previous conversation that ran out of context.' },
+      { id: 'meta', type: 'userMessage', isMeta: true, text: 'Injected instructions' },
+      { id: 'task', type: 'userMessage', promptSource: 'system', text: 'Background task notification' },
+      { id: 'user', type: 'userMessage', text: '<system-reminder>SECRET_METADATA</system-reminder>Actual **question**.\n\n<system-reminder>More metadata</system-reminder>' },
+      { id: 'empty', type: 'userMessage', text: '<system-reminder>Only metadata</system-reminder>' },
+      { id: 'reply', type: 'agentMessage', text: 'Useful answer.\n<system-reminder>INTERNAL_NOTE <system-reminder>nested</system-reminder></system-reminder>' },
+    ] };
+    const copied = chatMarkdown(chat);
+    expect(copied).toContain('Actual **question**.'); expect(copied).toContain('Useful answer.');
+    for (const text of ['system-reminder', 'SECRET_METADATA', 'INTERNAL_NOTE', 'continued', 'Injected instructions', 'Only metadata', 'Background task notification']) { expect(copied).not.toContain(text); }
+    expect(copied.match(/## User/g)).toHaveLength(1);
+    expect(chatMarkdown(chat, 'full')).toContain('SECRET_METADATA');
+    expect(chatMarkdown(chat, 'full')).toContain('This session is being continued');
+  });
+  it('preserves literal reminder tags in quoted code and actual user discussion of continuation text', () => {
+    const prompt = 'Explain `<system-reminder>example</system-reminder>`.\n\n```xml\n<system-reminder>literal code</system-reminder>\n````\n\nThis session is being continued: what does that mean?';
+    const copied = chatMarkdown({ title: 'Examples', items: [{ id: 'u', type: 'userMessage', text: prompt }] });
+    expect(copied).toContain(prompt);
+    const inline = 'Explain <system-reminder>literal XML</system-reminder> in this sentence.';
+    expect(chatMarkdown({ title: 'Inline', items: [{ id: 'u', type: 'userMessage', text: inline }] })).toContain(inline);
+    expect(chatMarkdown({ title: 'Tags', items: [{ id: 'u', type: 'userMessage', text: 'What is <system-reminder> used for?' }] })).toContain('What is <system-reminder> used for?');
+  });
+
   it('keeps the author of each reply after repeated provider switches', () => {
     const chat = { provider: 'claude' as const, title: 'Mixed chat', items: [
       { id: 'old', type: 'agentMessage', historyProvider: 'codex', text: 'Original answer' },

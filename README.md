@@ -205,7 +205,7 @@ This requires a Codex version that supports `skills/extraRoots/set` and `thread/
 | New chat | `Ctrl+Alt+N` or the Codex sidebar's **New chat** button |
 | New chat beside this one | **Tools → Codex Tabs → New Chat to Side** |
 | Find a chat | `Ctrl+K` or `Cmd+K` inside a chat, or use the sidebar search. Paste a PR URL, `owner/repo#123`, `#123`, or a PR number to search saved chats across both providers, including archived chats |
-| Copy the whole chat | Chat header’s **Copy chat as Markdown** icon opens a menu. **Copy conversation** is first and copies only user messages and Codex replies. **Copy full chat** also includes thinking and tool activity. Both include older messages and work for archived chats |
+| Copy the whole chat | Chat header’s **Copy chat as Markdown** icon opens a menu. **Copy conversation** is first and copies actual user prompts and assistant replies, without generated context summaries or system reminders. It reads the full saved history, including Claude messages before compaction. **Copy full chat** also includes thinking, generated context, and tool activity. Both work for archived chats without resuming them |
 | Go to a chat that needs input | `Ctrl+Alt+A` or the sidebar's **Needs you** filter |
 | Add selected code | Select code, then **Codex: Discuss Selected Code** in the editor context menu |
 | Send a message | `Enter` |

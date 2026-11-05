@@ -53,6 +53,12 @@ final class ClaudeSessions implements AutoCloseable {
         refreshHistory(copy);
         return copy.snapshot();
     }
+    JsonObject exportTranscript(JsonObject snapshot, boolean conversation) {
+        try {
+            var frames = text(snapshot, "threadId").isBlank() ? new JsonArray() : history().transcript(text(snapshot, "threadId"));
+            return ChatTranscript.claude(snapshot, frames, conversation);
+        } catch (java.io.IOException error) { throw new IllegalStateException("Could not copy the whole Claude conversation. " + error.getMessage(), error); }
+    }
     JsonObject list(Set<String> directories, String search) {
         try { return object("data", history().list(directories, search)); }
         catch (java.io.IOException error) { throw new IllegalStateException("Could not list Claude sessions.", error); }

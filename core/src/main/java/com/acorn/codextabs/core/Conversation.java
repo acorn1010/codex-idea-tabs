@@ -88,6 +88,8 @@ public final class Conversation {
         pullRequests.clear(); pullRequests.add(get("title")); items.values().forEach(pullRequests::addItem);
         revision++; historyRevision = revision;
     }
+    /** Check replayed message IDs without copying the whole conversation. */
+    public synchronized boolean hasItem(String id) { return items.containsKey(id); }
     public synchronized JsonArray items() {
         var result = new JsonArray();
         items.values().forEach(item -> result.add(item.deepCopy()));

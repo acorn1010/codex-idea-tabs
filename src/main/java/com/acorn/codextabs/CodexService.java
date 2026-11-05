@@ -925,9 +925,10 @@ public final class CodexService implements Disposable {
         }));
     }
     /** Read complete history separately so copying does not alter the visible transcript or chat state. */
-    public CompletableFuture<JsonObject> transcript(String id) {
+    public CompletableFuture<JsonObject> transcript(String id) { return transcript(id, false); }
+    public CompletableFuture<JsonObject> transcript(String id, boolean conversation) {
         var snapshot = chat(id).snapshot();
-        if (isClaude(id)) { return CompletableFuture.completedFuture(snapshot); }
+        if (text(snapshot, "provider").equals("claude")) { return CompletableFuture.supplyAsync(() -> claude.exportTranscript(snapshot, conversation), io); }
         if (text(snapshot, "threadId").isBlank()) { return CompletableFuture.completedFuture(ChatTranscript.read(snapshot, cursor -> new JsonObject())); }
         return connect().thenApplyAsync(rpc -> ChatTranscript.read(snapshot, cursor -> {
             var params = object("threadId", text(snapshot, "threadId"), "limit", 100, "sortDirection", "desc");
