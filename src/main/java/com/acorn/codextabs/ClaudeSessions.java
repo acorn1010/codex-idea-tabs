@@ -78,8 +78,14 @@ final class ClaudeSessions implements AutoCloseable {
         catch (Exception error) { result.addProperty("rateLimitsError", "Could not read subscription limits. " + CodexService.message(error)); }
         return result;
     }
-    JsonObject mcp(Conversation chat) {
-        var response = session(chat).client.control(object("subtype", "mcp_status")).join();
+    JsonObject mcp(Conversation chat) { return mcp(chat, false); }
+    JsonObject mcp(Conversation chat, boolean refresh) {
+        var session = session(chat);
+        JsonObject response;
+        synchronized (session) {
+            refreshAccount(session, refresh);
+            response = session.client.control(object("subtype", "mcp_status")).orTimeout(10, TimeUnit.SECONDS).join();
+        }
         var data = new JsonArray();
         for (var entry : array(response, "mcpServers")) {
             var server = entry.getAsJsonObject().deepCopy(); var tools = new JsonObject();
@@ -121,6 +127,7 @@ final class ClaudeSessions implements AutoCloseable {
         }
     }
     private JsonObject steer(Session session, JsonObject payload, JsonArray input) {
+        if (session.chat.busy()) { refreshAccount(session, false); }
         var chat = session.chat;
         var body = content(input);
         synchronized (session.protocol) {
@@ -166,6 +173,7 @@ final class ClaudeSessions implements AutoCloseable {
                 session.sessionId = chat.get("threadId").isBlank() ? UUID.randomUUID().toString() : chat.get("threadId");
                 refreshHistory(chat);
                 var shared = guidance.get();
+                session.account = ClaudeAccount.read(ClaudeClient.authentication(binary, chat.get("cwd"), distro.get()));
                 var builder = ClaudeClient.process(binary, chat.get("cwd"), distro.get(), session.sessionId, resume, fork, fork ? chat.get("claudeResumeAt") : "", settings.get().claudeAllowRules, settings.get().claudeAllowWebDownloads);
                 session.client = ClaudeClient.start(builder, distro.get(), shared.claudeContext(), event -> session.event(event, generation), reason -> {
                     if (session.closed || session.generation.get() != generation) { return; }
@@ -196,13 +204,30 @@ final class ClaudeSessions implements AutoCloseable {
             }
         }
     }
+    private void refreshAccount(Session session, boolean force) {
+        String binary = distro.get().isBlank() ? ClaudeClient.executable(settings.get().claudeBinary) : settings.get().claudeBinary;
+        if (binary.isBlank()) { binary = "claude"; }
+        var account = ClaudeAccount.read(ClaudeClient.authentication(binary, session.chat.get("cwd"), distro.get()));
+        if (!force && (account.isEmpty() || account.equals(session.account))) { return; }
+        var chat = session.chat;
+        if (chat.busy() || chat.hasBackgroundWork()) {
+            throw new IllegalStateException("Finish or stop Claude's active work before reloading connectors for the current account.");
+        }
+        if (account.isPresent() && !account.get().loggedIn()) {
+            throw new IllegalStateException("Claude is signed out. Sign in with claude in a terminal, then retry. Your message was not sent.");
+        }
+        boolean paused = session.paused;
+        // A new process discovers the current account's connector IDs. Resume the saved conversation.
+        session.close();
+        session(chat);
+        session.paused = paused; chat.set("claudeQueuePaused", paused);
+    }
     JsonObject send(Conversation chat, JsonObject payload, JsonArray input) {
         if (payload.has("goalObjective")) { throw new IllegalArgumentException("Goals are available only in Codex chats."); }
         var session = session(chat);
         content(input); // Validate attachments before accepting a queued prompt.
         synchronized (session) {
             if (flag(payload, "steer")) { return steer(session, payload, input); }
-            validateOptions(chat, payload);
             String command = input.size() == 1 && text(input.get(0).getAsJsonObject(), "type").equals("text") ? text(input.get(0).getAsJsonObject(), "text").strip() : "";
             if (Set.of("/goal", "/goal clear").contains(command) && !chat.busy() && !session.starting) {
                 // Goal status and clear must remain usable while stopped follow-ups are paused.
@@ -210,6 +235,7 @@ final class ClaudeSessions implements AutoCloseable {
                 return start(session, payload, input);
             }
             if (chat.busy() || session.queue.hasNext() || session.starting) {
+                validateOptions(chat, payload);
                 var queued = session.queue.add(payload, input); changed.accept(chat);
                 return object("queued", true, "id", text(queued, "id"));
             }
@@ -229,7 +255,9 @@ final class ClaudeSessions implements AutoCloseable {
         }
     }
     private JsonObject start(Session session, JsonObject payload, JsonArray input) {
+        refreshAccount(session, false);
         var chat = session.chat;
+        validateOptions(chat, payload);
         String requestedPermissions = payload.has("reviewTarget") ? "read" : text(payload, "permissions", chat.approvals.mode(settings.get().claudePermissions));
         String permissions;
         String model = text(payload, "model", settings.get().claudeModel);
@@ -355,6 +383,7 @@ final class ClaudeSessions implements AutoCloseable {
         volatile boolean initialized;
         volatile boolean closed;
         String sessionId;
+        Optional<ClaudeAccount> account = Optional.empty();
         Session(Conversation chat) { this.chat = chat; protocol = new ClaudeProtocol(chat); queue = new ClaudeQueue(chat); }
         void next() { next(true); }
         void next(boolean explicit) {
@@ -364,7 +393,7 @@ final class ClaudeSessions implements AutoCloseable {
                     paused = false; chat.set("claudeQueuePaused", false);
                     var entry = queue.take(); if (entry == null) { return; }
                     starting = true;
-                    try { validateOptions(chat, obj(entry, "payload")); start(this, obj(entry, "payload"), array(entry, "input")); }
+                    try { start(this, obj(entry, "payload"), array(entry, "input")); }
                     catch (Exception error) {
                         // Keep a failed send available to retry, without an automatic retry loop.
                         queue.retry(entry);

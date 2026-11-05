@@ -211,6 +211,13 @@ public final class ClaudeClient implements AutoCloseable {
         if (resume.isBlank() || fork) { arguments.add("--session-id=" + session); }
         if (fork) { arguments.add("--fork-session"); }
         if (!anchor.isBlank()) { UUID.fromString(anchor); arguments.add("--resume-session-at=" + anchor); }
+        return command(binary, cwd, distro, arguments);
+    }
+    /** Read the same local or WSL login used by the chat, without starting a model session. */
+    public static ProcessBuilder authentication(String binary, String cwd, String distro) {
+        return command(binary, cwd, distro, List.of(binary, "auth", "status", "--json"));
+    }
+    private static ProcessBuilder command(String binary, String cwd, String distro, List<String> arguments) {
         ProcessBuilder builder;
         if (!distro.isBlank()) {
             String script = "cd -- \"$1\" && shift && exec \"$@\"";

@@ -31,6 +31,7 @@ try {
       chat.requests = [{ key: 'q', rpcId: 'q', method: 'item/tool/requestUserInput', questions: [{ id: '0', question: 'Which sections?', multiSelect: true, options: [{ label: 'Introduction' }, { label: 'Conclusion' }] }] }]; publish();
     };
     window.__finishTurn = () => { chat.working = false; chat.status = 'idle'; publish(); };
+    window.__startTurn = () => { chat.working = true; chat.status = 'working'; publish(); };
     window.__codexSend = raw => {
       const { id, method, params } = JSON.parse(raw); window.__requests.push({ method, params });
       const reply = result => queueMicrotask(() => window.dispatchEvent(new CustomEvent('codex-reply', { detail: { id, result: structuredClone(result) } })));
@@ -228,7 +229,17 @@ try {
     await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
     await field.fill('/mcp'); await page.getByRole('option', { name: /^MCP/ }).click();
     await page.getByText('My server', { exact: true }).waitFor();
-    await page.getByRole('region', { name: 'MCP servers' }).getByRole('button', { name: 'Close', exact: true }).click();
+    const mcp = page.getByRole('region', { name: 'MCP servers' });
+    const reloadConnectors = mcp.getByRole('button', { name: 'Reload connectors', exact: true });
+    await reloadConnectors.click();
+    await page.waitForFunction(() => window.__requests.some(call => call.method === 'mcpStatus' && call.params.refresh === true));
+    const waitForReloadState = disabled => page.waitForFunction(expected => [...document.querySelectorAll('button')].find(button => button.textContent === 'Reload connectors')?.disabled === expected, disabled);
+    await waitForReloadState(false);
+    await page.evaluate(() => window.__startTurn());
+    await waitForReloadState(true);
+    await page.evaluate(() => window.__finishTurn());
+    await waitForReloadState(false);
+    await mcp.getByRole('button', { name: 'Close', exact: true }).click();
     await field.fill('/explain'); await page.getByRole('option', { name: /^Explain/ }).click();
     await page.waitForFunction(() => window.__requests.some(call => call.method === 'send' && call.params.text === '/explain' && call.params.effort === 'high' && call.params.fast && call.params.permissions === 'auto'));
     await page.evaluate(() => { window.__finishTurn(); window.__question(); });

@@ -780,7 +780,7 @@ public final class CodexService implements Disposable {
             return switch (method) {
                 case "status" -> claude.status(chat);
                 case "skills" -> claude.skills(chat);
-                case "mcp" -> claude.mcp(chat);
+                case "mcp" -> claude.mcp(chat, flag(payload, "refresh"));
                 case "steerQueued" -> claude.steerQueued(chat, text(payload, "id"));
                 case "cancelQueued" -> { claude.cancelQueued(chat, text(payload, "id")); yield new JsonObject(); }
                 case "resumeQueued" -> { claude.resumeQueued(chat); yield new JsonObject(); }

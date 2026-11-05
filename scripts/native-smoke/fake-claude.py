@@ -12,6 +12,15 @@ import time
 import uuid
 
 root = pathlib.Path.cwd()
+account_file = root / "account-state.json"
+account = json.loads(account_file.read_text()) if account_file.exists() else {
+    "loggedIn": True, "authMethod": "claude.ai", "email": "fixture@example.test", "orgId": "fixture-org", "apiProvider": "firstParty"
+}
+if sys.argv[1:] == ["auth", "status", "--json"]:
+    if (root / "unsupported-auth").exists():
+        sys.exit(2)
+    print(json.dumps(account))
+    sys.exit(0 if account.get("loggedIn") else 1)
 lock = threading.Lock()
 active = None
 pending = None
@@ -75,7 +84,7 @@ for line in sys.stdin:
         if subtype == "initialize":
             emit({"type": "system", "subtype": "notification", "session_id": session_id, "text": "Fixture ready"})
             (root / "claude-pid").write_text(str(os.getpid()))
-            response = {"models": [{"value": "default", "supportsEffort": True, "supportedEffortLevels": ["low", "high"], "supportsAutoMode": True, "supportsFastMode": True}], "commands": [{"name": "inspect", "description": "Inspect"}]}
+            response = {"account": {"email": account.get("email", ""), "organization": account.get("orgId", "")}, "models": [{"value": "default", "supportsEffort": True, "supportedEffortLevels": ["low", "high"], "supportsAutoMode": True, "supportsFastMode": True}], "commands": [{"name": "inspect", "description": "Inspect"}]}
         elif subtype == "get_usage":
             if (root / "usage-unavailable").exists():
                 emit({"type": "control_response", "response": {"subtype": "error", "request_id": frame["request_id"], "error": "Unsupported control request: get_usage"}})
@@ -84,7 +93,7 @@ for line in sys.stdin:
         elif subtype == "get_context_usage":
             response = {"totalTokens": 512, "maxTokens": 200000, "categories": []}
         elif subtype == "mcp_status":
-            response = {"mcpServers": [{"name": "fixture", "status": "connected", "tools": [{"name": "read"}]}]}
+            response = {"mcpServers": [{"name": account.get("serverName", "fixture"), "status": "connected", "tools": [{"name": "read"}]}]}
         elif subtype == "interrupt":
             finish(active)
         emit({"type": "control_response", "response": {"subtype": "success", "request_id": frame["request_id"], "response": response}})

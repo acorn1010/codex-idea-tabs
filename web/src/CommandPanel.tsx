@@ -17,11 +17,11 @@ export function CommandPanel({ action, working, claude = false, options, onClose
   const [data, setData] = useState<Json>();
   const [receipt, setReceipt] = useState('');
   const isClaudeGoal = action === 'goal' && claude;
-  const load = async () => {
+  const load = async (refresh = false) => {
     if ((action !== 'goal' && action !== 'mcp') || isClaudeGoal) { return; }
     setBusy(true); setError('');
     try {
-      const value = await request(action === 'goal' ? 'getGoal' : 'mcpStatus');
+      const value = await request(action === 'goal' ? 'getGoal' : 'mcpStatus', claude && action === 'mcp' ? { refresh } : {});
       setData(value);
       if (action === 'goal' && value.goal && !edited.current) { const goal = value.goal as Json; setText(String(goal.objective || '')); setBudget(goal.tokenBudget ? String(goal.tokenBudget) : ''); }
     } catch (error) { setError((error as Error).message); }
@@ -42,7 +42,7 @@ export function CommandPanel({ action, working, claude = false, options, onClose
   return <section aria-label={title} className="max-h-[45vh] overflow-y-auto rounded-xl bg-raised p-3 text-xs">
     <header className="mb-2 flex items-center gap-2"><span className="flex-1 font-medium">{title}</span><button type="button" className="rounded px-1 text-muted hover:bg-line hover:text-ink active:bg-input" onClick={onClose}>Close</button></header>
     {error && <p role="alert" className="mb-2 text-attention">{error}{((action === 'goal' && !claude) || action === 'mcp') && <button className="ml-2 rounded px-1 underline hover:bg-attention/10 active:bg-attention/20" onClick={() => void load()}>Retry</button>}</p>}
-    {action === 'mcp' ? <>{busy && <p role="status" className="text-muted">Loading servers…</p>}{servers.map(server => <div key={server.name} className="flex items-center gap-2 py-1.5"><span className="min-w-0 flex-1 truncate">{server.name}</span><span className="text-[10px] text-muted">{Object.keys(server.tools || {}).length} tools · {({ notLoggedIn: 'Not signed in', oAuth: 'Signed in', bearerToken: 'Token configured', unsupported: 'No sign-in support' })[server.authStatus || ''] || server.authStatus || 'Status unavailable'}</span></div>)}{data && !servers.length && <p className="text-muted">No MCP servers were reported.</p>}<button disabled={busy} className="mt-2 rounded px-2 py-1 text-muted hover:bg-line active:bg-input" onClick={() => void load()}>Refresh</button></> : receipt ? <p role="status" className="select-text break-all text-muted">Feedback sent · {receipt}</p> : <form className="space-y-2" onSubmit={(event) => {
+    {action === 'mcp' ? <>{busy && <p role="status" className="text-muted">Loading servers…</p>}{servers.map(server => <div key={server.name} className="flex items-center gap-2 py-1.5"><span className="min-w-0 flex-1 truncate">{server.name}</span><span className="text-[10px] text-muted">{Object.keys(server.tools || {}).length} tools · {({ notLoggedIn: 'Not signed in', oAuth: 'Signed in', bearerToken: 'Token configured', unsupported: 'No sign-in support' })[server.authStatus || ''] || server.authStatus || 'Status unavailable'}</span></div>)}{data && !servers.length && <p className="text-muted">No MCP servers were reported.</p>}<button disabled={busy || claude && working} title={claude && working ? "Wait for Claude’s active work to finish before reloading connectors" : undefined} className="mt-2 rounded px-2 py-1 text-muted hover:bg-line active:bg-input" onClick={() => void load(true)}>{claude ? 'Reload connectors' : 'Refresh'}</button></> : receipt ? <p role="status" className="select-text break-all text-muted">Feedback sent · {receipt}</p> : <form className="space-y-2" onSubmit={(event) => {
       event.preventDefault();
       if (busy) { return; }
       if (action === 'review') { void perform('review', { ...options, target: target === 'baseBranch' ? { type: target, branch: text.trim() } : { type: target } }); }

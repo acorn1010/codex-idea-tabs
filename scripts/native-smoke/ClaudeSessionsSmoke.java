@@ -137,10 +137,67 @@ public final class ClaudeSessionsSmoke {
             checkSessionApprovals(sessions, settings, root);
             checkSessionApprovalLifetime(sessions, root);
             checkBackgroundActivity(sessions, root);
+            checkAccountRefresh(settings, root.resolve("account-refresh"));
             System.out.println("Claude session checks passed: unsent handoff reopen and recovery, handoff, repeated switching, context, Opus model,  queue order, settings, stop, reconnect, permissions, questions, context, MCP, commands, native goal replies.");
         } finally {
             try (var paths = Files.walk(root)) { for (var path : paths.sorted(Comparator.reverseOrder()).toList()) { Files.deleteIfExists(path); } }
         }
+    }
+    private static void checkAccountRefresh(CodexSettings.State settings, Path root) throws Exception {
+        Files.createDirectories(root);
+        var account = object("loggedIn", true, "authMethod", "claude.ai", "email", "first@example.test", "orgId", "first-org", "apiProvider", "firstParty", "serverName", "First Slack");
+        var accountFile = root.resolve("account-state.json"); Files.writeString(accountFile, GSON.toJson(account));
+        var chat = new Conversation(UUID.randomUUID().toString(), root.toString()); chat.set("provider", "claude");
+        try (var sessions = new ClaudeSessions(() -> settings, () -> "", () -> new SharedGuidance.Source("", "", "", ""), ignored -> {})) {
+            sessions.load(chat); sessions.send(chat, options(), input("Before switch")); await(() -> !chat.busy());
+            String thread = chat.get("threadId");
+            chat.set("draft", "Keep this draft"); chat.set("model", "opus"); chat.approvals.select("session");
+            int starts = Files.readAllLines(root.resolve("starts.jsonl")).size(), messages = countUsers(root);
+            account.addProperty("orgId", "second-org"); account.addProperty("serverName", "Second Slack");
+            Files.writeString(accountFile, GSON.toJson(account));
+            check(text(array(sessions.mcp(chat), "data").get(0).getAsJsonObject(), "name").equals("Second Slack"), "Organization switches reload account-scoped connectors");
+            check(Files.readAllLines(root.resolve("starts.jsonl")).size() == starts + 1, "One restart refreshes connector discovery");
+            check(chat.get("threadId").equals(thread) && Files.readAllLines(root.resolve("starts.jsonl")).getLast().contains("--resume=" + thread), "Account refresh resumes the original session");
+            check(chat.get("draft").equals("Keep this draft") && chat.get("model").equals("opus") && countUsers(root) == messages, "Account refresh preserves settings and drafts without replaying a prompt");
+            check(chat.approvals.mode("auto").equals("ask"), "Account refresh resets transient session approvals");
+            sessions.mcp(chat);
+            check(Files.readAllLines(root.resolve("starts.jsonl")).size() == starts + 1, "An unchanged login does not restart the chat");
+            account.addProperty("serverName", "New connector"); Files.writeString(accountFile, GSON.toJson(account));
+            check(text(array(sessions.mcp(chat), "data").get(0).getAsJsonObject(), "name").equals("Second Slack"), "A status read does not restart an unchanged account");
+            check(text(array(sessions.mcp(chat, true), "data").get(0).getAsJsonObject(), "name").equals("New connector"), "Explicit reload discovers newly added connectors on the same account");
+            Files.createFile(root.resolve("unsupported-auth"));
+            sessions.send(chat, options(), input("Older CLI compatibility")); await(() -> !chat.busy());
+            Files.delete(root.resolve("unsupported-auth"));
+            check(countUsers(root) == messages + 1, "Unsupported account status keeps existing chats usable");
+            account.addProperty("loggedIn", false); Files.writeString(accountFile, GSON.toJson(account));
+            try { sessions.send(chat, options(), input("Signed out")); throw new AssertionError("Sent after sign-out"); }
+            catch (IllegalStateException expected) { check(expected.getMessage().contains("signed out"), "Sign-out has actionable guidance"); }
+            check(countUsers(root) == messages + 1, "Signed-out sends do not reach the old process");
+            account.addProperty("loggedIn", true); account.addProperty("email", "second@example.test"); Files.writeString(accountFile, GSON.toJson(account));
+            sessions.send(chat, options(), input("hold active")); await(chat::busy);
+            sessions.send(chat, options(), input("After account switch"));
+            starts = Files.readAllLines(root.resolve("starts.jsonl")).size(); messages = countUsers(root);
+            account.addProperty("orgId", "third-org"); account.addProperty("serverName", "Third Slack"); Files.writeString(accountFile, GSON.toJson(account));
+            try { sessions.mcp(chat); throw new AssertionError("Replaced a running process"); }
+            catch (IllegalStateException expected) { check(expected.getMessage().contains("active work"), "Account refresh waits for active work"); }
+            check(chat.busy() && Files.readAllLines(root.resolve("starts.jsonl")).size() == starts, "Account changes do not interrupt an active turn");
+            var steering = options(); steering.addProperty("steer", true);
+            try { sessions.send(chat, steering, input("Do not steer the old account")); throw new AssertionError("Steered after account switch"); }
+            catch (IllegalStateException expected) { check(countUsers(root) == messages, "Steering cannot use a stale account"); }
+            Files.writeString(root.resolve("release-turn"), "go");
+            final int expectedMessages = messages + 1;
+            await(() -> !chat.busy() && array(chat.snapshot(), "claudeQueue").isEmpty() && countUsers(root) == expectedMessages);
+            check(text(array(sessions.mcp(chat), "data").get(0).getAsJsonObject(), "name").equals("Third Slack"), "Queued turns refresh the login before sending");
+            check(chat.get("threadId").equals(thread) && chat.get("draft").equals("Keep this draft"), "Queued recovery keeps chat identity and draft");
+            sessions.send(chat, options(), input("background-activity")); await(() -> !chat.busy() && chat.hasBackgroundWork());
+            account.addProperty("orgId", "fourth-org"); Files.writeString(accountFile, GSON.toJson(account));
+            try { sessions.mcp(chat, true); throw new AssertionError("Replaced live background work"); }
+            catch (IllegalStateException expected) { check(chat.hasBackgroundWork(), "Background tasks remain active during deferred refresh"); }
+            Files.writeString(root.resolve("release-background"), "go");
+            await(chat::busy); Files.writeString(root.resolve("release-resumed"), "go"); await(() -> !chat.busy());
+            sessions.mcp(chat);
+        }
+        System.out.println("Claude account refresh: organization and email changes, same-account connector reload, session resume, drafts, queue, active/background work, sign-out, and older CLI compatibility passed.");
     }
     private static void checkBackgroundActivity(ClaudeSessions sessions, Path root) throws Exception {
         var chat = new Conversation(UUID.randomUUID().toString(), root.toString()); chat.set("provider", "claude");
